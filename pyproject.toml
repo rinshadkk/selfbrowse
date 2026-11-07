@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "selfbrowse"
+dynamic = ["version"]
+description = "A lean browser agent: about a fifth of the tokens per step, and it learns the sites it visits."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Selfbrowse contributors" }]
+keywords = ["browser", "agent", "llm", "automation", "playwright", "web-agent"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Internet :: WWW/HTTP :: Browsers",
+  "Typing :: Typed",
+]
+dependencies = [
+  "playwright>=1.45",
+  "anthropic>=0.40",
+  "openai>=1.30",
+]
+
+[project.optional-dependencies]
+stealth = ["patchright>=1.50"]   # drop-in Playwright fork that hides common automation fingerprints
+bench   = ["tiktoken>=0.7"]      # token counting for benchmarks/
+dev     = ["pytest>=8", "tiktoken>=0.7"]
+
+[project.scripts]
+selfbrowse = "selfbrowse.cli:main"
+
+[tool.hatch.version]
+path = "src/selfbrowse/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/selfbrowse"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["browser: needs a real Chromium/Chrome (skipped when none can be launched)"]

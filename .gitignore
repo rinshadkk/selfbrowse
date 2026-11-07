@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Never commit browser state, credentials or learned data from a developer machine
+.env
+.env.*
+!.env.example
+.selfbrowse/
+*.db
+storage.json
+.browser_profile/
