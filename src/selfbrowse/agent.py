@@ -127,7 +127,8 @@ class Agent:
                 acted = acted or changed
                 step = self._step(history, name, args, text, url_before)
                 history.append(step)
-                self._learn(url_before, name, args)
+                if not text.startswith("Error:"):          # failed actions teach nothing
+                    self._learn(url_before, name, args)
                 suffix = ""
                 if changed or name in ("wait", "scroll", "back"):
                     sig = (name, repr(sorted(args.items())), self.browser.url)
@@ -145,7 +146,7 @@ class Agent:
             error = f"stopped after {self.max_steps} steps without finishing"
 
         if self.knowledge:
-            self.knowledge.commit(success)
+            self.knowledge.commit(success, self.task)
         return RunResult(success=success, output=output, steps=len(history), usage=usage, history=history, error=error)
 
     def _state(self) -> str:
@@ -244,6 +245,8 @@ class Agent:
             self.knowledge.record(url_before, {"tool": "press", "key": str(a.get("key", ""))})
         elif name == "type":
             self.knowledge.record(url_before, {"tool": "type"})
+        elif name == "back":
+            self.knowledge.undo_last(self.browser.url)     # the click that left this page was a detour
 
     def _maybe_replay(self, history: list[Step], replayed: set[str]) -> None:
         """Replay a trusted learned flow for the current page, without calling the model."""
@@ -252,7 +255,7 @@ class Agent:
         url = self.browser.url
         if not url.startswith("http") or url in replayed:
             return
-        steps = self.knowledge.get_steps(url)
+        steps = self.knowledge.get_steps(url, self.task)
         replayed.add(url)
         for s in steps:
             before = self.browser.url
