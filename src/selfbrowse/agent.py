@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -11,6 +12,7 @@ from selfbrowse.llm import LLM, LLMError, make_llm
 from selfbrowse.handoff import Handler, HandoffRequest, detect_block, terminal_handler
 from selfbrowse.prompts import HUMAN_RULE, OLD_PAGE, PAGE_SEP, SYSTEM
 from selfbrowse.tools import build_tools
+from selfbrowse.trace import Tracer, TracingLLM
 from selfbrowse.types import RunResult, Step, Usage
 
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
@@ -30,6 +32,14 @@ class Agent:
             stop with a clear error; ``False``: never; or your own ``callable(HandoffRequest) -> bool``
             (return True once the person is done). Needs ``Browser(headless=False)`` / ``--headed``.
         max_handoffs: stop after this many hand-offs in one run.
+        trace: record the run as JSON lines. ``True`` → ``<home>/traces``; or a folder path; or a
+            :class:`selfbrowse.trace.Tracer`. See ``selfbrowse trace show latest``.
+        show_prompts: print every model request (what is actually sent) to stderr.
+        trace_content: ``False`` stores sizes and hashes instead of prompt text.
+        redact_trace: ``callable(str) -> str`` applied to all text written to the trace.
+        on_llm_request: ``callable(system=, messages=, tools=, n=)`` called before every model call.
+        otel: OTLP endpoint (e.g. ``"http://localhost:4318"``) to export spans; needs ``selfbrowse[otel]``.
+        otel_content: also attach task/prompt text to spans (off by default).
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
             real value only when typing, so secrets never enter the model's context.
         home: data folder (default ``~/.selfbrowse``, or ``$SELFBROWSE_HOME``).
@@ -48,13 +58,21 @@ class Agent:
         sensitive: dict[str, str] | None = None,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
+        trace: "bool | str | Path | Tracer" = False,
+        show_prompts: bool = False,
+        trace_content: bool = True,
+        redact_trace: "Callable[[str], str] | None" = None,
+        on_llm_request: "Callable[..., None] | None" = None,
+        otel: "str | None" = None,
+        otel_content: bool = False,
         home: str | Path | None = None,
         on_step: Callable[[Step], None] | None = None,
     ) -> None:
         import os
 
         self.task = task
-        self.llm = make_llm(llm)
+        self._raw_llm = make_llm(llm)
+        self.llm = self._raw_llm
         self._own_browser = browser is None
         self.browser = browser
         self.max_steps = max_steps
@@ -69,6 +87,12 @@ class Agent:
         self._handoffs = 0
         self._stop: str | None = None
         self.tools = build_tools(vision=vision)
+        self._trace_opt, self._show_prompts = trace, show_prompts
+        self._trace_content, self._redact_trace = trace_content, redact_trace
+        self._on_llm_request = on_llm_request
+        self._otel, self._otel_content = otel, otel_content
+        self._traces_dir = home_dir / "traces"
+        self.tracer: Tracer | None = None
 
     # ── public ─────────────────────────────────────────────────────────────────
     def run(self) -> RunResult:
@@ -80,11 +104,54 @@ class Agent:
         self.tools = build_tools(vision=self.vision, human=self._handler is not None)
         self._system_text = SYSTEM + (HUMAN_RULE if self._handler else "")
         self._handoffs, self._stop = 0, None
+        self._setup_trace()
+        self._trace("run_start", task=self.task, model=getattr(self._raw_llm, "model", "?"),
+                    headed=not getattr(self.browser, "headless", True), handoff=self._handler is not None)
+        result: RunResult | None = None
         try:
-            return self._loop()
+            result = self._loop()
+            return result
+        except BaseException as exc:
+            self._trace("run_end", success=False, error=f"{type(exc).__name__}: {exc}"[:300])
+            raise
         finally:
+            if result is not None:
+                u = result.usage
+                self._trace("run_end", success=result.success, steps=result.steps, error=result.error,
+                            tokens_total=u.total_input + u.output_tokens, calls=u.calls)
+            if self.tracer:
+                self.tracer.close()
             if self._own_browser:
                 self.browser.close()
+
+    @property
+    def trace_path(self) -> Path | None:
+        """Where this run's trace was written (after ``run()``), if tracing to a file."""
+        return self.tracer.path if self.tracer else None
+
+    def _setup_trace(self) -> None:
+        opt = self._trace_opt
+        want = bool(opt) or self._show_prompts or self._otel or self._on_llm_request
+        self.llm, self.tracer = self._raw_llm, None
+        if not want:
+            return
+        if isinstance(opt, Tracer):
+            self.tracer = opt
+        else:
+            directory = None
+            if opt:
+                directory = self._traces_dir if opt is True else Path(opt)
+            sinks = []
+            if self._otel:
+                from selfbrowse.otel import OtelSink
+                sinks.append(OtelSink(self._otel, content=self._otel_content))
+            self.tracer = Tracer(directory, content=self._trace_content, redact=self._redact_trace,
+                                 show_prompts=self._show_prompts, sinks=sinks)
+        self.llm = TracingLLM(self._raw_llm, self.tracer, self._on_llm_request)
+
+    def _trace(self, type: str, **data: Any) -> None:
+        if self.tracer:
+            self.tracer.event(type, **data)
 
     # ── internals ──────────────────────────────────────────────────────────────
     def _loop(self) -> RunResult:
@@ -96,7 +163,6 @@ class Agent:
         replayed: set[str] = set()
         success, output, error = False, "", None
         first = True
-
         for _ in range(self.max_steps):
             # Known flow for this page? Run it without asking the model.
             self._maybe_replay(history, replayed)
@@ -143,7 +209,10 @@ class Agent:
                     results.append(self._result(call["id"], "Skipped: one action per turn. Page unchanged; decide again."))
                     continue
                 url_before = self.browser.url
+                self._trace("tool_call", tool=name, args=args)
+                started = time.perf_counter()
                 text, changed = self._execute(name, args)
+                self._trace("tool_result", result=text.split(PAGE_SEP)[0][:500], seconds=round(time.perf_counter() - started, 3))
                 acted = acted or changed
                 step = self._step(history, name, args, text, url_before)
                 history.append(step)
@@ -207,6 +276,7 @@ class Agent:
     def _hand_off(self, kind: str, reason: str) -> str:
         """Pause for a person. Returns a note for the model; sets self._stop if the run cannot go on."""
         url = self.browser.url
+        self._trace("handoff", kind=kind, reason=reason, url=url, resumed=None)
         if self._handler is None:
             if kind == "challenge":
                 self._stop = f"blocked: {reason} at {url}. Re-run with --headed so you can complete it yourself."
@@ -223,6 +293,7 @@ class Agent:
         except Exception as exc:
             resumed = False
             reason = f"{reason} (hand-off failed: {exc})"
+        self._trace("handoff", kind=kind, reason=reason, url=url, resumed=resumed)
         if not resumed:
             self._stop = f"stopped: the person did not continue after: {reason}"
             return "[the person did not continue]"
@@ -359,5 +430,6 @@ class Agent:
                 self.knowledge.record_miss(before)
                 return
             history.append(self._step(history, s["tool"], {k: v for k, v in s.items() if k != "tool"}, text, before, True))
+            self._trace("replay", tool=s["tool"], args={k: v for k, v in s.items() if k != "tool"}, url=before)
             if domain_of(self.browser.url) != domain_of(before):
                 return

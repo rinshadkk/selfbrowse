@@ -21,6 +21,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
     p.add_argument("--vision", action="store_true", help="allow screenshots (more tokens)")
+    g = p.add_argument_group("observability")
+    g.add_argument("--trace", action="store_true", help="record the run to ~/.selfbrowse/traces/")
+    g.add_argument("--show-prompts", action="store_true", help="print every model request to stderr")
+    g.add_argument("--trace-hashes", action="store_true", help="trace sizes/hashes instead of prompt text")
+    g.add_argument("--otel", metavar="URL", help="export spans to an OTLP/HTTP endpoint, e.g. http://localhost:4318")
+    g.add_argument("--otel-content", action="store_true", help="also attach task/prompt text to spans")
+    g.add_argument("--full", action="store_true", help="with 'trace show': include full prompts")
     p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -41,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
             p.error("usage: selfbrowse forget <domain>")
         print("forgot" if SiteKnowledge(home / "sites").forget(args.task[1]) else "nothing stored for that domain")
         return 0
+    if args.task and args.task[0] == "trace":
+        return _trace_command(args.task[1:], home / "traces", args.full, p)
     if not args.task:
         p.error("give a task, e.g. selfbrowse \"open example.com and tell me the heading\"")
 
@@ -56,7 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth)
         agent = Agent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
-                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, home=home, on_step=show)
+                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, home=home,
+                      on_step=show, trace=args.trace, show_prompts=args.show_prompts,
+                      trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         try:
             result = agent.run()
         finally:
@@ -70,8 +81,31 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(result.output if result.success else f"FAILED: {result.error or result.output}")
         u = result.usage
+        if agent.trace_path:
+            print(f"[trace: {agent.trace_path}]", file=sys.stderr)
         print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens]", file=sys.stderr)
     return 0 if result.success else 1
+
+
+def _trace_command(rest: list[str], directory: Path, full: bool, parser: argparse.ArgumentParser) -> int:
+    from selfbrowse import trace as tr
+
+    if not rest or rest[0] not in ("list", "show"):
+        parser.error("usage: selfbrowse trace list | selfbrowse trace show <run-id|latest> [--full]")
+    if rest[0] == "list":
+        rows = tr.summarize_dir(directory)
+        if not rows:
+            print("No traces yet. Run a task with --trace.")
+        for r in rows:
+            ok = {True: "ok  ", False: "FAIL", None: "?   "}[r["success"]]
+            print(f"{r['id']}  {ok} {r['calls']} calls  {r['tokens'] or '?':>7} tokens  {str(r['task'])[:60]}")
+        return 0
+    path = tr.find(directory, rest[1] if len(rest) > 1 else "latest")
+    if not path:
+        print("no such trace", file=sys.stderr)
+        return 1
+    print(tr.render(tr.load(path), full=full))
+    return 0
 
 
 if __name__ == "__main__":

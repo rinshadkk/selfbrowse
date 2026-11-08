@@ -15,7 +15,7 @@ pip install -e '.[dev]'
 playwright install chromium        # or use your installed Chrome with --channel chrome
 ```
 
-Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[bench]'` (token benchmark).
+Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[otel]'` (OpenTelemetry export), `pip install -e '.[bench]'` (token benchmark).
 
 ## Quick start
 
@@ -64,6 +64,8 @@ print(result.usage)        # input/output/cache tokens and number of model calls
 selfbrowse [options] "task"
 selfbrowse sites                 list sites it has learned
 selfbrowse forget <domain>       delete what it learned about a site
+selfbrowse trace list            list recorded runs
+selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prompts)
 ```
 
 | Option | Meaning |
@@ -76,6 +78,10 @@ selfbrowse forget <domain>       delete what it learned about a site
 | `--stealth` | use Patchright to reduce common automation signals |
 | `--vision` | let the model request screenshots (more tokens) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
+| `--trace` | record the run to `~/.selfbrowse/traces/` |
+| `--show-prompts` | print every model request to stderr |
+| `--trace-hashes` | trace sizes and hashes instead of prompt text |
+| `--otel URL` / `--otel-content` | export spans to an OTLP endpoint (needs the `otel` extra) |
 | `--no-learn` | do not read or write site knowledge |
 | `--json` | print the full result as JSON |
 | `-q`, `--quiet` | do not print each step |
@@ -96,6 +102,40 @@ Use `provider:model`:
 | `groq`, `deepseek`, `gemini`, `openrouter`, `together` | `groq:llama-3.3-70b-versatile` |
 
 Any object with a `complete(...)` method works too; see `selfbrowse/llm/base.py`.
+
+## Seeing what is sent to the model
+
+```bash
+selfbrowse --show-prompts "task"     # prints every model request live (stderr)
+selfbrowse --trace "task"            # also saves the run to ~/.selfbrowse/traces/<run-id>.jsonl
+selfbrowse trace list
+selfbrowse trace show latest         # timeline: model calls, tokens, actions
+selfbrowse trace show latest --full  # include the full prompts
+```
+
+A trace is one JSON line per event: `run_start`, `llm_request` (the exact system text, tool names and messages sent, with token estimates per part), `llm_response` (usage, timing, the model's reply), `tool_call`, `tool_result`, `replay`, `handoff`, `run_end`.
+
+- Secrets passed with `sensitive=` never appear: the model only sees `<secret:NAME>`.
+- Prompts include page text, which may hold personal data. `--trace-hashes` (Python: `trace_content=False`) stores sizes and hashes only, and `redact_trace=fn` scrubs every string before it is written. Task text, typed text, tool results, reasons and URLs are covered too.
+- Tracing never breaks a run: a failing sink or unwritable folder is ignored.
+
+From Python:
+
+```python
+agent = Agent("task", trace=True, on_llm_request=lambda system, messages, tools, n: print(n, len(messages)))
+agent.run()
+print(agent.trace_path)
+```
+
+### OpenTelemetry
+
+`pip install -e '.[otel]'`, then point it at any OTLP/HTTP receiver, including one on your own machine (Jaeger, Grafana Tempo, Arize Phoenix on `http://localhost:4318`):
+
+```bash
+selfbrowse --otel http://localhost:4318 "task"
+```
+
+Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_ai.*` attributes, token usage) and per tool call; hand-offs are span events. Spans carry sizes and timings only; add `--otel-content` to attach the task and prompt text. Spans go only where you point them.
 
 ## Passwords and secrets
 
