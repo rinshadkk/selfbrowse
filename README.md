@@ -58,6 +58,8 @@ print(result.usage)        # input/output/cache tokens and number of model calls
 
 `result` has `success`, `output`, `steps`, `usage`, `history` and `error`.
 
+Thirteen runnable examples (local models, secrets, guardrails, hand-off, real Chrome, tracing, learning, and an offline one that needs no key) are in [examples/](examples/README.md).
+
 ## Command line reference
 
 ```
