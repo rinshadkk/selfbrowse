@@ -183,6 +183,26 @@ _FIND_JS = r"""
 """
 
 
+_KEY_ALIASES = {
+    "down": "ArrowDown", "up": "ArrowUp", "left": "ArrowLeft", "right": "ArrowRight",
+    "arrowdown": "ArrowDown", "arrowup": "ArrowUp", "arrowleft": "ArrowLeft", "arrowright": "ArrowRight",
+    "return": "Enter", "enter": "Enter", "esc": "Escape", "escape": "Escape", "tab": "Tab",
+    "space": " ", "spacebar": " ", "backspace": "Backspace", "delete": "Delete", "del": "Delete",
+    "pageup": "PageUp", "pagedown": "PageDown", "page up": "PageUp", "page down": "PageDown",
+    "home": "Home", "end": "End",
+    "ctrl": "Control", "control": "Control", "cmd": "Meta", "command": "Meta", "meta": "Meta",
+    "option": "Alt", "alt": "Alt", "shift": "Shift",
+}
+
+
+def normalize_key(key: str) -> str:
+    """Accept the names models actually use ("Down", "Return", "ctrl+a") and give Playwright its own."""
+    key = (key or "").strip()
+    if len(key) > 1 and "+" in key.strip("+"):
+        return "+".join(normalize_key(part) for part in key.split("+"))
+    return _KEY_ALIASES.get(key.lower(), key)
+
+
 class BrowserError(RuntimeError):
     pass
 
@@ -590,7 +610,7 @@ class Browser:
         return f"typed {len(text)} character(s)"
 
     def press(self, key: str) -> str:
-        self.page.keyboard.press(key)
+        self.page.keyboard.press(normalize_key(key))
         self._settle()
         return f"pressed {key}"
 

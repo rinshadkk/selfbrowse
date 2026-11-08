@@ -77,6 +77,7 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--profile DIR` | keep cookies and logins in this folder between runs |
 | `--stealth` | use Patchright to reduce common automation signals |
 | `--page-text N` | also send up to N characters of on-screen text with every page list (more tokens, fewer `read` calls) |
+| `--max-output-tokens N` | cap on each model reply (default 2048); raise it for reasoning models that think at length |
 | `--vision` | let the model request screenshots (more tokens) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
 | `--trace` | record the run to `~/.selfbrowse/traces/` |

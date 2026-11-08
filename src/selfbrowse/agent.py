@@ -19,6 +19,8 @@ from selfbrowse.types import RunResult, Step, Usage
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
 _NOT_LEARNED = ("Error:", "Blocked", "The person declined")
 _NUDGE = "Reply with exactly one tool call (tools: {tools}). To finish, call done with your answer."
+_CUT_OFF = ("Your reply was cut off before you chose an action. Think in one or two short sentences, "
+            "then call exactly one tool (tools: {tools}).")
 MAX_NUDGES = 3
 MAX_ERROR_STREAK = 6
 
@@ -48,6 +50,8 @@ class Agent:
         on_llm_request: ``callable(system=, messages=, tools=, n=)`` called before every model call.
         otel: OTLP endpoint (e.g. ``"http://localhost:4318"``) to export spans; needs ``selfbrowse[otel]``.
         otel_content: also attach task/prompt text to spans (off by default).
+        max_output_tokens: cap on each model reply. Reasoning models that think at length may need more;
+            a reply that hits the cap is answered with a request to be brief.
         page_text: send up to this many characters of on-screen text with every page list (0 = off).
             Fewer ``read`` calls, more tokens per step.
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
@@ -66,6 +70,7 @@ class Agent:
         learn: bool = True,
         vision: bool = False,
         page_text: int = 0,
+        max_output_tokens: int = 2048,
         sensitive: dict[str, str] | None = None,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
@@ -91,6 +96,7 @@ class Agent:
         self.max_steps = max_steps
         self.vision = vision
         self.page_text = max(0, int(page_text))
+        self.max_output_tokens = max(256, int(max_output_tokens))
         self.sensitive = dict(sensitive or {})
         self.on_step = on_step
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
@@ -185,6 +191,8 @@ class Agent:
         t0 = time.monotonic()
         nudges = 0
         err_streak = 0
+        scroll_log: list[str] = []                           # scroll directions since the last non-scroll action
+        click_log: list[tuple[str, str, str]] = []           # (url, role, label) of recent clicks
         names = [t["name"] for t in self.tools]
 
         if (hit := self.guards.url(self.browser.url)) and self.browser.url not in ("about:blank", ""):
@@ -205,7 +213,7 @@ class Agent:
 
             self._trim_old_pages(messages)
             try:
-                resp = self.llm.complete(system=system, messages=messages, tools=self.tools)
+                resp = self.llm.complete(system=system, messages=messages, tools=self.tools, max_tokens=self.max_output_tokens)
             except LLMError as exc:
                 error = str(exc)
                 break
@@ -229,11 +237,15 @@ class Agent:
                     break
                 nudges += 1
                 if nudges > MAX_NUDGES:
-                    error = "the model never produced a valid action"
+                    error = ("the model's replies kept running past the output limit (raise --max-output-tokens or use a model "
+                             "that does not think at length)" if resp.stop_reason == "max_tokens"
+                             else "the model never produced a valid action")
                     break
-                self._trace("nudge", text=text[:200])
-                messages.append({"role": "user", "content": _NUDGE.format(tools=", ".join(names))})
+                cut = resp.stop_reason == "max_tokens"
+                self._trace("nudge", text=text[:200], cut_off=cut)
+                messages.append({"role": "user", "content": (_CUT_OFF if cut else _NUDGE).format(tools=", ".join(names))})
                 continue
+            nudges = 0                                       # the limit is for consecutive misses
 
             results: list[dict[str, Any]] = []
             finished = False
@@ -250,6 +262,7 @@ class Agent:
                     results.append(self._result(call["id"], "Skipped: one action per turn. Page unchanged; decide again."))
                     continue
                 url_before = self.browser.url
+                clicked = self._click_key(url_before, args) if name == "click" and not bad else None
                 blocked = bad if bad is not None else self._pre_action(name, args)
                 if blocked is not None:
                     text, changed = blocked, False
@@ -268,10 +281,22 @@ class Agent:
                 if not text.startswith(_NOT_LEARNED):      # failed or blocked actions teach nothing
                     self._learn(url_before, name, args)
                 suffix = ""
+                if name == "scroll":
+                    scroll_log.append(str(args.get("direction", "down")))
+                else:
+                    scroll_log.clear()                           # reading or acting ends the circle
+                if clicked and not text.startswith(_NOT_LEARNED):
+                    if clicked in click_log[-6:]:
+                        suffix = (f'\n[You already clicked "{clicked[2][:40]}" on this page a moment ago. If that did not '
+                                  "do what you expected, call read or try a different control.]")
+                    click_log.append(clicked)
                 if changed or name in ("wait", "scroll", "back"):
                     sig = (name, repr(sorted(args.items())), self.browser.url)
                     recent.append(sig)
-                    if name == "scroll" and sum(1 for r in recent[-4:] if r[0] == "scroll") >= 3:
+                    if name == "scroll" and len(scroll_log) >= 4 and all(a != b for a, b in zip(scroll_log[-4:], scroll_log[-3:])):
+                        suffix = ("\n[You are scrolling up and down in circles. Call read to see the text here, or find to jump "
+                                  "to a word, then act.]")
+                    elif name == "scroll" and sum(1 for r in recent[-4:] if r[0] == "scroll") >= 3:
                         suffix = "\n[You have scrolled several times without reading. Call read.]"
                     elif len(recent) >= 3 and len(set(recent[-3:])) == 1:
                         suffix = "\n[You repeated this action 3 times with no progress. Try something different.]"
@@ -297,6 +322,13 @@ class Agent:
         if self.knowledge:
             self.knowledge.commit(success, self.task)
         return RunResult(success=success, output=output, steps=len(history), usage=usage, history=history, error=error)
+
+    def _click_key(self, url: str, args: dict[str, Any]) -> tuple[str, str, str] | None:
+        try:
+            d = self.browser.describe_ref(int(args.get("ref", 0)))
+        except (TypeError, ValueError):
+            return None
+        return (url, d["role"], d["text"]) if d and d["text"] else None
 
     def _state(self) -> str:
         prefix = ""

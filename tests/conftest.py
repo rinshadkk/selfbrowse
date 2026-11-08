@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -20,8 +21,11 @@ class ScriptedLLM:
         self.seen = []
 
     def complete(self, *, system, messages, tools, max_tokens=2048):
-        self.seen.append(messages)
+        self.seen.append(copy.deepcopy(messages))     # a snapshot: the loop keeps mutating the list
         name, args = self.script.pop(0)
+        if name == "__cut__":                          # a reply that hit the output limit
+            return LLMResponse(content=[{"type": "text", "text": args}], stop_reason="max_tokens",
+                               usage=Usage(input_tokens=100, output_tokens=2048, calls=1))
         if name == "__text__":                         # a plain-text reply, no tool call
             return LLMResponse(content=[{"type": "text", "text": args}], stop_reason="end_turn",
                                usage=Usage(input_tokens=100, output_tokens=10, calls=1))

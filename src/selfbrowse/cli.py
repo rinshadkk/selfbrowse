@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
     p.add_argument("--page-text", type=int, default=0, metavar="N",
                    help="also send up to N characters of the text on screen with every page list (more tokens, fewer read calls)")
+    p.add_argument("--max-output-tokens", type=int, default=2048, metavar="N",
+                   help="cap on each model reply (raise for reasoning models that think at length; default 2048)")
     p.add_argument("--vision", action="store_true", help="allow screenshots (more tokens)")
     g = p.add_argument_group("observability")
     g.add_argument("--trace", action="store_true", help="record the run to ~/.selfbrowse/traces/")
@@ -91,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth)
         agent = Agent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
-                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, page_text=args.page_text, home=home,
+                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         try:
