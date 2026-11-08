@@ -1,0 +1,4 @@
+FROM llama3.1:latest
+PARAMETER num_ctx 16384
+PARAMETER temperature 0
+PARAMETER seed 42
