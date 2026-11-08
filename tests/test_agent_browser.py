@@ -65,3 +65,12 @@ def test_replay_after_two_successes(shop_url, tmp_path):
         b.goto(shop_url)
         res = Agent("t", llm=llm, browser=b, home=tmp_path).run()
     assert res.history[0].from_cache and res.usage.calls == 1
+
+
+def test_page_list_survives_a_read(shop_url, tmp_path):
+    """After `read` the model must still have the numbered list (regression: it used to be trimmed)."""
+    llm = ScriptedLLM([("read", {}), ("done", {"success": True, "answer": "ok"})])
+    with Browser() as b:
+        b.goto(shop_url)
+        Agent("t", llm=llm, browser=b, home=tmp_path).run()
+    assert "Add to cart" in repr(llm.seen[1])

@@ -170,8 +170,20 @@ class Agent:
 
     @staticmethod
     def _trim_old_pages(messages: list[dict[str, Any]]) -> None:
-        """Only the newest page list is useful; older ones are dead weight (refs have changed)."""
-        for msg in messages[:-1]:
+        """Keep only the newest page list; older ones are dead weight (refs have changed)."""
+        def has_live_page(msg: dict[str, Any]) -> bool:
+            if msg["role"] != "user":
+                return False
+            if isinstance(msg["content"], str):
+                return PAGE_SEP in msg["content"] and not msg["content"].endswith(OLD_PAGE)
+            return any(
+                part.get("type") == "text" and PAGE_SEP in part["text"] and not part["text"].endswith(OLD_PAGE)
+                for block in msg["content"] if block.get("type") == "tool_result" for part in block["content"]
+            )
+
+        live = [i for i, m in enumerate(messages) if has_live_page(m)]
+        keep = live[-1] if live else len(messages)
+        for msg in messages[:keep]:
             if msg["role"] != "user":
                 continue
             if isinstance(msg["content"], str):
