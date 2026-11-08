@@ -75,6 +75,7 @@ selfbrowse forget <domain>       delete what it learned about a site
 | `--profile DIR` | keep cookies and logins in this folder between runs |
 | `--stealth` | use Patchright to reduce common automation signals |
 | `--vision` | let the model request screenshots (more tokens) |
+| `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
 | `--no-learn` | do not read or write site knowledge |
 | `--json` | print the full result as JSON |
 | `-q`, `--quiet` | do not print each step |
@@ -126,7 +127,40 @@ selfbrowse --headed --channel chrome --profile ~/.selfbrowse/profile --stealth "
 
 3. Browse to the site once yourself in that same profile window, so it has real cookies and history.
 
-Selfbrowse does not solve or defeat CAPTCHAs. A pause-and-let-me-solve-it handoff is planned but **not built yet**. Also check each site's terms of service before automating shopping or scraping at scale.
+Selfbrowse does not solve or defeat CAPTCHAs. Instead it hands the browser to you (next section). Also check each site's terms of service before automating shopping or scraping at scale.
+
+## Handing off to a person
+
+When the agent cannot go further, it pauses and lets you act in the visible browser window, then continues from wherever you leave the page. It happens when:
+
+- **a bot check appears** (CAPTCHA, "verify you are human", "press and hold", Cloudflare "Just a moment"). Detected automatically; the model is not called while the page is blocked.
+- **the model asks**: for a login with no stored secret, a 2FA code, a payment step or a choice only you can make, it calls `ask_human`.
+
+```bash
+selfbrowse --headed --profile ~/.selfbrowse/profile "open target.com and tell me the heading"
+```
+
+When it needs you, the terminal shows a box with the reason and URL and rings the bell. Do the step in the browser window, then press **Enter** in the terminal to continue (type `q` + Enter to give up). Using `--profile` keeps the cookies from a solved check for later runs.
+
+- Without `--headed` there is nobody to hand off to, so the run stops at once with a clear error ("blocked: ... re-run with --headed") instead of wasting model calls.
+- Nothing you type or see is sent to the model; it is only told you finished.
+- It gives up after 3 hand-offs in one run, or if the page is still blocked after you resume.
+- `--no-handoff` turns this off.
+
+From Python, use the built-in terminal prompt or plug in your own (a desktop notification, a Slack message, a web UI):
+
+```python
+from selfbrowse import Agent, Browser
+
+def ask_person(request):                  # request.kind: "challenge" or "model"
+    print(request.reason, request.url)    # notify however you like
+    input("Press Enter when done: ")
+    return True                           # False = give up
+
+Agent("task", browser=Browser(headless=False), handoff=ask_person).run()
+```
+
+`handoff="auto"` (default) uses the terminal prompt when the window is visible; `handoff=False` disables it.
 
 ## How learning works
 

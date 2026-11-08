@@ -8,7 +8,8 @@ from typing import Any, Callable
 from selfbrowse import _about
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
-from selfbrowse.prompts import OLD_PAGE, PAGE_SEP, SYSTEM
+from selfbrowse.handoff import Handler, HandoffRequest, detect_block, terminal_handler
+from selfbrowse.prompts import HUMAN_RULE, OLD_PAGE, PAGE_SEP, SYSTEM
 from selfbrowse.tools import build_tools
 from selfbrowse.types import RunResult, Step, Usage
 
@@ -24,6 +25,11 @@ class Agent:
         max_steps: hard cap on tool calls.
         learn: read and write per-site knowledge (replay known flows, remember facts).
         vision: let the model request screenshots (off by default; costs tokens).
+        handoff: what to do when only a person can continue (CAPTCHA, login, 2FA...).
+            ``"auto"`` (default): ask in the terminal if the browser window is visible, otherwise
+            stop with a clear error; ``False``: never; or your own ``callable(HandoffRequest) -> bool``
+            (return True once the person is done). Needs ``Browser(headless=False)`` / ``--headed``.
+        max_handoffs: stop after this many hand-offs in one run.
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
             real value only when typing, so secrets never enter the model's context.
         home: data folder (default ``~/.selfbrowse``, or ``$SELFBROWSE_HOME``).
@@ -40,6 +46,8 @@ class Agent:
         learn: bool = True,
         vision: bool = False,
         sensitive: dict[str, str] | None = None,
+        handoff: "str | bool | Handler" = "auto",
+        max_handoffs: int = 3,
         home: str | Path | None = None,
         on_step: Callable[[Step], None] | None = None,
     ) -> None:
@@ -55,6 +63,11 @@ class Agent:
         self.on_step = on_step
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
         self.knowledge = SiteKnowledge(home_dir / "sites") if learn else None
+        self._handoff_opt = handoff
+        self.max_handoffs = max_handoffs
+        self._handler: Handler | None = None
+        self._handoffs = 0
+        self._stop: str | None = None
         self.tools = build_tools(vision=vision)
 
     # ── public ─────────────────────────────────────────────────────────────────
@@ -63,6 +76,10 @@ class Agent:
             from selfbrowse.browser import Browser
             self.browser = Browser()
         self.browser.start()
+        self._handler = self._resolve_handler()
+        self.tools = build_tools(vision=self.vision, human=self._handler is not None)
+        self._system_text = SYSTEM + (HUMAN_RULE if self._handler else "")
+        self._handoffs, self._stop = 0, None
         try:
             return self._loop()
         finally:
@@ -74,7 +91,7 @@ class Agent:
         usage = Usage()
         history: list[Step] = []
         messages: list[dict[str, Any]] = [{"role": "user", "content": f"Task: {self.task}"}]
-        system = [{"text": SYSTEM, "cache": True}]
+        system = [{"text": self._system_text, "cache": True}]
         recent: list[tuple[str, str, str]] = []
         replayed: set[str] = set()
         success, output, error = False, "", None
@@ -88,6 +105,9 @@ class Agent:
                 state = self._state()
                 messages[0]["content"] = f"Task: {self.task}{PAGE_SEP}{state}"
                 first = False
+                if self._stop:
+                    error = self._stop
+                    break
 
             self._trim_old_pages(messages)
             try:
@@ -142,6 +162,9 @@ class Agent:
             if finished:
                 break
             messages.append({"role": "user", "content": results})
+            if self._stop:
+                error = self._stop
+                break
         else:
             error = f"stopped after {self.max_steps} steps without finishing"
 
@@ -150,12 +173,60 @@ class Agent:
         return RunResult(success=success, output=output, steps=len(history), usage=usage, history=history, error=error)
 
     def _state(self) -> str:
-        snap = self.browser.snapshot().text
+        prefix = ""
+        snap = self.browser.snapshot()
+        reason = self._detect_block(snap)
+        while reason and not self._stop:                  # re-check: the person may not have got past it
+            prefix = self._hand_off("challenge", reason) + "\n"
+            snap = self.browser.snapshot()
+            reason = self._detect_block(snap)
+        text = snap.text
         if self.knowledge:
             memo = self.knowledge.get_memo(self.browser.url)
             if memo:
-                snap += "\n[Notes for this site: " + "; ".join(memo) + "]"
-        return snap
+                text += "\n[Notes for this site: " + "; ".join(memo) + "]"
+        return prefix + text
+
+    def _detect_block(self, snap: Any) -> str | None:
+        if self._stop:
+            return None
+        try:
+            page_text = self.browser.visible_text(1500)
+        except Exception:
+            page_text = ""
+        return detect_block(snap.title, page_text, len(snap.elements))
+
+    def _resolve_handler(self) -> Handler | None:
+        opt = self._handoff_opt
+        if callable(opt):
+            return opt
+        if opt is False:
+            return None
+        return terminal_handler if not getattr(self.browser, "headless", True) else None
+
+    def _hand_off(self, kind: str, reason: str) -> str:
+        """Pause for a person. Returns a note for the model; sets self._stop if the run cannot go on."""
+        url = self.browser.url
+        if self._handler is None:
+            if kind == "challenge":
+                self._stop = f"blocked: {reason} at {url}. Re-run with --headed so you can complete it yourself."
+            else:
+                self._stop = f"needs a person ({reason}) at {url}, but hand-off is unavailable. Re-run with --headed."
+            return "[blocked: a person is needed but hand-off is unavailable]"
+        if self._handoffs >= self.max_handoffs:
+            self._stop = f"stopped after {self.max_handoffs} hand-offs without getting past: {reason}"
+            return "[too many hand-offs]"
+        self._handoffs += 1
+        self.browser.bring_to_front()
+        try:
+            resumed = bool(self._handler(HandoffRequest(kind, reason, url)))
+        except Exception as exc:
+            resumed = False
+            reason = f"{reason} (hand-off failed: {exc})"
+        if not resumed:
+            self._stop = f"stopped: the person did not continue after: {reason}"
+            return "[the person did not continue]"
+        return "[The person handled it. Continue from the page below.]"
 
     def _step(self, history: list[Step], tool: str, args: dict, result: str, url: str = "", cached: bool = False) -> Step:
         shown = {k: ("<hidden>" if k == "text" and _SECRET_RE.search(str(v)) else v) for k, v in args.items()}
@@ -235,6 +306,9 @@ class Agent:
                 return b.wait(float(a.get("seconds", 2))), True
             if name == "read":
                 return "Visible text:\n" + b.visible_text(), False
+            if name == "ask_human":
+                note = self._hand_off("model", str(a.get("reason", "the agent needs your help")))
+                return note, True
             if name == "remember":
                 if self.knowledge:
                     self.knowledge.remember(b.url, str(a.get("fact", "")))

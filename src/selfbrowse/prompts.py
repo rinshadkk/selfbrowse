@@ -15,3 +15,6 @@ Rules:
 
 PAGE_SEP = "\n--- page ---\n"
 OLD_PAGE = "[older page state omitted]"
+
+HUMAN_RULE = """
+- If you are blocked by something only a person can do (a CAPTCHA or bot check, a login you have no secret for, a 2FA code, a payment step, a choice only they can make), call ask_human with a short reason. Never try to solve a CAPTCHA or guess credentials. After they finish, continue from the new page."""

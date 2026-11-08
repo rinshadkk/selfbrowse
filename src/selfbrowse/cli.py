@@ -21,6 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
     p.add_argument("--vision", action="store_true", help="allow screenshots (more tokens)")
+    p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
     p.add_argument("-q", "--quiet", action="store_true", help="do not print each step")
@@ -55,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth)
         agent = Agent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
-                      learn=not args.no_learn, vision=args.vision, home=home, on_step=show)
+                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, home=home, on_step=show)
         try:
             result = agent.run()
         finally:

@@ -12,7 +12,7 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
     }
 
 
-def build_tools(*, vision: bool = False) -> list[dict[str, Any]]:
+def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, Any]]:
     tools = [
         _tool("goto", "Open a URL.", {"url": {"type": "string"}}, ["url"]),
         _tool("click", "Click element #ref from the latest page list.", {"ref": {"type": "integer"}}, ["ref"]),
@@ -38,4 +38,6 @@ def build_tools(*, vision: bool = False) -> list[dict[str, Any]]:
     ]
     if vision:
         tools.insert(-2, _tool("screenshot", "See the page as an image (costly; use only when the list is not enough)."))
+    if human:
+        tools.insert(-1, _tool("ask_human", "Hand the browser to the person for something only they can do (CAPTCHA, login, 2FA, payment). Give a short reason.", {"reason": {"type": "string"}}, ["reason"]))
     return tools

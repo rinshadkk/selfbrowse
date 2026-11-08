@@ -376,6 +376,12 @@ class Browser:
         self.page.wait_for_timeout(int(seconds * 1000))
         return f"waited {seconds:g}s"
 
+    def bring_to_front(self) -> None:
+        try:
+            self.page.bring_to_front()
+        except Exception:
+            pass
+
     def screenshot(self) -> str:
         """Base64 JPEG of the viewport."""
         raw = self.page.screenshot(type="jpeg", quality=self.screenshot_quality)
