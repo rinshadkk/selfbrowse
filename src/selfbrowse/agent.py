@@ -132,7 +132,9 @@ class Agent:
                 if changed or name in ("wait", "scroll", "back"):
                     sig = (name, repr(sorted(args.items())), self.browser.url)
                     recent.append(sig)
-                    if len(recent) >= 3 and len(set(recent[-3:])) == 1:
+                    if name == "scroll" and sum(1 for r in recent[-4:] if r[0] == "scroll") >= 3:
+                        suffix = "\n[You have scrolled several times without reading. Call read.]"
+                    elif len(recent) >= 3 and len(set(recent[-3:])) == 1:
                         suffix = "\n[You repeated this action 3 times with no progress. Try something different.]"
                     text = f"{text}{suffix}{PAGE_SEP}{self._state()}"
                 results.append(self._result(call["id"], text))
@@ -213,7 +215,7 @@ class Agent:
             if name == "press":
                 return b.press(str(a["key"])), True
             if name == "scroll":
-                return b.scroll(str(a.get("direction", "down"))), True
+                return b.scroll(str(a.get("direction", "down"))) + " (call read to see the text now on screen)", True
             if name == "back":
                 return b.back(), True
             if name == "wait":

@@ -248,7 +248,8 @@ class Browser:
     def snapshot(self) -> Snapshot:
         """Numbered list of what is clickable or typeable in the current viewport."""
         page = self.page
-        data = page.evaluate(_SNAPSHOT_JS, self.max_elements)
+        data = self._eval(_SNAPSHOT_JS, self.max_elements)
+        page = self.page
         items = data["items"]
         self._elements = []
         lines = [f'[{self.title[:80]!r} | {page.url}]',
@@ -280,7 +281,25 @@ class Browser:
 
     def visible_text(self, max_chars: int = 3000) -> str:
         """The text currently on screen (not just the clickable parts)."""
-        return self.page.evaluate(_VISIBLE_TEXT_JS, max_chars)
+        return self._eval(_VISIBLE_TEXT_JS, max_chars)
+
+    def _eval(self, script: str, arg: Any) -> Any:
+        """page.evaluate that survives the page navigating underneath it."""
+        last: Exception | None = None
+        for _ in range(4):
+            try:
+                return self.page.evaluate(script, arg)
+            except Exception as exc:
+                msg = str(exc)
+                if "context was destroyed" not in msg and "Target closed" not in msg and "navigating" not in msg:
+                    raise
+                last = exc
+                try:
+                    self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+                except Exception:
+                    pass
+                self.page.wait_for_timeout(500)
+        raise BrowserError(f"page kept navigating: {last}")
 
     def describe_ref(self, ref: int) -> dict[str, str] | None:
         el = self._el(ref)
