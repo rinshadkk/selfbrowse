@@ -1,0 +1,12 @@
+<!doctype html><title>Frames</title>
+<body style="font-family:sans-serif">
+<h1>Page with frames</h1>
+<button>Outer button</button>
+<p>Same-origin frame:</p>
+<iframe id="same" src="inner.html" style="width:420px;height:170px;border:2px solid #888"></iframe>
+<p>Cross-origin frame:</p>
+<iframe id="cross" style="width:420px;height:170px;border:2px solid #888"></iframe>
+<script>
+document.getElementById('cross').src = location.href.replace('127.0.0.1', 'localhost').replace('frames.html', 'inner.html');
+</script>
+</body>

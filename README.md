@@ -76,6 +76,7 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--channel chrome\|msedge` | use an installed browser instead of bundled Chromium |
 | `--profile DIR` | keep cookies and logins in this folder between runs |
 | `--stealth` | use Patchright to reduce common automation signals |
+| `--page-text N` | also send up to N characters of on-screen text with every page list (more tokens, fewer `read` calls) |
 | `--vision` | let the model request screenshots (more tokens) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
 | `--trace` | record the run to `~/.selfbrowse/traces/` |
@@ -93,6 +94,16 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--version` | print the version |
 
 Environment variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `TOGETHER_API_KEY`, `SELFBROWSE_MODEL`, `SELFBROWSE_HOME` (data folder, default `~/.selfbrowse`).
+
+## What the agent can do
+
+`goto`, `click`, `type`, `select` (native dropdowns), `press`, `scroll`, `back`, `wait`, `read` (text on screen), `find` (jump to a word on a long page), `switch_tab`, `close_tab`, `remember`, `ask_human` and `done`.
+
+- **Dropdowns:** a native `<select>` is listed with its current value and options, and `select` picks one by its text or value.
+- **Frames and web components:** controls inside iframes (same-origin and cross-origin) and open shadow roots appear in the same numbered list and are clicked the same way.
+- **Tabs:** when a link or popup opens a new tab the agent follows it, and the page list starts with `[tabs: 1 "Shop" · 2 "Details" (current)]` so the model knows. Not supported yet: closed shadow roots, drag and drop, file uploads, custom (non-`<select>`) dropdowns beyond clicking them. See [ROADMAP.md](ROADMAP.md).
+
+Each tool schema is sent on every model call, so tools are kept few and short (about 790 tokens for all of them on a typical step).
 
 ## Models
 

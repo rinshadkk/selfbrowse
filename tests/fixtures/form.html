@@ -1,0 +1,14 @@
+<!doctype html><title>Form</title>
+<body style="font-family:sans-serif">
+<h1>Order form</h1>
+<label for="country">Country</label>
+<select id="country"><option value="">Select a country</option><option value="ca">Canada</option><option value="fr">France</option><option value="de">Germany</option><option value="fr2">French Guiana</option></select>
+<label for="size">Size</label>
+<select id="size" name="size"><option>Small</option><option>Medium</option><option>Large</option></select>
+<div id="out">nothing chosen</div>
+<script>
+const out = document.getElementById('out');
+const show = () => out.textContent = 'country=' + country.value + ' size=' + size.value;
+country.addEventListener('change', show); size.addEventListener('change', show);
+</script>
+</body>

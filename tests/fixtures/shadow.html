@@ -1,0 +1,19 @@
+<!doctype html><title>Shadow</title>
+<body style="font-family:sans-serif">
+<h1>Web components</h1>
+<fancy-login></fancy-login>
+<div id="result">idle</div>
+<script>
+class FancyLogin extends HTMLElement {
+  constructor() {
+    super();
+    const root = this.attachShadow({mode: 'open'});
+    root.innerHTML = '<p>Shadow secret phrase: tangerine</p><input placeholder="Shadow email"><button>Shadow submit</button>';
+    root.querySelector('button').addEventListener('click', () => {
+      document.getElementById('result').textContent = 'submitted ' + root.querySelector('input').value;
+    });
+  }
+}
+customElements.define('fancy-login', FancyLogin);
+</script>
+</body>

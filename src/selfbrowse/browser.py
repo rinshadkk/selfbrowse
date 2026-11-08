@@ -14,10 +14,22 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-# ── the in-page script that builds the snapshot ─────────────────────────────────────
+# ── the in-page scripts ─────────────────────────────────────────────────────────────
+# Shared helper, prepended to every script below: collect elements through open shadow roots
+# and find what is really on top at a point (also through shadow roots).
+_JS_HELPERS = r"""
+const deepFromPoint = (x, y) => {
+  let t = document.elementFromPoint(x, y);
+  for (let i = 0; i < 8 && t && t.shadowRoot; i++) {
+    const inner = t.shadowRoot.elementFromPoint(x, y);
+    if (!inner || inner === t) break;
+    t = inner;
+  }
+  return t;
+};
+"""
 
-_SNAPSHOT_JS = r"""
-(maxEls) => {
+_SNAPSHOT_JS = "(maxEls) => {" + _JS_HELPERS + r"""
   const SEL = [
     'a[href]', 'button', 'input:not([type="hidden"])', 'textarea', 'select', 'summary',
     '[role="button"]', '[role="link"]', '[role="textbox"]', '[role="checkbox"]', '[role="radio"]',
@@ -25,9 +37,13 @@ _SNAPSHOT_JS = r"""
     '[role="slider"]', '[contenteditable=""]', '[contenteditable="true"]', 'h1', 'h2', 'h3',
   ];
   const seen = new Set(), els = [];
-  for (const sel of SEL) for (const el of document.querySelectorAll(sel)) {
-    if (!seen.has(el)) { seen.add(el); els.push(el); }
-  }
+  const collect = (root) => {
+    for (const sel of SEL) for (const el of root.querySelectorAll(sel)) {
+      if (!seen.has(el)) { seen.add(el); els.push(el); }
+    }
+    for (const host of root.querySelectorAll('*')) if (host.shadowRoot) collect(host.shadowRoot);
+  };
+  collect(document);
   const vh = window.innerHeight, vw = window.innerWidth;
   const items = [];
   for (const el of els) {
@@ -38,7 +54,7 @@ _SNAPSHOT_JS = r"""
     if (st.visibility === 'hidden' || st.display === 'none' || st.opacity === '0') continue;
     const cx = Math.round(Math.min(Math.max(r.left + r.width / 2, 0), vw - 1));
     const cy = Math.round(Math.min(Math.max(r.top + r.height / 2, 0), vh - 1));
-    const top = document.elementFromPoint(cx, cy);            // skip anything covered by a modal/overlay
+    const top = deepFromPoint(cx, cy);                        // skip anything covered by a modal/overlay
     if (top && !(el.contains(top) || top.contains(el))) continue;
 
     const tag = el.tagName.toLowerCase();
@@ -54,10 +70,18 @@ _SNAPSHOT_JS = r"""
         : ['submit', 'button', 'reset', 'image'].includes(type) ? 'button' : 'textbox';
       else role = 'textbox';
     }
+    const isField = tag === 'input' || tag === 'select' || tag === 'textarea';
+    const labelled = isField && el.labels && el.labels[0] ? el.labels[0].innerText : '';
     const text = (el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('placeholder')
-      || el.innerText || el.value || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      || labelled || (tag === 'select' ? el.getAttribute('name') : (el.innerText || el.value)) || el.textContent || '')
+      .replace(/\s+/g, ' ').trim().slice(0, 80);
     let value = '';
-    if ((tag === 'input' || tag === 'textarea') && type !== 'password' && el.value) value = String(el.value).slice(0, 30);
+    let options;
+    if (tag === 'select') {
+      const o = el.selectedOptions && el.selectedOptions[0];
+      value = o ? o.text.replace(/\s+/g, ' ').trim().slice(0, 30) : '';
+      options = Array.from(el.options).map(x => x.text.replace(/\s+/g, ' ').trim().slice(0, 25));
+    } else if ((tag === 'input' || tag === 'textarea') && type !== 'password' && el.value) value = String(el.value).slice(0, 30);
     let href = '';
     if (tag === 'a') {
       try {
@@ -65,7 +89,7 @@ _SNAPSHOT_JS = r"""
         href = (u.origin === location.origin ? u.pathname + u.search : '').slice(0, 50);
       } catch (e) {}
     }
-    items.push({ role, text, type, value, href, cx, cy, y: r.top, x: r.left,
+    items.push({ role, text, type, value, href, cx, cy, y: r.top, x: r.left, options,
                  checked: (type === 'checkbox' || type === 'radio') ? !!el.checked : null,
                  focused: document.activeElement === el });
   }
@@ -74,7 +98,7 @@ _SNAPSHOT_JS = r"""
   const doc = document.documentElement;
   const sh = Math.max(doc.scrollHeight, 1);
   return {
-    items: items.slice(0, maxEls), total,
+    items: items.slice(0, maxEls), total, vw, vh,
     top: Math.round(100 * window.scrollY / sh),
     bottom: Math.min(100, Math.round(100 * (window.scrollY + vh) / sh)),
   };
@@ -84,22 +108,77 @@ _SNAPSHOT_JS = r"""
 _VISIBLE_TEXT_JS = r"""
 (maxChars) => {
   const vh = window.innerHeight, vw = window.innerWidth;
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const out = []; let last = null, len = 0;
-  while (walker.nextNode()) {
-    const n = walker.currentNode, t = n.nodeValue.replace(/\s+/g, ' ').trim();
-    if (!t) continue;
-    const p = n.parentElement;
-    if (!p || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(p.tagName)) continue;
-    const range = document.createRange(); range.selectNodeContents(n);
-    const r = range.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
-    const st = getComputedStyle(p);
-    if (st.visibility === 'hidden' || st.display === 'none') continue;
-    out.push(p === last ? ' ' + t : '\n' + t); last = p; len += t.length + 1;
-    if (len > maxChars) break;
-  }
+  const visit = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      if (len > maxChars) return;
+      const n = walker.currentNode;
+      if (n.nodeType === 1) { if (n.shadowRoot) visit(n.shadowRoot); continue; }
+      const t = n.nodeValue.replace(/\s+/g, ' ').trim();
+      if (!t) continue;
+      const p = n.parentElement || (n.parentNode && n.parentNode.host);
+      if (!p || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(p.tagName)) continue;
+      const range = document.createRange(); range.selectNodeContents(n);
+      const r = range.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
+      const st = getComputedStyle(p);
+      if (st.visibility === 'hidden' || st.display === 'none') continue;
+      out.push(p === last ? ' ' + t : '\n' + t); last = p; len += t.length + 1;
+    }
+  };
+  if (document.body) visit(document.body);
   return out.join('').trim().slice(0, maxChars);
+}
+"""
+
+# Pick an option of the native <select> under (x, y) by its visible text or value.
+_SELECT_JS = "([x, y, want]) => {" + _JS_HELPERS + r"""
+  let el = deepFromPoint(x, y);
+  el = el && (el.tagName === 'SELECT' ? el : el.closest && el.closest('select'));
+  if (!el) return { error: 'no dropdown at that spot' };
+  const norm = s => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
+  const w = norm(want);
+  const opts = Array.from(el.options).filter(o => !o.disabled);
+  let hit = opts.filter(o => norm(o.text) === w || norm(o.value) === w);
+  if (hit.length !== 1) hit = hit.length ? hit : opts.filter(o => w && norm(o.text).includes(w));
+  if (hit.length !== 1) {
+    return { error: hit.length ? 'more than one option matches' : 'no option matches',
+             options: opts.map(o => o.text.replace(/\s+/g, ' ').trim()) };
+  }
+  hit[0].selected = true;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return { chosen: hit[0].text.replace(/\s+/g, ' ').trim() };
+}
+"""
+
+# Find visible text (case-insensitive), through shadow roots. skip < 0 counts only; otherwise it
+# scrolls the match numbered `skip` into view.
+_FIND_JS = r"""
+([needle, skip]) => {
+  const norm = s => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
+  const n = norm(needle);
+  const hits = [];
+  const visit = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.nodeType === 1) { if (node.shadowRoot) visit(node.shadowRoot); continue; }
+      const p = node.parentElement || (node.parentNode && node.parentNode.host);
+      if (!p || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(p.tagName)) continue;
+      if (!norm(node.nodeValue).includes(n)) continue;
+      if (!p.getClientRects().length || getComputedStyle(p).visibility === 'hidden') continue;
+      hits.push(node);
+    }
+  };
+  if (document.body && n) visit(document.body);
+  if (skip < 0 || skip >= hits.length) return { count: hits.length };
+  const node = hits[skip], p = node.parentElement || node.parentNode.host;
+  p.scrollIntoView({ block: 'center', inline: 'nearest' });
+  const t = node.nodeValue.replace(/\s+/g, ' ').trim();
+  const i = Math.max(0, t.toLowerCase().indexOf(n));
+  return { count: hits.length, snippet: t.slice(Math.max(0, i - 50), i + n.length + 70) };
 }
 """
 
@@ -152,6 +231,7 @@ class Browser:
         self.max_elements = max_elements
         self._pw = self._browser = self._context = self._page = None
         self._elements: list[dict[str, Any]] = []
+        self._frames: list[Any] = []                    # frames the latest snapshot read; el["frame"] indexes this
 
     # ── lifecycle ──────────────────────────────────────────────────────────────────
     def start(self) -> "Browser":
@@ -246,14 +326,37 @@ class Browser:
             return ""
 
     def snapshot(self) -> Snapshot:
-        """Numbered list of what is clickable or typeable in the current viewport."""
-        page = self.page
+        """Numbered list of what is clickable or typeable in the current viewport (frames and shadow DOM included)."""
         data = self._eval(_SNAPSHOT_JS, self.max_elements)
         page = self.page
-        items = data["items"]
+        items = [dict(i, frame=0, lx=i["cx"], ly=i["cy"]) for i in data["items"]]
+        total = data["total"]
+        self._frames = [page.main_frame]
+        for frame, ox, oy, box in self._child_frames(data["vw"], data["vh"]):
+            sub = self._eval_in(frame, _SNAPSHOT_JS, self.max_elements)
+            if not sub:
+                continue
+            idx = len(self._frames)
+            self._frames.append(frame)
+            total += sub["total"]
+            for it in sub["items"]:
+                gx, gy = it["cx"] + ox, it["cy"] + oy
+                inside = (box["x"] <= gx <= box["x"] + box["width"] and box["y"] <= gy <= box["y"] + box["height"]
+                          and 0 <= gx < data["vw"] and 0 <= gy < data["vh"])
+                if not inside:
+                    total -= 1
+                    continue
+                items.append(dict(it, frame=idx, lx=it["cx"], ly=it["cy"], cx=round(gx), cy=round(gy),
+                                  x=it["x"] + ox, y=it["y"] + oy))
+        if len(self._frames) > 1:
+            items.sort(key=lambda a: (a["y"] // 10, a["x"]))   # frames' elements slot into reading order
+        items = items[: self.max_elements]
         self._elements = []
-        lines = [f'[{self.title[:80]!r} | {page.url}]',
-                 f'[viewport shows {data["top"]}–{data["bottom"]}% of the page]']
+        lines = [f'[{self.title[:80]!r} | {page.url}]']
+        tabs = self.tab_summary()
+        if tabs:
+            lines.append(tabs)
+        lines.append(f'[viewport shows {data["top"]}–{data["bottom"]}% of the page]')
         for ref, el in enumerate(items, 1):
             el = dict(el, ref=ref)
             self._elements.append(el)
@@ -262,6 +365,10 @@ class Browser:
                 extras.append("focused")
             if el.get("value"):
                 extras.append(f'value="{el["value"]}"')
+            if el.get("options"):
+                opts = el["options"]
+                shown = " | ".join(opts[:12]) + (f" | …+{len(opts) - 12}" if len(opts) > 12 else "")
+                extras.append(f"options: {shown}")
             if el.get("checked") is True:
                 extras.append("checked")
             elif el.get("checked") is False:
@@ -272,16 +379,105 @@ class Browser:
                 extras.append(f'→{el["href"]}')
             label = f'"{el["text"]}"' if el["text"] else "(no label)"
             lines.append(f'#{ref} {el["role"]} {label}' + (f' ({", ".join(extras)})' if extras else ""))
-        hidden = data["total"] - len(items)
+        hidden = total - len(items)
         if hidden > 0:
             lines.append(f"[+{hidden} more elements in view not shown]")
         if not items:
             lines.append("[no interactive elements found — try screenshot, scroll or wait]")
         return Snapshot("\n".join(lines), list(self._elements), page.url, self.title)
 
+    def _child_frames(self, vw: int, vh: int, limit: int = 8) -> list[tuple[Any, float, float, dict[str, float]]]:
+        """Visible iframes as (frame, content-left, content-top, box), positions relative to the main viewport."""
+        found = []
+        for frame in self.page.frames[1:]:
+            if len(found) >= limit:
+                break
+            try:
+                if frame.is_detached():
+                    continue
+                handle = frame.frame_element()
+                box = handle.bounding_box()
+                if not box or box["width"] < 10 or box["height"] < 10:
+                    continue
+                if box["x"] + box["width"] < 0 or box["y"] + box["height"] < 0 or box["x"] > vw or box["y"] > vh:
+                    continue
+                inset = handle.evaluate(
+                    "el => { const cs = getComputedStyle(el);"
+                    " return [el.clientLeft + parseFloat(cs.paddingLeft || 0), el.clientTop + parseFloat(cs.paddingTop || 0)]; }")
+            except Exception:
+                continue
+            found.append((frame, box["x"] + inset[0], box["y"] + inset[1], box))
+        return found
+
+    def _eval_in(self, frame: Any, script: str, arg: Any) -> Any:
+        """evaluate inside one frame; None if the frame is gone or still loading."""
+        try:
+            return frame.evaluate(script, arg)
+        except Exception:
+            return None
+
+    # ── tabs ────────────────────────────────────────────────────────────────────────
+    def _open_pages(self) -> list[Any]:
+        return [p for p in self._context.pages if not p.is_closed()] if self._context else []
+
+    def tab_summary(self) -> str:
+        """One line naming the open tabs, or '' when there is only one."""
+        pages = self._open_pages()
+        if len(pages) < 2:
+            return ""
+        current = self.page
+        parts = []
+        for i, p in enumerate(pages, 1):
+            try:
+                title = p.title()[:30] or p.url[:30]
+            except Exception:
+                title = "(loading)"
+            parts.append(f'{i} "{title}"' + (" (current)" if p is current else ""))
+        return "[tabs: " + " · ".join(parts) + "]"
+
+    def switch_tab(self, index: int) -> str:
+        pages = self._open_pages()
+        if not 1 <= index <= len(pages):
+            raise BrowserError(f"No tab {index}; there are {len(pages)} open tab(s).")
+        self._page = pages[index - 1]
+        self.bring_to_front()
+        self._settle()
+        return f'switched to tab {index} "{self.title[:40]}"'
+
+    def close_tab(self, index: int | None = None) -> str:
+        pages = self._open_pages()
+        if len(pages) < 2:
+            raise BrowserError("That is the only open tab; it cannot be closed.")
+        target = self.page if index is None else (pages[index - 1] if 1 <= index <= len(pages) else None)
+        if target is None:
+            raise BrowserError(f"No tab {index}; there are {len(pages)} open tab(s).")
+        was_current = target is self.page
+        opener = None
+        try:
+            opener = target.opener()
+        except Exception:
+            pass
+        pos = pages.index(target)
+        target.close()
+        if was_current:
+            left = self._open_pages()
+            self._page = opener if opener in left else left[max(0, min(pos - 1, len(left) - 1))]
+            self.bring_to_front()
+            self._settle()
+        return f"closed tab {pos + 1}; now on \"{self.title[:40]}\""
+
     def visible_text(self, max_chars: int = 3000) -> str:
-        """The text currently on screen (not just the clickable parts)."""
-        return self._eval(_VISIBLE_TEXT_JS, max_chars)
+        """The text currently on screen (not just the clickable parts), iframes included."""
+        text = self._eval(_VISIBLE_TEXT_JS, max_chars)
+        if len(self.page.frames) > 1 and len(text) < max_chars:
+            vw, vh = self.viewport
+            for frame, _, _, _ in self._child_frames(vw, vh):
+                extra = self._eval_in(frame, _VISIBLE_TEXT_JS, max_chars - len(text))
+                if extra:
+                    text = (text + "\n" + extra).strip()
+                if len(text) >= max_chars:
+                    break
+        return text[:max_chars]
 
     def _eval(self, script: str, arg: Any) -> Any:
         """page.evaluate that survives the page navigating underneath it."""
@@ -339,6 +535,43 @@ class Browser:
         self.page.mouse.click(x, y)
         self._settle()
         return f"clicked at ({x}, {y})"
+
+    def select_ref(self, ref: int, option: str) -> str:
+        """Choose an option of the native dropdown #ref by its text or value."""
+        el = self._el(ref)
+        if el is None:
+            raise BrowserError(f"No element #{ref} in the latest page list; refs change after every page change.")
+        if not el.get("options"):
+            raise BrowserError(f"#{ref} is not a native dropdown. Click it, then click the option you want.")
+        frame = self._frames[el.get("frame", 0)] if self._frames else self.page.main_frame
+        res = self._eval_in(frame, _SELECT_JS, [el["lx"], el["ly"], option])
+        if not res:
+            raise BrowserError("the page changed before the option could be chosen; read the new list and try again")
+        if res.get("error"):
+            opts = " | ".join(res.get("options", [])[:12])
+            raise BrowserError(f'{res["error"]} for "{option}". Options: {opts}')
+        self._settle()
+        return f'selected "{res["chosen"]}" in #{ref}'
+
+    def find_text(self, text: str, nth: int = 1) -> str:
+        """Scroll the nth on-page match of ``text`` into view and say what is around it."""
+        nth = max(1, int(nth))
+        frames = [self.page.main_frame] + [f for f, *_ in self._child_frames(*self.viewport)]
+        counts = [(f, (self._eval_in(f, _FIND_JS, [text, -1]) or {}).get("count", 0)) for f in frames]
+        total = sum(c for _, c in counts)
+        if total == 0:
+            return f'"{text}" is not on this page (only text that can be seen counts; try other words or scroll).'
+        if nth > total:
+            return f'"{text}" appears {total} time(s); there is no match number {nth}.'
+        skip = nth - 1
+        for frame, count in counts:
+            if skip < count:
+                res = self._eval_in(frame, _FIND_JS, [text, skip]) or {}
+                self.page.wait_for_timeout(250)
+                more = f" Call find again with nth={nth + 1} for the next." if nth < total else ""
+                return f'found "{text}" (match {nth} of {total}) and scrolled to it: "…{res.get("snippet", "")}…"{more}'
+            skip -= count
+        return f'"{text}" could not be scrolled to.'
 
     def hover_ref(self, ref: int) -> str:
         el = self._el(ref)

@@ -48,6 +48,8 @@ class Agent:
         on_llm_request: ``callable(system=, messages=, tools=, n=)`` called before every model call.
         otel: OTLP endpoint (e.g. ``"http://localhost:4318"``) to export spans; needs ``selfbrowse[otel]``.
         otel_content: also attach task/prompt text to spans (off by default).
+        page_text: send up to this many characters of on-screen text with every page list (0 = off).
+            Fewer ``read`` calls, more tokens per step.
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
             real value only when typing, so secrets never enter the model's context.
         home: data folder (default ``~/.selfbrowse``, or ``$SELFBROWSE_HOME``).
@@ -63,6 +65,7 @@ class Agent:
         max_steps: int = 25,
         learn: bool = True,
         vision: bool = False,
+        page_text: int = 0,
         sensitive: dict[str, str] | None = None,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
@@ -87,6 +90,7 @@ class Agent:
         self.browser = browser
         self.max_steps = max_steps
         self.vision = vision
+        self.page_text = max(0, int(page_text))
         self.sensitive = dict(sensitive or {})
         self.on_step = on_step
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
@@ -302,7 +306,12 @@ class Agent:
             prefix = self._hand_off("challenge", reason) + "\n"
             snap = self.browser.snapshot()
             reason = self._detect_block(snap)
-        text = self.guards.page(snap.text, self.browser.url)
+        text = snap.text
+        if self.page_text:                                 # optional: facts on screen without a separate read call
+            on_screen = self.browser.visible_text(self.page_text)
+            if on_screen:
+                text += "\n[text on screen]\n" + on_screen
+        text = self.guards.page(text, self.browser.url)
         if self.knowledge:
             memo = self.knowledge.get_memo(self.browser.url)
             if memo:
@@ -418,7 +427,7 @@ class Agent:
         if name == "goto":
             raw = str(a.get("url", ""))
             act.target_url = raw if "://" in raw or raw.startswith(("about:", "data:", "javascript:")) else "https://" + raw
-        elif name in ("click", "type", "hover"):
+        elif name in ("click", "type", "hover", "select"):
             try:
                 d = self.browser.describe_ref(int(a.get("ref", 0)))
             except (TypeError, ValueError):
@@ -499,6 +508,14 @@ class Agent:
                     b.press("Enter")
                 shown = _SECRET_RE.sub(lambda m: m.group(0), str(a["text"]))
                 return f'typed "{shown[:60]}"' + (" and pressed Enter" if a.get("submit") else ""), True
+            if name == "select":
+                return b.select_ref(int(a["ref"]), str(a["option"])), True
+            if name == "find":
+                return self.guards.page(b.find_text(str(a["text"]), int(a.get("nth", 1))), b.url), True
+            if name == "switch_tab":
+                return b.switch_tab(int(a["index"])), True
+            if name == "close_tab":
+                return b.close_tab(int(a["index"]) if a.get("index") is not None else None), True
             if name == "press":
                 return b.press(str(a["key"])), True
             if name == "scroll":

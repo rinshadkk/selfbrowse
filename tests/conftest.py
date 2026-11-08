@@ -33,8 +33,9 @@ class ScriptedLLM:
 
 
 @pytest.fixture(scope="session")
-def shop_url():
-    """Serve the fixture over http://127.0.0.1 (learned flows only apply to http(s) pages)."""
+def site():
+    """Serve the fixtures over http://127.0.0.1 (learned flows only apply to http(s) pages).
+    ``site("form.html")`` returns the URL of a fixture."""
     import functools
     import threading
     from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -43,5 +44,10 @@ def shop_url():
     handler.log_message = lambda *a, **k: None
     server = HTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_port}/shop.html"
+    yield lambda name: f"http://127.0.0.1:{server.server_port}/{name}"
     server.shutdown()
+
+
+@pytest.fixture(scope="session")
+def shop_url(site):
+    return site("shop.html")

@@ -23,10 +23,16 @@ def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, 
             {"ref": {"type": "integer"}, "text": {"type": "string"}, "submit": {"type": "boolean"}},
             ["ref", "text"],
         ),
+        _tool("select", "Choose an option in a native dropdown (a combobox listing options:). Give the option's text.",
+              {"ref": {"type": "integer"}, "option": {"type": "string"}}, ["ref", "option"]),
         _tool("press", "Press a key, e.g. Enter, Escape, Tab, ArrowDown.", {"key": {"type": "string"}}, ["key"]),
         _tool("scroll", "Scroll the page.", {"direction": {"type": "string", "enum": ["down", "up"]}}),
         _tool("back", "Go back one page."),
         _tool("wait", "Wait for the page to update.", {"seconds": {"type": "number"}}),
+        _tool("find", "Scroll to text on the page and show what is around it. nth=2 jumps to the next match.",
+              {"text": {"type": "string"}, "nth": {"type": "integer"}}, ["text"]),
+        _tool("switch_tab", "Switch to another open tab by its number (see [tabs: ...]).", {"index": {"type": "integer"}}, ["index"]),
+        _tool("close_tab", "Close a tab (default: the current one) and return to the previous one.", {"index": {"type": "integer"}}),
         _tool("read", "Return the text visible on screen (use when the answer is text, not a control)."),
         _tool("remember", "Save one short, reusable fact about this website for future runs.", {"fact": {"type": "string"}}, ["fact"]),
         _tool(
@@ -49,7 +55,8 @@ def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, 
 
 _ALIASES: dict[str, tuple[str, ...]] = {
     "ref": ("id", "idx", "index", "element", "element_id", "ref_id", "number", "target", "node", "selector"),
-    "text": ("txt", "value", "input", "content", "keys", "string"),
+    "text": ("txt", "value", "input", "content", "keys", "string", "query", "search"),
+    "option": ("value", "choice", "label", "text", "item", "selection", "name"),
     "url": ("link", "href", "address", "page", "website"),
     "key": ("keys", "button", "name"),
     "answer": ("result", "output", "response", "final_answer", "text", "message"),
@@ -159,6 +166,6 @@ def looks_like_junk(text: str) -> bool:
     return bool(
         "--- page ---" in text
         or _re.search(r"^\s*#\d+ (link|button|textbox|heading|combobox|checkbox|radio)\b", text, _re.M)
-        or _re.search(r"\b(goto|click|type|press|scroll|back|wait|read|remember|done)\(", text)
+        or _re.search(r"\b(goto|click|type|select|press|scroll|back|wait|read|find|switch_tab|close_tab|remember|done)\(", text)
         or _re.search(r'\{\s*"(name|tool|function)"\s*:', text)
     )
