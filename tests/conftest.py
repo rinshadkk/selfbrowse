@@ -22,6 +22,9 @@ class ScriptedLLM:
     def complete(self, *, system, messages, tools, max_tokens=2048):
         self.seen.append(messages)
         name, args = self.script.pop(0)
+        if name == "__text__":                         # a plain-text reply, no tool call
+            return LLMResponse(content=[{"type": "text", "text": args}], stop_reason="end_turn",
+                               usage=Usage(input_tokens=100, output_tokens=10, calls=1))
         return LLMResponse(
             content=[{"type": "tool_use", "id": f"t{len(self.seen)}", "name": name, "input": args}],
             stop_reason="tool_use",

@@ -12,12 +12,15 @@ from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
 from selfbrowse.handoff import Handler, HandoffRequest, detect_block, terminal_handler
 from selfbrowse.prompts import HUMAN_RULE, OLD_PAGE, PAGE_SEP, SYSTEM
-from selfbrowse.tools import build_tools
+from selfbrowse.tools import build_tools, extract_text_tool_call, looks_like_junk, normalize_args
 from selfbrowse.trace import Tracer, TracingLLM
 from selfbrowse.types import RunResult, Step, Usage
 
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
 _NOT_LEARNED = ("Error:", "Blocked", "The person declined")
+_NUDGE = "Reply with exactly one tool call (tools: {tools}). To finish, call done with your answer."
+MAX_NUDGES = 3
+MAX_ERROR_STREAK = 6
 
 
 class Agent:
@@ -176,6 +179,9 @@ class Agent:
         success, output, error = False, "", None
         first = True
         t0 = time.monotonic()
+        nudges = 0
+        err_streak = 0
+        names = [t["name"] for t in self.tools]
 
         if (hit := self.guards.url(self.browser.url)) and self.browser.url not in ("about:blank", ""):
             self._trace("guardrail", guardrail=hit[0].name, decision="block", reason=hit[1].reason)
@@ -207,22 +213,31 @@ class Agent:
                 self._trace("guardrail", guardrail=hit[0].name, decision="stop", reason=hit[1].reason)
                 error = f"guardrail {hit[0].name}: {hit[1].reason}"
                 break
-            messages.append({"role": "assistant", "content": resp.content or [{"type": "text", "text": "(no output)"}]})
+            content = self._repair(resp.content, len(history))
+            messages.append({"role": "assistant", "content": content or [{"type": "text", "text": "(no output)"}]})
 
-            calls = [b for b in resp.content if b["type"] == "tool_use"]
+            calls = [b for b in content if b["type"] == "tool_use"]
             if not calls:
-                text = " ".join(b.get("text", "") for b in resp.content if b["type"] == "text").strip()
-                success, output = (True, text) if resp.stop_reason == "end_turn" and text else (False, "")
-                if not success:
-                    error = "the model stopped without finishing"
-                break
+                text = " ".join(b.get("text", "") for b in content if b["type"] == "text").strip()
+                # A plain-text reply is only a real answer if the model has acted and is not imitating the transcript.
+                if history and text and resp.stop_reason == "end_turn" and not looks_like_junk(text):
+                    success, output = True, text
+                    break
+                nudges += 1
+                if nudges > MAX_NUDGES:
+                    error = "the model never produced a valid action"
+                    break
+                self._trace("nudge", text=text[:200])
+                messages.append({"role": "user", "content": _NUDGE.format(tools=", ".join(names))})
+                continue
 
             results: list[dict[str, Any]] = []
             finished = False
             acted = False
             for call in calls:
                 name, args = call["name"], call.get("input") or {}
-                if name == "done":
+                args, bad = self._validate(name, args)
+                if name == "done" and not bad:
                     success, output = bool(args.get("success")), str(args.get("answer", ""))
                     history.append(self._step(history, name, args, output))
                     finished = True
@@ -231,7 +246,7 @@ class Agent:
                     results.append(self._result(call["id"], "Skipped: one action per turn. Page unchanged; decide again."))
                     continue
                 url_before = self.browser.url
-                blocked = self._pre_action(name, args)
+                blocked = bad if bad is not None else self._pre_action(name, args)
                 if blocked is not None:
                     text, changed = blocked, False
                     self._trace("tool_call", tool=name, args=args, blocked=True)
@@ -257,6 +272,14 @@ class Agent:
                     elif len(recent) >= 3 and len(set(recent[-3:])) == 1:
                         suffix = "\n[You repeated this action 3 times with no progress. Try something different.]"
                     text = f"{text}{suffix}{PAGE_SEP}{self._state()}"
+                if text.startswith("Error:"):
+                    err_streak += 1
+                    if err_streak == 3:
+                        text += "\n[3 failed actions in a row. Use only refs from the latest page list and the exact argument names.]"
+                    if err_streak >= MAX_ERROR_STREAK:
+                        self._stop = "the model keeps producing invalid or failing actions"
+                else:
+                    err_streak = 0
                 results.append(self._result(call["id"], text))
             if finished:
                 break
@@ -372,6 +395,24 @@ class Agent:
                             part.pop("source", None)
 
     # ── guardrails ─────────────────────────────────────────────────────────────
+    def _validate(self, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        spec = next((t for t in self.tools if t["name"] == name), None)
+        if spec is None:
+            return args, f"Error: unknown tool {name!r}. Tools: {', '.join(t['name'] for t in self.tools)}."
+        return normalize_args(spec, args)
+
+    def _repair(self, content: list[dict[str, Any]], n: int) -> list[dict[str, Any]]:
+        """If the model wrote a tool call as text, turn it into a real one."""
+        if any(b["type"] == "tool_use" for b in content):
+            return content
+        text = " ".join(b.get("text", "") for b in content if b["type"] == "text")
+        found = extract_text_tool_call(text, self.tools)
+        if not found:
+            return content
+        name, args = found
+        self._trace("repair", tool=name, args=args)
+        return [{"type": "tool_use", "id": f"repaired-{n}", "name": name, "input": args}]
+
     def _make_action(self, name: str, a: dict[str, Any]) -> Action:
         act = Action(name, dict(a), self.browser.url)
         if name == "goto":

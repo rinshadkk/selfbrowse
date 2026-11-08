@@ -26,8 +26,16 @@ _OPENAI_COMPATIBLE: dict[str, tuple[str | None, str, bool]] = {
 }
 
 
+# Local runtimes (small models, unreliable native tool calling) default to JSON-schema mode.
+_JSON_MODE_DEFAULT = {"ollama", "lmstudio"}
+
+
 def make_llm(spec: "str | LLM", **kwargs) -> LLM:
-    """Build a model from ``"provider:model"`` (or pass an existing LLM through unchanged)."""
+    """Build a model from ``"provider:model"`` (or pass an existing LLM through unchanged).
+
+    OpenAI-compatible providers accept ``json_mode=True/False`` to force the JSON-schema action mode
+    (default on for ollama and lmstudio) or native tool calling.
+    """
     if not isinstance(spec, str):
         return spec
     provider, sep, model = spec.partition(":")
@@ -44,6 +52,7 @@ def make_llm(spec: "str | LLM", **kwargs) -> LLM:
         kwargs.setdefault("base_url", base_url)
         kwargs.setdefault("api_key_env", key_env)
         kwargs.setdefault("require_key", required)
+        kwargs.setdefault("json_mode", provider in _JSON_MODE_DEFAULT)
         return OpenAICompatLLM(model, **kwargs)
     known = ", ".join(["anthropic", *_OPENAI_COMPATIBLE])
     raise LLMError(f"Unknown provider {provider!r}. Known: {known}.")
