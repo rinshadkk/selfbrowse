@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from selfbrowse.guardrails import RISKY_RE as _RISKY
+
 MAX_FLOW_STEPS = 6
 MAX_MEMO_FACTS = 12
 MAX_FACT_CHARS = 200
@@ -39,11 +41,6 @@ MIN_SAME_TASK_RUNS = 2          # repeat: succeeded this many times for the same
 MAX_TASKS_KEPT = 20
 EXPIRE_SECONDS = 90 * 24 * 3600
 _RECORDABLE = {"click", "press"}
-_RISKY = re.compile(
-    r"\b(buy|purchase|pay|checkout|check out|place order|order now|confirm|delete|remove|cancel|"
-    r"unsubscribe|send|submit|post|publish|sign out|log ?out|subscribe|donate|transfer|withdraw)\b",
-    re.I,
-)
 
 
 def task_key(task: str) -> str:

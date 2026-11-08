@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from selfbrowse import _about
+from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, RunState, SafeUrls
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
 from selfbrowse.handoff import Handler, HandoffRequest, detect_block, terminal_handler
@@ -16,6 +17,7 @@ from selfbrowse.trace import Tracer, TracingLLM
 from selfbrowse.types import RunResult, Step, Usage
 
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
+_NOT_LEARNED = ("Error:", "Blocked", "The person declined")
 
 
 class Agent:
@@ -32,6 +34,9 @@ class Agent:
             stop with a clear error; ``False``: never; or your own ``callable(HandoffRequest) -> bool``
             (return True once the person is done). Needs ``Browser(headless=False)`` / ``--headed``.
         max_handoffs: stop after this many hand-offs in one run.
+        guardrails: list of :mod:`selfbrowse.guardrails` objects (domain limits, confirm-risky,
+            PII redaction, budgets, your own). ``SafeUrls`` (http/https only) is always added unless
+            ``safe_urls=False``.
         trace: record the run as JSON lines. ``True`` → ``<home>/traces``; or a folder path; or a
             :class:`selfbrowse.trace.Tracer`. See ``selfbrowse trace show latest``.
         show_prompts: print every model request (what is actually sent) to stderr.
@@ -58,6 +63,8 @@ class Agent:
         sensitive: dict[str, str] | None = None,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
+        guardrails: "list[Guardrail] | None" = None,
+        safe_urls: bool = True,
         trace: "bool | str | Path | Tracer" = False,
         show_prompts: bool = False,
         trace_content: bool = True,
@@ -87,6 +94,10 @@ class Agent:
         self._handoffs = 0
         self._stop: str | None = None
         self.tools = build_tools(vision=vision)
+        user_guards = list(guardrails or [])
+        if safe_urls and not any(isinstance(g, SafeUrls) for g in user_guards):
+            user_guards.insert(0, SafeUrls())
+        self.guards = Guards(user_guards)
         self._trace_opt, self._show_prompts = trace, show_prompts
         self._trace_content, self._redact_trace = trace_content, redact_trace
         self._on_llm_request = on_llm_request
@@ -106,7 +117,8 @@ class Agent:
         self._handoffs, self._stop = 0, None
         self._setup_trace()
         self._trace("run_start", task=self.task, model=getattr(self._raw_llm, "model", "?"),
-                    headed=not getattr(self.browser, "headless", True), handoff=self._handler is not None)
+                    headed=not getattr(self.browser, "headless", True), handoff=self._handler is not None,
+                    guardrails=[g.name for g in self.guards.items])
         result: RunResult | None = None
         try:
             result = self._loop()
@@ -163,6 +175,12 @@ class Agent:
         replayed: set[str] = set()
         success, output, error = False, "", None
         first = True
+        t0 = time.monotonic()
+
+        if (hit := self.guards.url(self.browser.url)) and self.browser.url not in ("about:blank", ""):
+            self._trace("guardrail", guardrail=hit[0].name, decision="block", reason=hit[1].reason)
+            return RunResult(False, "", 0, usage, history, f"guardrail {hit[0].name}: {hit[1].reason} (start page {self.browser.url})")
+
         for _ in range(self.max_steps):
             # Known flow for this page? Run it without asking the model.
             self._maybe_replay(history, replayed)
@@ -185,6 +203,10 @@ class Agent:
                 error = f"model call failed: {exc}"
                 break
             usage.add(resp.usage)
+            if (hit := self.guards.step(RunState(len(history), usage, time.monotonic() - t0))):
+                self._trace("guardrail", guardrail=hit[0].name, decision="stop", reason=hit[1].reason)
+                error = f"guardrail {hit[0].name}: {hit[1].reason}"
+                break
             messages.append({"role": "assistant", "content": resp.content or [{"type": "text", "text": "(no output)"}]})
 
             calls = [b for b in resp.content if b["type"] == "tool_use"]
@@ -209,14 +231,22 @@ class Agent:
                     results.append(self._result(call["id"], "Skipped: one action per turn. Page unchanged; decide again."))
                     continue
                 url_before = self.browser.url
-                self._trace("tool_call", tool=name, args=args)
-                started = time.perf_counter()
-                text, changed = self._execute(name, args)
-                self._trace("tool_result", result=text.split(PAGE_SEP)[0][:500], seconds=round(time.perf_counter() - started, 3))
+                blocked = self._pre_action(name, args)
+                if blocked is not None:
+                    text, changed = blocked, False
+                    self._trace("tool_call", tool=name, args=args, blocked=True)
+                    self._trace("tool_result", result=text, seconds=0)
+                else:
+                    self._trace("tool_call", tool=name, args=args)
+                    started = time.perf_counter()
+                    text, changed = self._execute(name, args)
+                    if changed and name != "ask_human":
+                        text = self._post_url_check(text)
+                    self._trace("tool_result", result=text.split(PAGE_SEP)[0][:500], seconds=round(time.perf_counter() - started, 3))
                 acted = acted or changed
                 step = self._step(history, name, args, text, url_before)
                 history.append(step)
-                if not text.startswith("Error:"):          # failed actions teach nothing
+                if not text.startswith(_NOT_LEARNED):      # failed or blocked actions teach nothing
                     self._learn(url_before, name, args)
                 suffix = ""
                 if changed or name in ("wait", "scroll", "back"):
@@ -249,7 +279,7 @@ class Agent:
             prefix = self._hand_off("challenge", reason) + "\n"
             snap = self.browser.snapshot()
             reason = self._detect_block(snap)
-        text = snap.text
+        text = self.guards.page(snap.text, self.browser.url)
         if self.knowledge:
             memo = self.knowledge.get_memo(self.browser.url)
             if memo:
@@ -341,6 +371,67 @@ class Agent:
                             part["type"], part["text"] = "text", "[older screenshot omitted]"
                             part.pop("source", None)
 
+    # ── guardrails ─────────────────────────────────────────────────────────────
+    def _make_action(self, name: str, a: dict[str, Any]) -> Action:
+        act = Action(name, dict(a), self.browser.url)
+        if name == "goto":
+            raw = str(a.get("url", ""))
+            act.target_url = raw if "://" in raw or raw.startswith(("about:", "data:", "javascript:")) else "https://" + raw
+        elif name in ("click", "type", "hover"):
+            try:
+                d = self.browser.describe_ref(int(a.get("ref", 0)))
+            except (TypeError, ValueError):
+                d = None
+            if d:
+                act.role, act.text = d["role"], d["text"]
+        return act
+
+    def _pre_action(self, name: str, a: dict[str, Any]) -> str | None:
+        """Run guardrails before an action. Returns a message for the model if it must not run."""
+        if not self.guards.items:
+            return None
+        act = self._make_action(name, a)
+        if name == "goto" and (hit := self.guards.url(act.target_url)):
+            g, d = hit
+            self._trace("guardrail", guardrail=g.name, decision="block", reason=d.reason)
+            return f"Blocked by guardrail {g.name}: {d.reason}. Choose another approach."
+        hit = self.guards.action(act)
+        if not hit:
+            return None
+        g, d = hit
+        if isinstance(d, Block):
+            self._trace("guardrail", guardrail=g.name, decision="block", reason=d.reason)
+            return f"Blocked by guardrail {g.name}: {d.reason}. Choose another approach."
+        # Confirm: ask a person
+        self._trace("guardrail", guardrail=g.name, decision="confirm", reason=d.reason)
+        if self._handler is None:
+            return f"Blocked by guardrail {g.name}: {d.reason}, and no person is available to approve it. Choose another approach."
+        self.browser.bring_to_front()
+        try:
+            ok = bool(self._handler(HandoffRequest("confirm", d.reason, act.url)))
+        except Exception:
+            ok = False
+        self._trace("handoff", kind="confirm", reason=d.reason, url=act.url, resumed=ok)
+        return None if ok else "The person declined this action. Choose another approach."
+
+    def _post_url_check(self, text: str) -> str:
+        """After an action, make sure the browser did not land somewhere the guardrails forbid."""
+        hit = self.guards.url(self.browser.url)
+        if not hit or self.browser.url in ("about:blank", ""):
+            return text
+        g, d = hit
+        self._trace("guardrail", guardrail=g.name, decision="block", reason=f"{d.reason} (landed on {self.browser.url})")
+        try:
+            self.browser.back()
+            if self.guards.url(self.browser.url):
+                self.browser.page.goto("about:blank")
+        except Exception:
+            try:
+                self.browser.page.goto("about:blank")
+            except Exception:
+                pass
+        return f"Blocked by guardrail {g.name}: {d.reason}. Went back to the previous page."
+
     def _substitute_secrets(self, text: str) -> str:
         def sub(m: re.Match) -> str:
             if m.group(1) not in self.sensitive:
@@ -376,7 +467,7 @@ class Agent:
             if name == "wait":
                 return b.wait(float(a.get("seconds", 2))), True
             if name == "read":
-                return "Visible text:\n" + b.visible_text(), False
+                return "Visible text:\n" + self.guards.page(b.visible_text(), b.url), False
             if name == "ask_human":
                 note = self._hand_off("model", str(a.get("reason", "the agent needs your help")))
                 return note, True
@@ -421,6 +512,9 @@ class Agent:
                     ref = self.browser.resolve_ref(s.get("role", ""), s.get("text", ""))
                     if ref is None:
                         raise LookupError("element not found")
+                    act = Action("click", {"ref": ref}, before, role=s.get("role", ""), text=s.get("text", ""))
+                    if self.guards.action(act):            # replay never asks anyone: leave it to the model
+                        return
                     text = self.browser.click_ref(ref)
                 elif s["tool"] == "press":
                     text = self.browser.press(s["key"])
@@ -431,5 +525,8 @@ class Agent:
                 return
             history.append(self._step(history, s["tool"], {k: v for k, v in s.items() if k != "tool"}, text, before, True))
             self._trace("replay", tool=s["tool"], args={k: v for k, v in s.items() if k != "tool"}, url=before)
+            if self.guards.url(self.browser.url):
+                self._post_url_check("")
+                return
             if domain_of(self.browser.url) != domain_of(before):
                 return

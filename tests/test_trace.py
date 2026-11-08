@@ -78,6 +78,14 @@ def test_no_tracing_by_default(shop_url, tmp_path):
     assert agent.trace_path is None and not (tmp_path / "traces").exists()
 
 
+def test_guardrail_and_handoff_events_in_trace(shop_url, tmp_path):
+    from selfbrowse.guardrails import AllowedDomains
+    agent, _, _ = run(shop_url, tmp_path, [("goto", {"url": "https://evil.example"}), DONE],
+                      trace=True, guardrails=[AllowedDomains(["127.0.0.1"])])
+    g = [e for e in events(agent) if e["type"] == "guardrail"]
+    assert g and g[0]["decision"] == "block"
+
+
 def test_render_list_and_find(shop_url, tmp_path):
     agent, _, _ = run(shop_url, tmp_path, [("read", {}), DONE], trace=True)
     out = tr.render(events(agent))

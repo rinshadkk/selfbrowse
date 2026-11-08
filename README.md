@@ -82,6 +82,11 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--show-prompts` | print every model request to stderr |
 | `--trace-hashes` | trace sizes and hashes instead of prompt text |
 | `--otel URL` / `--otel-content` | export spans to an OTLP endpoint (needs the `otel` extra) |
+| `--allow-domain D` / `--block-domain D` | only visit / never visit these sites (repeatable) |
+| `--confirm-risky` | ask before buy, pay, delete, send, sign-out clicks |
+| `--redact-pii` | mask emails, phones, SSNs, cards in page text sent to the model |
+| `--watch-injection` | warn on instruction-like page text and confirm risky actions |
+| `--max-tokens N` / `--max-seconds S` | stop a run that goes over |
 | `--no-learn` | do not read or write site knowledge |
 | `--json` | print the full result as JSON |
 | `-q`, `--quiet` | do not print each step |
@@ -109,11 +114,11 @@ Any object with a `complete(...)` method works too; see `selfbrowse/llm/base.py`
 selfbrowse --show-prompts "task"     # prints every model request live (stderr)
 selfbrowse --trace "task"            # also saves the run to ~/.selfbrowse/traces/<run-id>.jsonl
 selfbrowse trace list
-selfbrowse trace show latest         # timeline: model calls, tokens, actions
+selfbrowse trace show latest         # timeline: model calls, tokens, actions, guardrail decisions
 selfbrowse trace show latest --full  # include the full prompts
 ```
 
-A trace is one JSON line per event: `run_start`, `llm_request` (the exact system text, tool names and messages sent, with token estimates per part), `llm_response` (usage, timing, the model's reply), `tool_call`, `tool_result`, `replay`, `handoff`, `run_end`.
+A trace is one JSON line per event: `run_start`, `llm_request` (the exact system text, tool names and messages sent, with token estimates per part), `llm_response` (usage, timing, the model's reply), `tool_call`, `tool_result`, `replay`, `guardrail`, `handoff`, `run_end`.
 
 - Secrets passed with `sensitive=` never appear: the model only sees `<secret:NAME>`.
 - Prompts include page text, which may hold personal data. `--trace-hashes` (Python: `trace_content=False`) stores sizes and hashes only, and `redact_trace=fn` scrubs every string before it is written. Task text, typed text, tool results, reasons and URLs are covered too.
@@ -135,7 +140,54 @@ print(agent.trace_path)
 selfbrowse --otel http://localhost:4318 "task"
 ```
 
-Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_ai.*` attributes, token usage) and per tool call; hand-offs are span events. Spans carry sizes and timings only; add `--otel-content` to attach the task and prompt text. Spans go only where you point them.
+Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_ai.*` attributes, token usage) and per tool call; guardrail decisions and hand-offs are span events. Spans carry sizes and timings only; add `--otel-content` to attach the task and prompt text. Spans go only where you point them.
+
+## Guardrails
+
+Rules between the model and the browser. Pass them as a list:
+
+```python
+from selfbrowse import Agent
+from selfbrowse.guardrails import AllowedDomains, ConfirmRisky, RedactPII, InjectionWatch, Budget
+
+Agent(
+    "task",
+    guardrails=[
+        AllowedDomains(["example.com"]),      # also allows subdomains
+        ConfirmRisky(),                       # asks before Buy / Pay / Delete / Send / Sign out
+        RedactPII(),                          # masks emails, phones, SSNs, cards before the model sees them
+        InjectionWatch(),                     # warns on "ignore previous instructions"-style page text
+        Budget(max_tokens=50_000, max_seconds=300),
+    ],
+).run()
+```
+
+| Guardrail | What it does |
+|---|---|
+| `SafeUrls` | http(s) pages only; blocks `file:`, `chrome:`, `data:`, `javascript:`. **Always on** unless `safe_urls=False` |
+| `AllowedDomains([...])` | only these sites (judged on the real hostname, so `https://good.com@evil.com` is evil.com). Also undoes a click that lands elsewhere, and refuses a start page outside the list |
+| `BlockedDomains([...])` | never these sites |
+| `ConfirmRisky()` | asks a person before a click whose label looks irreversible; with nobody to ask (headless) it blocks instead |
+| `RedactPII(kinds=...)` | masks emails, phone numbers, US SSNs and Luhn-valid card numbers in page text. Names and addresses are not detected, and the model cannot use redacted values |
+| `InjectionWatch()` | flags instruction-like page text, tells the model to treat it as data, and requires confirmation before navigating, typing or risky clicks from that page |
+| `Budget(max_tokens=, max_seconds=, max_usd=, price=(in, out))` | stops a run that goes over; `max_usd` needs the per-million-token prices you pay, and counts cached input at full price, so it is a ceiling |
+
+Confirmations use the same prompt as a hand-off (`--headed`, press Enter to approve or `n` to deny). From Python, your `handoff=` function receives `request.kind == "confirm"`; return `True` to allow the action.
+
+Your own rule is a small class; override only the hooks you need:
+
+```python
+from selfbrowse.guardrails import Guardrail, Block
+
+class NoSocial(Guardrail):
+    def check_url(self, url):                      # also: on_page, before_action, after_step
+        if "facebook.com" in url:
+            return Block("social sites are off limits")
+```
+
+Learned-flow replays obey the same rules and never ask anyone: if a guardrail objects, the replay stops and the model takes over.
+
+**These reduce risk; they are not guarantees.** Pattern matching (PII, injection) misses things. The domain allow-list, confirm-risky and budgets are the dependable ones. A hosted model still sees whatever page text you do not redact; only a local model keeps page content on your machine.
 
 ## Passwords and secrets
 

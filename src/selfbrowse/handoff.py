@@ -24,7 +24,8 @@ from typing import Callable
 
 @dataclass
 class HandoffRequest:
-    kind: str       # "challenge" (detected automatically) or "model" (the model asked)
+    kind: str       # "challenge" (detected automatically), "model" (the model asked) or "confirm" (a guardrail
+                    # wants approval: return True to allow the action, False to deny it)
     reason: str     # short human-readable explanation
     url: str
 
@@ -61,9 +62,13 @@ def terminal_handler(req: HandoffRequest, timeout: float = 900.0) -> bool:
     if not sys.stdin or not sys.stdin.isatty():
         return False
     err = sys.stderr
-    ask = ("│ Do it in the browser window, then press Enter here to continue\n"
-           "│ (type q + Enter to give up).\n")
-    title = "Selfbrowse needs you"
+    if req.kind == "confirm":
+        ask = "│ Approve this action? Enter = yes, n + Enter = no.\n"
+        title = "Selfbrowse asks permission"
+    else:
+        ask = ("│ Do it in the browser window, then press Enter here to continue\n"
+               "│ (type q + Enter to give up).\n")
+        title = "Selfbrowse needs you"
     err.write(
         "\a\n"
         f"┌─ {title} ─────────────────────────────\n"

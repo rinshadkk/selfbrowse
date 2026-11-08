@@ -28,6 +28,14 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--otel", metavar="URL", help="export spans to an OTLP/HTTP endpoint, e.g. http://localhost:4318")
     g.add_argument("--otel-content", action="store_true", help="also attach task/prompt text to spans")
     g.add_argument("--full", action="store_true", help="with 'trace show': include full prompts")
+    r = p.add_argument_group("guardrails")
+    r.add_argument("--allow-domain", action="append", default=[], metavar="DOMAIN", help="only visit these sites (repeatable)")
+    r.add_argument("--block-domain", action="append", default=[], metavar="DOMAIN", help="never visit these sites (repeatable)")
+    r.add_argument("--confirm-risky", action="store_true", help="ask before buy/pay/delete/send/sign-out clicks")
+    r.add_argument("--redact-pii", action="store_true", help="mask emails, phones, SSNs, cards in page text sent to the model")
+    r.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and confirm risky actions")
+    r.add_argument("--max-tokens", type=int, metavar="N", help="stop the run past N total tokens")
+    r.add_argument("--max-seconds", type=float, metavar="S", help="stop the run past S seconds")
     p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -57,6 +65,22 @@ def main(argv: list[str] | None = None) -> int:
     from selfbrowse.browser import Browser, BrowserError
     from selfbrowse.llm import LLMError
 
+    from selfbrowse import guardrails as gr
+
+    guards = []
+    if args.allow_domain:
+        guards.append(gr.AllowedDomains(args.allow_domain))
+    if args.block_domain:
+        guards.append(gr.BlockedDomains(args.block_domain))
+    if args.confirm_risky:
+        guards.append(gr.ConfirmRisky())
+    if args.redact_pii:
+        guards.append(gr.RedactPII())
+    if args.watch_injection:
+        guards.append(gr.InjectionWatch())
+    if args.max_tokens or args.max_seconds:
+        guards.append(gr.Budget(max_tokens=args.max_tokens, max_seconds=args.max_seconds))
+
     def show(step) -> None:
         if not args.quiet and not args.json:
             tag = " (learned)" if step.from_cache else ""
@@ -66,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth)
         agent = Agent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, home=home,
-                      on_step=show, trace=args.trace, show_prompts=args.show_prompts,
+                      on_step=show, guardrails=guards, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         try:
             result = agent.run()
