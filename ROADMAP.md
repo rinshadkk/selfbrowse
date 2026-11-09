@@ -30,10 +30,10 @@ A living list of what to build next. Add features at the bottom of the right sec
 - [ ] **A6 Downloads** (P2) — detect, save to a safe folder, report the path; require confirmation.
 - [x] **A7 Iframes** (P1) — include elements inside same-origin and cross-origin iframes in the page list and click them. Today only the top document is read. *Done when:* a fixture with a login form inside an iframe is completed. *Done: same-origin and cross-origin frames in the list, click/type/read/find work. Limit: nested frames beyond 8 are skipped; an overlay covering a frame is not detected.*
 - [x] **A8 Shadow DOM** (P1) — pierce open shadow roots in the snapshot. *Done when:* a fixture built from web components is completed. *Done for open shadow roots (snapshot, read, find, overlay check). Closed roots are invisible to page scripts and stay unsupported.*
-- [x] **A9 Page text in the state** (P1) — optional compact visible text next to the element list, so facts do not need a separate `read` call. Trade-off: more tokens. *Proves it:* T1, T6, T8; compare success and tokens with and without. *Done as an option: `Agent(page_text=N)` / `--page-text N`, off by default. Still to do: compare T1, T6, T8 with and without it.*
+- [x] **A9 Page text in the state** (P1) — optional compact visible text next to the element list, so facts do not need a separate `read` call. Trade-off: more tokens. *Proves it:* T1, T6, T8; compare success and tokens with and without. *Done as an option: `BrowseAgent(page_text=N)` / `--page-text N`, off by default. Still to do: compare T1, T6, T8 with and without it.*
 - [ ] **A10 Working vision** (P1) — `--vision` is currently a stub that returns "unavailable". Send a screenshot to Anthropic, OpenAI and Ollama vision models. *Done when:* a canvas-only fixture page can be read.
 - [ ] **A11 Scrolling containers and infinite scroll** (P2) — scroll inside a scrollable div; detect new content loaded.
-- [ ] **A12 Structured output** (P1) — `Agent(..., output_schema=PydanticModel | JSON schema)`, returns validated data in `result.data`. *Done when:* a task returns a list of products with typed fields.
+- [ ] **A12 Structured output** (P1) — `BrowseAgent(..., output_schema=PydanticModel | JSON schema)`, returns validated data in `result.data`. *Done when:* a task returns a list of products with typed fields.
 - [ ] **A13 Custom tools** (P2) — let users register their own actions (a function plus a schema).
 - [ ] **A14 Multi-action turns** (P2) — optionally accept several actions per model reply to cut calls on long forms. *Proves it:* calls per task on form tasks.
 - [ ] **A15 Run JavaScript** (P3) — opt-in only, behind a guardrail.
@@ -83,7 +83,7 @@ A living list of what to build next. Add features at the bottom of the right sec
 
 ## D. Distribution and integration
 
-- [ ] **D1 MCP server mode** (P1) — expose Selfbrowse as an MCP server so Claude, IDEs and other agents can use it.
+- [~] **D1 MCP server mode** (P1) — `selfbrowse-mcp` serves `browse(task)` and 12 `browser_*` step tools over stdio, with guardrails; tests drive it through a real MCP client and a real stdio process. *Still to do:* measure tokens against Claude's own browser tools on the same tasks, approvals through MCP elicitation instead of blocking, attach to the user's Chrome (D4), HTTP transport, tested on mcp 1.x. *Proves it:* tokens and success per task, with and without the server.
 - [ ] **D2 Publish to PyPI** (P0, blocked on P1) — only after the name is cleared.
 - [ ] **D3 Async API and streaming** (P1) — `await agent.arun()` and an event stream for UIs.
 - [ ] **D4 Attach to a running Chrome** (P1) — connect over CDP to the user's own browser (fixes most bot-check problems because it uses real cookies and fingerprint).
@@ -93,6 +93,7 @@ A living list of what to build next. Add features at the bottom of the right sec
 - [ ] **D8 TypeScript client** (P3).
 - [ ] **D9 CI on macOS, Linux and Windows** (P1) — browser tests and a lint step. Windows is untested (the terminal prompt uses `select` on stdin).
 - [ ] **D10 Release workflow** (P2) — tagged releases, changelog.
+- [ ] **D11 MCP client mode** (P3) — let a Selfbrowse agent call other MCP servers' tools (a database, Slack) next to the browser. *Why:* tasks that end outside the browser. Different from D1, which lets other assistants use Selfbrowse.
 
 ## O. Observability and evaluation
 
@@ -123,7 +124,7 @@ A living list of what to build next. Add features at the bottom of the right sec
 - `read` returns at most about 3,000 characters of visible text.
 - The agent follows the newest tab without telling the model (A3).
 - Confirmations block instead of asking when running headless.
-- One `Agent` instance should not run two tasks at once.
+- One `BrowseAgent` instance should not run two tasks at once.
 - Live-site tasks (T7, T8) are noisy: the page changes and sites may challenge headless browsers.
 - Benchmarks so far: one toy store, six local tasks, one or two runs each.
 
