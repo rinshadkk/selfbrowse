@@ -81,6 +81,8 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--page-text N` | also send up to N characters of on-screen text with every page list (more tokens, fewer `read` calls) |
 | `--max-output-tokens N` | cap on each model reply (default 2048); raise it for reasoning models that think at length |
 | `--vision` | let the model request screenshots (more tokens) |
+| `--permissions LIST` | grant browser permissions to every site, e.g. `notifications,geolocation` (default: none) |
+| `--dialogs auto\|accept\|dismiss` | what to do with JavaScript `alert`/`confirm`/`prompt` (default `auto`) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
 | `--trace` | record the run to `~/.selfbrowse/traces/` |
 | `--show-prompts` | print every model request to stderr |
@@ -248,22 +250,46 @@ Learned-flow replays obey the same rules and never ask anyone: if a guardrail ob
 
 Never put a password in the task text. The task goes to the model; a secret should not. Give the secret to Selfbrowse instead, under a name. The model is told only the name (`<secret:NAME>`), writes that placeholder when it types, and Selfbrowse swaps in the real value at the keyboard. The value never appears in the prompt, the page list, the result, the step history or traces.
 
-**Command line.** Set an environment variable named `SELFBROWSE_SECRET_<name>` in your own shell:
+**Command line.** A full example, logging in to a site and reading something behind the login:
 
 ```bash
+# 1. Put the secrets in your shell. `read -s` keeps the password out of your history.
 export SELFBROWSE_SECRET_user='me@example.com'
-export SELFBROWSE_SECRET_pw='your-password'
-selfbrowse --headed "Log in to example.com and tell me my latest order number"
+read -s "SELFBROWSE_SECRET_pw?Password: " && export SELFBROWSE_SECRET_pw     # zsh
+# bash:  read -s -p "Password: " SELFBROWSE_SECRET_pw && export SELFBROWSE_SECRET_pw
+
+# 2. Run the task. Say which site to use, and lock the run to it.
+selfbrowse --headed --allow-domain example.com \
+  "Go to example.com/login, sign in with <secret:user> and <secret:pw>, then tell me my latest order number"
 ```
 
-Every `SELFBROWSE_SECRET_*` variable is made available. To be asked for a value instead, so it never sits in your shell history or environment, name it with `--secret`:
+The name after `SELFBROWSE_SECRET_` is the name the model uses: `SELFBROWSE_SECRET_pw` becomes `<secret:pw>`. Every `SELFBROWSE_SECRET_*` variable is made available, and the model is told the names even if your task does not mention them.
+
+For one command only, set the variable in front of it (the value is still visible in your history, so use this for throwaway values):
 
 ```bash
-selfbrowse --secret pw "Log in to example.com as me@example.com and tell me my latest order number"
+SELFBROWSE_SECRET_pw='throwaway' selfbrowse "log in to the staging site and open settings"
+```
+
+Or keep them in a file outside the project and load it when you need it:
+
+```bash
+# ~/.selfbrowse-secrets  (chmod 600; never commit it)
+export SELFBROWSE_SECRET_user='me@example.com'
+export SELFBROWSE_SECRET_pw='your-password'
+```
+```bash
+source ~/.selfbrowse-secrets && selfbrowse "sign in to example.com and open my orders"
+```
+
+To be asked for a value each time, so it is never stored in your environment, name it with `--secret`:
+
+```bash
+selfbrowse --secret pw "Sign in to example.com as me@example.com with <secret:pw> and tell me my latest order number"
 # Value for secret 'pw' (not shown):
 ```
 
-Do not pass the value itself on the command line; it would show up in `ps` and your history, and Selfbrowse has no option for it for that reason.
+Selfbrowse has no `--secret NAME=value` form on purpose: a value on the command line shows up in `ps` and your history.
 
 **Python.**
 
@@ -281,6 +307,38 @@ Tips:
 - For 2FA codes, CAPTCHAs and one-off values you do not want stored, let the model call `ask_human`; you type it in the browser window.
 - Secrets hide what the model sees from the agent's side. They do not stop a page from showing your own details back (an account name, an email address). Add `--redact-pii` for that.
 - Pair secrets with `--allow-domain`, so a credential can only be typed on the site you meant.
+
+## Pop-ups, notifications and permissions
+
+**New tabs and windows** (`target=_blank`, OAuth login windows) are followed. The page list shows `[tabs: ...]` and the agent can `switch_tab` and `close_tab`.
+
+**Overlays a site draws itself** (cookie banners, "Allow notifications?" cards, newsletter modals) are ordinary page elements, so the agent sees them in the list and clicks "No thanks" or "Accept".
+
+**Browser permissions** (notifications, location, camera, microphone, clipboard) are off by default, so a site that asks is refused and nothing pops up. To allow some for every site you visit:
+
+```bash
+selfbrowse --permissions notifications,geolocation "Open weather.example.com and tell me today's forecast for my area"
+```
+
+```python
+from selfbrowse import BrowseAgent, Browser
+
+BrowseAgent("...", browser=Browser(permissions=["geolocation"]))
+```
+
+Names: `geolocation`, `notifications`, `camera`, `microphone`, `clipboard-read`, `clipboard-write`, `midi`, `midi-sysex`, `payment-handler`, `background-sync`, `accelerometer`, `gyroscope`, `magnetometer`, `ambient-light-sensor`, `accessibility-events`, `storage-access`. A misspelt name stops the run with the list. Grant the fewest you need, and combine with `--allow-domain` so only the site you meant gets them. The MCP server takes the same `--permissions` flag.
+
+**JavaScript dialogs** (`alert`, `confirm`, `prompt`, "Leave site?") are shown to the model. After an action that raises one, the result says what it was and what happened, for example `[A confirm dialog appeared: "Delete everything?". It was dismissed.]`.
+
+| `--dialogs` | `alert` / leave-page | `confirm` / `prompt` |
+|---|---|---|
+| `auto` (default) | accepted | dismissed (counts as Cancel) |
+| `accept` | accepted | accepted |
+| `dismiss` | dismissed | dismissed |
+
+With `accept`, guardrails still apply: `--confirm-risky` asks a person before accepting a dialog about deleting, paying or sending, and the MCP server (where nobody can be asked) dismisses it. A dialog the model cannot answer in advance is declined, so if a task needs one accepted, run with `--dialogs accept`.
+
+**Not visible to the agent:** the browser's own prompts that are drawn outside the page ("Save password?", file pickers, print dialogs). In `--headed` mode a person can click them. Permissions above cover the common ones.
 
 ## Sites that show a CAPTCHA (Walmart, Target and similar)
 

@@ -180,3 +180,27 @@ def test_real_stdio_process_speaks_mcp_and_keeps_stdout_clean(site):
     names, out = run(go())
     assert "browser_snapshot" in names and "browse" not in names
     assert "Details" in out and "--- page ---" in out
+
+
+def test_step_mode_reports_dialogs_and_guardrails_veto_risky_accepts(site):
+    browser = Browser(dialogs="accept")
+    server = create_server(ServerConfig(block_risky=True), browser=browser)
+
+    async def go():
+        async with Client(server) as c:
+            await call(c, "browser_goto", url=site("dialogs.html"))
+            snap = text_of(await call(c, "browser_snapshot"))
+            risky = text_of(await call(c, "browser_click", ref=ref_of(snap, "Proceed")))
+            fine = text_of(await call(c, "browser_click", ref=ref_of(snap, "Save")))
+            return risky, fine
+    try:
+        risky, fine = run(go())
+    finally:
+        server.selfbrowse_session.close()
+    assert 'confirm dialog appeared: "Delete everything?"' in risky and "dismissed" in risky and "guardrail" in risky
+    assert 'alert dialog appeared: "Saved!"' in fine and "accepted" in fine
+
+
+def test_parse_args_reads_permissions_and_dialogs():
+    cfg = parse_args(["--permissions", "notifications, geolocation", "--dialogs", "dismiss"])
+    assert cfg.permissions == ["notifications", "geolocation"] and cfg.dialogs == "dismiss"

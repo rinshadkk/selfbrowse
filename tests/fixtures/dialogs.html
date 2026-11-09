@@ -1,0 +1,8 @@
+<!doctype html><title>Dialogs</title>
+<button onclick="document.getElementById('o').textContent='alert:'+(alert('Saved!'),'done')">Save</button>
+<button onclick="document.getElementById('o').textContent='confirm:'+confirm('Delete everything?')">Remove all</button>
+<button onclick="document.getElementById('o').textContent='ok-confirm:'+confirm('Continue to the next step?')">Next</button>
+<button onclick="Notification.requestPermission().then(r=>document.getElementById('o').textContent='notif:'+r)">Notify me</button>
+<button onclick="navigator.permissions.query({name:'geolocation'}).then(r=>document.getElementById('o').textContent='geo:'+r.state)">Where</button>
+<button onclick="document.getElementById('o').textContent='proceed:'+confirm('Delete everything?')">Proceed</button>
+<p id="o">none</p>

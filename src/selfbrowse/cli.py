@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--secret", action="append", default=[], metavar="NAME",
                    help="make a secret available as <secret:NAME>; value comes from $SELFBROWSE_SECRET_NAME, "
                         "or is asked for without echo (repeatable)")
+    p.add_argument("--permissions", default="", metavar="LIST",
+                   help="grant browser permissions to every site, comma-separated, e.g. notifications,geolocation "
+                        "(default: none)")
+    p.add_argument("--dialogs", choices=["auto", "accept", "dismiss"], default="auto",
+                   help="JavaScript alert/confirm/prompt: auto accepts alerts and declines choices (default)")
     p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -86,7 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {step.number:>2}. {step.tool} {json.dumps(step.input, ensure_ascii=False)}{tag}", file=sys.stderr)
 
     try:
-        browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth)
+        browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth,
+                          permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,

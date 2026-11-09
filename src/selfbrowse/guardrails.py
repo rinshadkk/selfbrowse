@@ -145,6 +145,8 @@ class ConfirmRisky(Guardrail):
     def before_action(self, action: Action) -> Block | Confirm | None:
         if action.tool == "click" and self.pattern.search(action.text):
             return Confirm(f'click "{action.text}" may be irreversible')
+        if action.tool == "dialog" and self.pattern.search(action.text):
+            return Confirm(f'accepting the dialog "{action.text[:60]}" may be irreversible')
         return None
 
 

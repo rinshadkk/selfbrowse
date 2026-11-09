@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from selfbrowse import __version__
 from selfbrowse import guardrails as gr
+from selfbrowse.browser import dialog_note
 from selfbrowse.handoff import detect_block
 
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
@@ -56,6 +57,8 @@ class ServerConfig:
     page_text: int = 0
     modes: tuple[str, ...] = ("task", "step")
     secrets: dict[str, str] = field(default_factory=dict)
+    permissions: list[str] = field(default_factory=list)
+    dialogs: str = "auto"
     home: str | None = None
     llm: Any = None                       # a ready-made model object (tests, embedding); wins over ``model``
 
@@ -102,9 +105,16 @@ class BrowserSession:
         if self._browser is None:
             from selfbrowse.browser import Browser
             c = self.cfg
-            self._browser = Browser(headless=not c.headed, channel=c.channel, user_data_dir=c.profile, stealth=c.stealth)
+            self._browser = Browser(headless=not c.headed, channel=c.channel, user_data_dir=c.profile, stealth=c.stealth,
+                                   permissions=c.permissions, dialogs=c.dialogs)
         self._browser.start()
+        self._browser.on_dialog = self.veto_dialog       # a task run may have pointed it elsewhere
         return self._browser
+
+    def veto_dialog(self, info: dict[str, Any]) -> bool | None:
+        """About to accept a JavaScript dialog: let the guardrails stop it (no person to ask here)."""
+        hit = self.guards.action(gr.Action("dialog", dict(info), "", text=info.get("message", "")))
+        return False if hit else None
 
     def state(self) -> str:
         b = self.browser
@@ -171,6 +181,7 @@ class BrowserSession:
             if blocked:
                 return blocked
             result = do(self.browser)
+            result += dialog_note(self.browser.pop_dialogs())
             landed = self.after()
             result = landed or self.guards.page(result, b_url(self.browser))
         except Exception as exc:                              # a failed action is feedback, not a crash
@@ -321,6 +332,10 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
     p.add_argument("--max-steps", type=int, default=25, help="step limit for `browse` (default 25)")
     p.add_argument("--page-text", type=int, default=0, metavar="N", help="also send up to N characters of on-screen text with each page list")
+    p.add_argument("--permissions", default="", metavar="LIST",
+                   help="grant browser permissions to every site, comma-separated (default: none)")
+    p.add_argument("--dialogs", choices=["auto", "accept", "dismiss"], default="auto",
+                   help="JavaScript alert/confirm/prompt handling (auto: accept alerts, decline choices)")
     p.add_argument("--no-learn", action="store_true", help="`browse` does not read or write site knowledge")
     g = p.add_argument_group("guardrails")
     g.add_argument("--allow-domain", action="append", default=[], metavar="DOMAIN", help="only visit these sites (repeatable)")
@@ -343,6 +358,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
         allow_domains=a.allow_domain, block_domains=a.block_domain, block_risky=a.block_risky,
         redact_pii=a.redact_pii, watch_injection=a.watch_injection, max_tokens=a.max_tokens, max_seconds=a.max_seconds,
         max_steps=a.max_steps, learn=not a.no_learn, page_text=a.page_text, modes=modes, secrets=secrets,
+        permissions=[x.strip() for x in a.permissions.split(",") if x.strip()], dialogs=a.dialogs,
         home=os.environ.get("SELFBROWSE_HOME"))
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from selfbrowse import _about
+from selfbrowse.browser import dialog_note
 from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, RunState, SafeUrls
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
@@ -128,6 +129,8 @@ class BrowseAgent:
         self.tools = build_tools(vision=self.vision, human=self._handler is not None)
         self._system_text = SYSTEM + (HUMAN_RULE if self._handler else "")
         self._handoffs, self._stop = 0, None
+        if hasattr(self.browser, "on_dialog"):
+            self.browser.on_dialog = self._dialog_veto
         self._setup_trace()
         self._trace("run_start", task=self.task, model=getattr(self._raw_llm, "model", "?"),
                     headed=not getattr(self.browser, "headless", True), handoff=self._handler is not None,
@@ -273,6 +276,9 @@ class BrowseAgent:
                     self._trace("tool_call", tool=name, args=args)
                     started = time.perf_counter()
                     text, changed = self._execute(name, args)
+                    if dialogs := getattr(self.browser, "pop_dialogs", lambda: [])():
+                        text += dialog_note(dialogs)
+                        self._trace("dialog", dialogs=dialogs)
                     if changed and name != "ask_human":
                         text = self._post_url_check(text)
                     self._trace("tool_result", result=text.split(PAGE_SEP)[0][:500], seconds=round(time.perf_counter() - started, 3))
@@ -496,6 +502,25 @@ class BrowseAgent:
             ok = False
         self._trace("handoff", kind="confirm", reason=d.reason, url=act.url, resumed=ok)
         return None if ok else "The person declined this action. Choose another approach."
+
+    def _dialog_veto(self, info: dict[str, Any]) -> bool | None:
+        """Called only when a JavaScript dialog is about to be accepted. Returns False to dismiss instead."""
+        act = Action("dialog", dict(info), self.browser.url, text=info.get("message", ""))
+        hit = self.guards.action(act)
+        if not hit:
+            return None
+        g, d = hit
+        if isinstance(d, Block):
+            self._trace("guardrail", guardrail=g.name, decision="block", reason=d.reason)
+            return False
+        self._trace("guardrail", guardrail=g.name, decision="confirm", reason=d.reason)
+        if self._handler is None:
+            return False
+        try:
+            ok = bool(self._handler(HandoffRequest("confirm", d.reason, act.url)))
+        except Exception:
+            ok = False
+        return None if ok else False
 
     def _post_url_check(self, text: str) -> str:
         """After an action, make sure the browser did not land somewhere the guardrails forbid."""

@@ -203,6 +203,24 @@ def normalize_key(key: str) -> str:
     return _KEY_ALIASES.get(key.lower(), key)
 
 
+# Names Playwright accepts for BrowserContext.grant_permissions.
+PERMISSIONS = frozenset({
+    "geolocation", "notifications", "camera", "microphone", "clipboard-read", "clipboard-write",
+    "midi", "midi-sysex", "payment-handler", "background-sync", "accelerometer", "gyroscope",
+    "magnetometer", "ambient-light-sensor", "accessibility-events", "storage-access",
+})
+DIALOG_POLICIES = ("auto", "accept", "dismiss")
+
+
+def dialog_note(dialogs: "list[dict[str, Any]]") -> str:
+    """One line per JavaScript dialog, for the model."""
+    lines = []
+    for d in dialogs:
+        why = " (a guardrail stopped it being accepted)" if d.get("vetoed") else ""
+        lines.append(f'\n[A {d["type"]} dialog appeared: "{d["message"]}". It was {d["action"]}{why}.]')
+    return "".join(lines)
+
+
 class BrowserError(RuntimeError):
     pass
 
@@ -239,7 +257,18 @@ class Browser:
         screenshot_quality: int = 60,
         timeout_ms: int = 15000,
         max_elements: int = 120,
+        permissions: "list[str] | None" = None,
+        dialogs: str = "auto",
     ) -> None:
+        bad = [p for p in (permissions or []) if p not in PERMISSIONS]
+        if bad:
+            raise BrowserError(f"Unknown permission {bad[0]!r}. Choose from: {', '.join(sorted(PERMISSIONS))}.")
+        if dialogs not in DIALOG_POLICIES:
+            raise BrowserError(f"dialogs must be one of: {', '.join(DIALOG_POLICIES)}.")
+        self.permissions = list(permissions or [])
+        self.dialogs = dialogs
+        self.on_dialog: "Callable[[dict[str, Any]], bool | None] | None" = None   # may veto accepting
+        self._dialog_log: list[dict[str, Any]] = []
         self.headless = headless
         self.channel = channel
         self.executable_path = executable_path
@@ -293,9 +322,16 @@ class Browser:
                 f"or install Google Chrome. Last error: {last}"
             )
 
+        if self.permissions:
+            try:
+                self._context.grant_permissions(self.permissions)
+            except Exception as exc:
+                self.close()
+                raise BrowserError(f"Could not grant permissions {self.permissions}: {exc}") from exc
         self._context.on("page", self._on_new_page)    # follow links that open a new tab
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(self.timeout_ms)
+        self._page.on("dialog", self._on_dialog)
         return self
 
     def close(self) -> None:
@@ -321,6 +357,36 @@ class Browser:
     def _on_new_page(self, page: Any) -> None:
         self._page = page
         page.set_default_timeout(self.timeout_ms)
+        page.on("dialog", self._on_dialog)
+
+    def _on_dialog(self, dialog: Any) -> None:
+        """alert / confirm / prompt / beforeunload. Record it, then accept or dismiss per policy."""
+        kind = dialog.type
+        info: dict[str, Any] = {"type": kind, "message": (dialog.message or "")[:300]}
+        if self.dialogs == "accept":
+            accept = True
+        elif self.dialogs == "dismiss":
+            accept = False
+        else:                                           # auto: harmless ones go through, choices are declined
+            accept = kind in ("alert", "beforeunload")
+        if accept and self.on_dialog:
+            try:
+                if self.on_dialog(dict(info)) is False:
+                    accept = False
+                    info["vetoed"] = True
+            except Exception:
+                accept = False
+        info["action"] = "accepted" if accept else "dismissed"
+        self._dialog_log.append(info)
+        try:
+            dialog.accept() if accept else dialog.dismiss()
+        except Exception:
+            pass
+
+    def pop_dialogs(self) -> list[dict[str, Any]]:
+        """Dialogs that appeared since the last call (and what was done with them)."""
+        out, self._dialog_log = self._dialog_log, []
+        return out
 
     @property
     def page(self) -> Any:
