@@ -2,7 +2,7 @@
 
     python examples/04_guardrails.py
 """
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.guardrails import (
     AllowedDomains, BlockedDomains, Budget, ConfirmRisky, InjectionWatch, RedactPII,
 )
@@ -10,7 +10,7 @@ from selfbrowse.guardrails import (
 # ConfirmRisky and InjectionWatch ask a person in the terminal when the browser is visible.
 # Headless, there is nobody to ask, so they block the action instead. That is why this runs visible.
 with Browser(headless=False) as browser:
-    result = Agent(
+    result = BrowseAgent(
         "Find the price of the cheapest hair oil on walgreens.com and tell me the name.",
         llm="anthropic:claude-haiku-4-5",
         browser=browser,

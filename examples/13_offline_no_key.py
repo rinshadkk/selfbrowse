@@ -8,7 +8,7 @@ import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.llm.base import LLMResponse
 from selfbrowse.types import Usage
 
@@ -39,7 +39,7 @@ with Browser() as browser:
     model = Script([("select", {"ref": country, "option": "France"}),
                     ("read", {}),
                     ("done", {"success": True, "answer": "France selected"})])
-    result = Agent("Pick France", llm=model, browser=browser, learn=False).run()
+    result = BrowseAgent("Pick France", llm=model, browser=browser, learn=False).run()
 
 print(result.output, "|", [s.tool for s in result.history])
 server.shutdown()

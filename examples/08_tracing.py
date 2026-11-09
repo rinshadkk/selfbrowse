@@ -6,7 +6,7 @@
 """
 import re
 
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 
@@ -15,7 +15,7 @@ def show_request(*, system, messages, tools, n):
     print(f"[model call {n}: {len(messages)} messages, {len(tools)} tools]")
 
 
-result = Agent(
+result = BrowseAgent(
     "Open example.com and tell me the heading.",
     llm="anthropic:claude-haiku-4-5",
     trace=True,                                       # JSON lines in ~/.selfbrowse/traces (or pass a folder)

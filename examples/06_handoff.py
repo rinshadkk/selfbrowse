@@ -5,7 +5,7 @@ HandoffRequest and returns True (continue / approve) or False (stop / decline).
 
     python examples/06_handoff.py
 """
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.handoff import HandoffRequest
 
 
@@ -20,7 +20,7 @@ def my_handler(req: HandoffRequest) -> bool:
 
 
 with Browser(headless=False, channel="chrome") as browser:
-    result = Agent(
+    result = BrowseAgent(
         "Open target.com, search for 'dish soap' and tell me the first result's name.",
         llm="anthropic:claude-haiku-4-5",
         browser=browser,

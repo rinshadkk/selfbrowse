@@ -6,11 +6,11 @@
 """
 import sys
 
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 
 model = sys.argv[1] if len(sys.argv) > 1 else "anthropic:claude-haiku-4-5"
 
-result = Agent("Open news.ycombinator.com and tell me the title of the top story.", llm=model).run()
+result = BrowseAgent("Open news.ycombinator.com and tell me the title of the top story.", llm=model).run()
 print(result.output)
 print(f"{result.steps} steps, {result.usage.calls} model calls, {result.usage.total_input} input tokens")
 

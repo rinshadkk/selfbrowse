@@ -25,7 +25,7 @@ MAX_NUDGES = 3
 MAX_ERROR_STREAK = 6
 
 
-class Agent:
+class BrowseAgent:
     """
     Args:
         task: what to do, in plain language.

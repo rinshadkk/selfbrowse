@@ -306,3 +306,23 @@ class Guards:
             if (d := g.after_step(state)):
                 return g, d
         return None
+
+
+def build_guards(*, allow: "list[str] | tuple[str, ...]" = (), block: "list[str] | tuple[str, ...]" = (),
+                 confirm_risky: bool = False, redact_pii: bool = False, watch_injection: bool = False,
+                 max_tokens: int | None = None, max_seconds: float | None = None) -> list[Guardrail]:
+    """The guardrails a command line or server asks for with flags, in a fixed order."""
+    guards: list[Guardrail] = []
+    if allow:
+        guards.append(AllowedDomains(list(allow)))
+    if block:
+        guards.append(BlockedDomains(list(block)))
+    if confirm_risky:
+        guards.append(ConfirmRisky())
+    if redact_pii:
+        guards.append(RedactPII())
+    if watch_injection:
+        guards.append(InjectionWatch())
+    if max_tokens or max_seconds:
+        guards.append(Budget(max_tokens=max_tokens, max_seconds=max_seconds))
+    return guards

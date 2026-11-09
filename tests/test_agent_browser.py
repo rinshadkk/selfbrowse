@@ -1,6 +1,6 @@
 import pytest
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from tests.conftest import ScriptedLLM
 
 pytestmark = pytest.mark.browser
@@ -31,7 +31,7 @@ def test_full_run_with_secret_and_trimmed_history(shop_url, tmp_path):
         pw = next(int(l.split()[0][1:]) for l in snap.splitlines() if "Password" in l)
         llm.script[1] = ("click", {"ref": add})
         llm.script.insert(2, ("type", {"ref": pw, "text": "<secret:pw>"}))
-        agent = Agent("buy", llm=llm, browser=b, home=tmp_path, sensitive={"pw": "hunter2"})
+        agent = BrowseAgent("buy", llm=llm, browser=b, home=tmp_path, sensitive={"pw": "hunter2"})
         res = agent.run()
         assert res.success and res.output == "ok"
         assert b.page.input_value("#pw") == "hunter2"
@@ -52,7 +52,7 @@ def test_replay_after_two_successes(shop_url, tmp_path):
             snap = b.snapshot().text
             accept = next(int(l.split()[0][1:]) for l in snap.splitlines() if '"Accept"' in l)
             llm.script = [("click", {"ref": accept}), *script]
-            res = Agent("t", llm=llm, browser=b, home=tmp_path).run()
+            res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path).run()
         return res, llm
 
     done = [("done", {"success": True, "answer": "x"})]
@@ -63,7 +63,7 @@ def test_replay_after_two_successes(shop_url, tmp_path):
     llm = ScriptedLLM(done)
     with make_browser() as b:
         b.goto(shop_url)
-        res = Agent("t", llm=llm, browser=b, home=tmp_path).run()
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path).run()
     assert res.history[0].from_cache and res.usage.calls == 1
 
 
@@ -72,5 +72,5 @@ def test_page_list_survives_a_read(shop_url, tmp_path):
     llm = ScriptedLLM([("read", {}), ("done", {"success": True, "answer": "ok"})])
     with Browser() as b:
         b.goto(shop_url)
-        Agent("t", llm=llm, browser=b, home=tmp_path).run()
+        BrowseAgent("t", llm=llm, browser=b, home=tmp_path).run()
     assert "Add to cart" in repr(llm.seen[1])

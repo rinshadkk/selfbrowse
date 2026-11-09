@@ -2,7 +2,7 @@
 import json, sys, time
 sys.path.insert(0, ".")          # run from benchmarks/compare
 from store import serve, STATE
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.guardrails import AllowedDomains, ConfirmRisky, RedactPII, Budget
 from selfbrowse.llm import make_llm
 
@@ -12,7 +12,7 @@ task = f"Go to {base}, search for 'kettle', open the cheapest kettle and add it 
 llm = make_llm("ollama:qwen3.6-bench", json_mode=False)
 t0 = time.time()
 with Browser(headless=True) as b:
-    res = Agent(task, llm=llm, browser=b, learn=False, max_steps=20, trace=out,
+    res = BrowseAgent(task, llm=llm, browser=b, learn=False, max_steps=20, trace=out,
                 guardrails=[AllowedDomains(["127.0.0.1"]), ConfirmRisky(), RedactPII(), Budget(max_tokens=100_000)]).run()
 wall = time.time() - t0
 print(json.dumps({"task": task.replace(base, "{base}"), "success": res.success, "answer": res.output, "error": res.error,

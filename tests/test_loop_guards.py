@@ -1,7 +1,7 @@
 """Loop-breaking: cut-off replies, scroll circles, repeated clicks, key names."""
 import pytest
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.browser import normalize_key
 from tests.conftest import ScriptedLLM
 
@@ -40,7 +40,7 @@ def results_text(llm):
 def test_cut_off_reply_gets_a_specific_nudge_and_a_fresh_chance(tmp_path):
     llm = ScriptedLLM([("__cut__", "Let me think about this at great length..."), ("read", {}),
                        ("done", {"success": True, "answer": "ok"})])
-    res = Agent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    res = BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
     assert res.success
     assert "cut off" in repr(llm.seen[1])
     # the cap is passed to the model
@@ -49,7 +49,7 @@ def test_cut_off_reply_gets_a_specific_nudge_and_a_fresh_chance(tmp_path):
 
 def test_endless_cut_offs_end_with_a_helpful_error(tmp_path):
     llm = ScriptedLLM([("__cut__", "thinking...")] * 5)
-    res = Agent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    res = BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
     assert not res.success and "--max-output-tokens" in res.error
 
 
@@ -59,14 +59,14 @@ def test_nudge_budget_is_for_consecutive_misses(tmp_path):
     for _ in range(4):
         script += [("__text__", "hmm"), ("read", {})]
     script.append(("done", {"success": True, "answer": "ok"}))
-    res = Agent("t", llm=ScriptedLLM(script), browser=FakeBrowser(), home=tmp_path, learn=False, max_steps=30).run()
+    res = BrowseAgent("t", llm=ScriptedLLM(script), browser=FakeBrowser(), home=tmp_path, learn=False, max_steps=30).run()
     assert res.success
 
 
 def test_scrolling_up_and_down_is_called_out(tmp_path):
     llm = ScriptedLLM([("scroll", {"direction": d}) for d in ("down", "up", "down", "up")] +
                       [("done", {"success": True, "answer": "ok"})])
-    Agent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
     assert "circles" in repr(llm.seen[4])
     assert "circles" not in repr(llm.seen[3])
 
@@ -75,14 +75,14 @@ def test_reading_between_scrolls_resets_the_circle_check(tmp_path):
     llm = ScriptedLLM([("scroll", {"direction": "down"}), ("scroll", {"direction": "up"}), ("read", {}),
                        ("scroll", {"direction": "down"}), ("scroll", {"direction": "up"}),
                        ("done", {"success": True, "answer": "ok"})])
-    Agent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
     assert "circles" not in repr(llm.seen)
 
 
 def test_clicking_the_same_control_again_is_flagged(tmp_path):
     llm = ScriptedLLM([("click", {"ref": 1}), ("scroll", {"direction": "down"}), ("click", {"ref": 1}),
                        ("done", {"success": True, "answer": "ok"})])
-    Agent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
     assert 'already clicked "Go"' in repr(llm.seen[3])
     assert 'already clicked' not in repr(llm.seen[2])
 

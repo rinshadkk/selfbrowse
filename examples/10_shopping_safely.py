@@ -2,11 +2,11 @@
 
     python examples/10_shopping_safely.py
 """
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.guardrails import AllowedDomains, Budget, ConfirmRisky, RedactPII
 
 with Browser(headless=False, channel="chrome", user_data_dir="~/.selfbrowse/shop") as browser:
-    result = Agent(
+    result = BrowseAgent(
         "On walgreens.com add a Dove shampoo under $10 to the cart and stop at the checkout page. "
         "Do not place the order.",
         llm="anthropic:claude-haiku-4-5",

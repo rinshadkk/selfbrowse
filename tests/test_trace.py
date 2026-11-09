@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse import trace as tr
 from tests.conftest import ScriptedLLM
 
@@ -14,7 +14,7 @@ def run(shop_url, tmp_path, script, **kw):
     llm = ScriptedLLM(script)
     with Browser() as b:
         b.goto(shop_url)
-        agent = Agent("buy a thing", llm=llm, browser=b, home=tmp_path, **kw)
+        agent = BrowseAgent("buy a thing", llm=llm, browser=b, home=tmp_path, **kw)
         res = agent.run()
     return agent, res, llm
 

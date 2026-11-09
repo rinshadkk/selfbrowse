@@ -3,14 +3,14 @@
     ollama pull qwen3.6
     python examples/02_local_model.py
 """
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 from selfbrowse.llm import make_llm
 
 # Native tool calling vs JSON-schema mode. Native plus Selfbrowse's argument repair did better
 # in our benchmarks (see benchmarks/compare/results), so ask for it explicitly:
 llm = make_llm("ollama:qwen3.6", json_mode=False)
 
-result = Agent(
+result = BrowseAgent(
     "Open news.ycombinator.com and tell me the title of the top story.",
     llm=llm,
     max_steps=30,               # weak models wander; give them room

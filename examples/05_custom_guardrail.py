@@ -4,7 +4,7 @@
 """
 import re
 
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, RunState
 
 
@@ -37,7 +37,7 @@ class StopAfterTenSteps(Guardrail):
             return Block("ten steps is enough for this task")
 
 
-result = Agent(
+result = BrowseAgent(
     "Open example.com and tell me what the page says.",
     llm="anthropic:claude-haiku-4-5",
     guardrails=[NoCheckoutPages(), ConfirmBigTyping(), HideInternalNames(), StopAfterTenSteps()],

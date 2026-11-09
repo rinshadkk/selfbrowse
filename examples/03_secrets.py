@@ -7,9 +7,9 @@ Secrets never enter the prompt, the history or the trace.
 """
 import os
 
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 
-result = Agent(
+result = BrowseAgent(
     "Open https://example.com/login, sign in as demo@example.com using <secret:password>, "
     "and tell me the name shown on the account page.",
     llm="anthropic:claude-haiku-4-5",

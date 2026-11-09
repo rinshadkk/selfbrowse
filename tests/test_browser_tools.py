@@ -1,7 +1,7 @@
 """Dropdowns, iframes, shadow DOM, tabs and find-on-page, against real pages in a real browser."""
 import pytest
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from tests.conftest import ScriptedLLM
 
 pytestmark = pytest.mark.browser
@@ -143,7 +143,7 @@ def test_agent_runs_the_new_tools(site, tmp_path):
             ("find", {"text": "country=fr"}),
             ("done", {"success": True, "answer": "ok"}),
         ])
-        res = Agent("pick", llm=llm, browser=b, home=tmp_path, learn=False).run()
+        res = BrowseAgent("pick", llm=llm, browser=b, home=tmp_path, learn=False).run()
         assert res.success and b.page.input_value("#country") == "fr"
         assert [s.tool for s in res.history] == ["select", "find", "done"]
         assert "selected" in res.history[0].result and "found" in res.history[1].result
@@ -162,8 +162,8 @@ def test_page_text_adds_text_to_the_state(site, tmp_path):
     llm2 = ScriptedLLM([("wait", {"seconds": 0.1}), ("done", {"success": True, "answer": "ok"})])
     with Browser() as b:
         b.goto(site("form.html"))
-        Agent("t", llm=llm2, browser=b, home=tmp_path, learn=False, page_text=300).run()
+        BrowseAgent("t", llm=llm2, browser=b, home=tmp_path, learn=False, page_text=300).run()
         assert "[text on screen]" in repr(llm2.seen[1]) and "nothing chosen" in repr(llm2.seen[1])
         llm3 = ScriptedLLM([("wait", {"seconds": 0.1}), ("done", {"success": True, "answer": "ok"})])
-        Agent("t", llm=llm3, browser=b, home=tmp_path, learn=False).run()
+        BrowseAgent("t", llm=llm3, browser=b, home=tmp_path, learn=False).run()
         assert "[text on screen]" not in repr(llm3.seen[1])

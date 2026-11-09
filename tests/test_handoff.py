@@ -1,6 +1,6 @@
 import pytest
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.handoff import detect_block
 from tests.conftest import ScriptedLLM
 
@@ -38,7 +38,7 @@ def test_headless_challenge_stops_with_clear_error(challenge_url, tmp_path):
     llm = ScriptedLLM([DONE])
     with Browser() as b:                              # headless: no one to hand off to
         b.goto(challenge_url)
-        res = Agent("t", llm=llm, browser=b, home=tmp_path).run()
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path).run()
     assert not res.success and "--headed" in res.error and "blocked" in res.error
     assert res.usage.calls == 0                       # no model money spent on a page it cannot use
 
@@ -55,7 +55,7 @@ def test_handler_resumes_after_person_solves(challenge_url, shop_url, tmp_path):
     llm = ScriptedLLM([DONE])
     with Browser() as b:
         b.goto(challenge_url)
-        res = Agent("t", llm=llm, browser=b, home=tmp_path, handoff=person).run()
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path, handoff=person).run()
     assert res.success and len(seen) == 1 and seen[0].kind == "challenge"
     first_prompt = repr(llm.seen[0])
     assert "The person handled it" in first_prompt and "Add to cart" in first_prompt
@@ -65,7 +65,7 @@ def test_handler_resumes_after_person_solves(challenge_url, shop_url, tmp_path):
 def test_declined_handoff_fails_the_run(challenge_url, tmp_path):
     with Browser() as b:
         b.goto(challenge_url)
-        res = Agent("t", llm=ScriptedLLM([DONE]), browser=b, home=tmp_path, handoff=lambda r: False).run()
+        res = BrowseAgent("t", llm=ScriptedLLM([DONE]), browser=b, home=tmp_path, handoff=lambda r: False).run()
     assert not res.success and "did not continue" in res.error
 
 
@@ -74,7 +74,7 @@ def test_model_can_ask_for_help(shop_url, tmp_path):
     seen = []
     llm = ScriptedLLM([("goto", {"url": shop_url}), ("ask_human", {"reason": "enter the 2FA code"}), DONE])
     with Browser() as b:
-        res = Agent("t", llm=llm, browser=b, home=tmp_path, handoff=lambda r: seen.append(r) or True).run()
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path, handoff=lambda r: seen.append(r) or True).run()
     assert res.success and seen[0].kind == "model" and "2FA" in seen[0].reason
     assert any(s.tool == "ask_human" for s in res.history)
 
@@ -83,7 +83,7 @@ def test_model_can_ask_for_help(shop_url, tmp_path):
 def test_ask_human_not_offered_without_handler(shop_url, tmp_path):
     llm = ScriptedLLM([("goto", {"url": shop_url}), DONE])
     with Browser() as b:
-        agent = Agent("t", llm=llm, browser=b, home=tmp_path)      # headless + auto → no handler
+        agent = BrowseAgent("t", llm=llm, browser=b, home=tmp_path)      # headless + auto → no handler
         agent.run()
     assert "ask_human" not in [t["name"] for t in agent.tools]
 
@@ -92,7 +92,7 @@ def test_ask_human_not_offered_without_handler(shop_url, tmp_path):
 def test_gives_up_after_max_handoffs(challenge_url, tmp_path):
     with Browser() as b:
         b.goto(challenge_url)
-        res = Agent("t", llm=ScriptedLLM([DONE] * 5), browser=b, home=tmp_path,
+        res = BrowseAgent("t", llm=ScriptedLLM([DONE] * 5), browser=b, home=tmp_path,
                     handoff=lambda r: True, max_handoffs=2).run()     # "solves" but the page never changes
     assert not res.success and "2 hand-offs" in res.error
 

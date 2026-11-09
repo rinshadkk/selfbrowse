@@ -8,7 +8,7 @@ Chrome with a profile that keeps cookies between runs gets through far more ofte
 """
 from pathlib import Path
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 
 browser = Browser(
     headless=False,                                  # visible
@@ -18,6 +18,6 @@ browser = Browser(
     viewport=(1366, 850),
 )
 with browser:
-    result = Agent("Open target.com and tell me today's top deal banner.",
+    result = BrowseAgent("Open target.com and tell me today's top deal banner.",
                    llm="anthropic:claude-haiku-4-5", browser=browser).run()
 print(result.output if result.success else f"FAILED: {result.error}")

@@ -12,7 +12,7 @@ import json
 
 import tiktoken
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from selfbrowse.llm.base import LLMResponse
 from selfbrowse.types import Usage
 
@@ -47,7 +47,7 @@ def main() -> None:
         for name, url in PAGES.items():
             b.goto(url)
             rec = Recorder()
-            Agent("benchmark", llm=rec, browser=b, learn=False).run()
+            BrowseAgent("benchmark", llm=rec, browser=b, learn=False).run()
             system, messages, tools = rec.req
             s, t, p = count(system[0]["text"]), count(tools), count(messages[0]["content"])
             print(f"{name:<20}{s:>8}{t:>8}{p:>8}{s + t + p:>8}")

@@ -1,13 +1,13 @@
 """
 Model providers.
 
-Pass a model to ``Agent`` as a string ``"provider:model"`` or as any object implementing
+Pass a model to ``BrowseAgent`` as a string ``"provider:model"`` or as any object implementing
 the :class:`LLM` protocol::
 
-    Agent(task, llm="anthropic:claude-haiku-4-5")
-    Agent(task, llm="openai:gpt-4o-mini")
-    Agent(task, llm="ollama:qwen2.5:14b")          # local, free
-    Agent(task, llm="groq:llama-3.3-70b-versatile")
+    BrowseAgent(task, llm="anthropic:claude-haiku-4-5")
+    BrowseAgent(task, llm="openai:gpt-4o-mini")
+    BrowseAgent(task, llm="ollama:qwen2.5:14b")          # local, free
+    BrowseAgent(task, llm="groq:llama-3.3-70b-versatile")
 """
 from __future__ import annotations
 

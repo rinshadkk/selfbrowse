@@ -668,11 +668,11 @@ selfbrowse --model ollama:qwen3.6 --headed --confirm-risky <span class="s">"..."
       </div>
       <div>
         <p class="code-cap">Python</p>
-<pre><code><span class="k">from</span> selfbrowse <span class="k">import</span> Agent
+<pre><code><span class="k">from</span> selfbrowse <span class="k">import</span> BrowseAgent
 <span class="k">from</span> selfbrowse.guardrails <span class="k">import</span> (
     AllowedDomains, ConfirmRisky, Budget)
 
-result = Agent(
+result = BrowseAgent(
     <span class="s">"Find the cheapest desk lamp and add it to the cart"</span>,
     llm=<span class="s">"ollama:qwen3.6"</span>,
     guardrails=[

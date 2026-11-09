@@ -1,6 +1,6 @@
 import pytest
 
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 from tests.conftest import ScriptedLLM
 
 pytestmark = pytest.mark.browser
@@ -19,7 +19,7 @@ def run(shop_url, tmp_path, script, **kw):
         b.goto(shop_url)
         f = refs(b)
         llm.script = [(n, a(f) if callable(a) else a) for n, a in llm.script]
-        res = Agent("t", llm=llm, browser=b, home=tmp_path, **kw).run()
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path, **kw).run()
         state = b.page.inner_text("#out")
     return res, llm, state
 
@@ -69,3 +69,4 @@ def test_repeated_failures_stop_the_run_early(shop_url, tmp_path):
 def test_unknown_tool_lists_real_tools(shop_url, tmp_path):
     res, llm, _ = run(shop_url, tmp_path, [("send_keys", {"idx": 1}), DONE])
     assert "unknown tool 'send_keys'" in res.history[0].result and "click" in res.history[0].result
+
