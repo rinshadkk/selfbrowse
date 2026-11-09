@@ -8,8 +8,17 @@ Turns trace events into spans::
     ├─ tool <name>
     └─ span events: guardrail decisions, hand-offs
 
-By default spans carry sizes, timings and metadata only. Pass ``content=True`` to also attach the
-task and prompt text, which may include page content.
+By default spans carry sizes, timings and metadata only. Pass ``content=True`` to also attach what the
+model was sent and what it answered, which may include page content. Each ``chat`` span then carries
+(following the OpenTelemetry GenAI conventions, which are still marked experimental)::
+
+    gen_ai.system_instructions   [{"type": "text", "content": "..."}]
+    gen_ai.input.messages        [{"role": "user", "parts": [{"type": "text", "content": "..."}, ...]}, ...]
+    gen_ai.output.messages       [{"role": "assistant", "parts": [{"type": "tool_call", "name": ..., "arguments": {...}}],
+                                   "finish_reason": "tool_use"}]
+
+LLM viewers (Arize Phoenix, Langfuse, Opik...) render these as a conversation. Jaeger shows them as long
+JSON strings under the span's Tags. Over-long text is shortened part by part, so the JSON stays valid.
 
 Point it at any OTLP/HTTP receiver, including one on your own machine
 (Jaeger, Grafana Tempo, Arize Phoenix...): ``http://localhost:4318``.
@@ -18,6 +27,50 @@ from __future__ import annotations
 
 import json
 from typing import Any
+
+
+_PART_LIMIT = 8000          # characters kept per text part
+_TOTAL_LIMIT = 120_000      # characters kept per attribute; the middle of a long conversation is dropped first
+
+
+def _clip(text: Any, limit: int = _PART_LIMIT) -> str:
+    text = str(text)
+    return text if len(text) <= limit else text[:limit] + f"…[+{len(text) - limit} chars]"
+
+
+def _parts(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Trace blocks (Anthropic-style) -> GenAI message parts."""
+    out: list[dict[str, Any]] = []
+    for b in blocks:
+        t = b.get("type")
+        if t == "text":
+            out.append({"type": "text", "content": _clip(b.get("text", ""))})
+        elif t == "tool_use":
+            out.append({"type": "tool_call", "name": b.get("name"), "arguments": b.get("input")})
+        elif t == "tool_result":
+            text = "\n".join(p.get("text", p.get("note", "")) for p in b.get("content") or [])
+            out.append({"type": "tool_call_response", "response": _clip(text)})
+        else:
+            out.append({"type": str(t or "unknown"), "content": "(omitted)"})
+    return out
+
+
+def _as_json(messages: list[dict[str, Any]]) -> str:
+    """JSON for an attribute; if it is huge, keep the first and the most recent messages."""
+    text = json.dumps(messages, ensure_ascii=False)
+    if len(text) <= _TOTAL_LIMIT or len(messages) <= 3:
+        return text
+    keep = [messages[0]]
+    tail: list[dict[str, Any]] = []
+    size = len(json.dumps(keep, ensure_ascii=False))
+    for m in reversed(messages[1:]):
+        size += len(json.dumps(m, ensure_ascii=False))
+        if size > _TOTAL_LIMIT:
+            break
+        tail.insert(0, m)
+    gap = len(messages) - 1 - len(tail)
+    marker = {"role": "system", "parts": [{"type": "text", "content": f"…{gap} earlier message(s) omitted…"}]}
+    return json.dumps(keep + [marker] + tail, ensure_ascii=False)
 
 
 class OtelSink:
@@ -65,8 +118,12 @@ class OtelSink:
             s.set_attribute("selfbrowse.est_tokens.system", t["system"])
             s.set_attribute("selfbrowse.est_tokens.tools", t["tools"])
             s.set_attribute("selfbrowse.est_tokens.messages", t["messages"])
+            s.set_attribute("selfbrowse.tools", ev.get("tools") or [])
             if self.content:
-                s.set_attribute("selfbrowse.request", json.dumps(ev["messages"], ensure_ascii=False)[:32000])
+                s.set_attribute("gen_ai.system_instructions",
+                                json.dumps([{"type": "text", "content": _clip(ev.get("system", ""), 20000)}], ensure_ascii=False))
+                s.set_attribute("gen_ai.input.messages", _as_json(
+                    [{"role": m["role"], "parts": _parts(m["content"])} for m in ev["messages"]]))
         elif k in ("llm_response", "llm_error") and self._llm is not None:
             s = self._llm
             if k == "llm_response":
@@ -75,6 +132,10 @@ class OtelSink:
                 s.set_attribute("gen_ai.usage.output_tokens", u["output"])
                 s.set_attribute("selfbrowse.cache_read_tokens", u["cache_read"])
                 s.set_attribute("gen_ai.response.finish_reasons", [str(ev.get("stop_reason"))])
+                if self.content:
+                    s.set_attribute("gen_ai.output.messages", _as_json(
+                        [{"role": "assistant", "parts": _parts(ev.get("content") or []),
+                          "finish_reason": str(ev.get("stop_reason"))}]))
             else:
                 s.set_attribute("error.type", "llm_error")
                 s.set_attribute("error.message", ev["error"])

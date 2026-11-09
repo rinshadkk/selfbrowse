@@ -154,7 +154,7 @@ print(agent.trace_path)
 selfbrowse --otel http://localhost:4318 "task"
 ```
 
-Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_ai.*` attributes, token usage) and per tool call; guardrail decisions and hand-offs are span events. Spans carry sizes and timings only; add `--otel-content` to attach the task and prompt text. Spans go only where you point them.
+Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_ai.*` attributes, token usage) and per tool call; guardrail decisions and hand-offs are span events. Spans carry sizes and timings only. Add `--otel-content` to attach what the model was sent and what it answered: each `chat` span gets `gen_ai.system_instructions`, `gen_ai.input.messages` and `gen_ai.output.messages` (OpenTelemetry GenAI conventions, still experimental). LLM viewers such as Phoenix, Langfuse and Opik show these as a conversation; Jaeger shows them as JSON strings under the span's Tags. Long text is shortened part by part so the JSON stays valid. These attributes contain page text, so only send them to a backend you trust. Spans go only where you point them.
 
 ## Guardrails
 

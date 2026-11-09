@@ -128,3 +128,54 @@ def test_sink_failure_never_breaks_a_run(shop_url, tmp_path):
     from selfbrowse.trace import Tracer
     _, res, _ = run(shop_url, tmp_path, [DONE], trace=Tracer(None, sinks=[Boom()]))
     assert res.success
+
+
+def _otel_run(shop_url, tmp_path, content):
+    pytest.importorskip("opentelemetry.sdk")
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from selfbrowse.otel import OtelSink
+    from selfbrowse.trace import Tracer
+
+    exporter = InMemorySpanExporter()
+    run(shop_url, tmp_path, [("read", {}), DONE], trace=Tracer(None, sinks=[OtelSink(exporter=exporter, content=content)]))
+    return [s for s in exporter.get_finished_spans() if s.name.startswith("chat ")]
+
+
+def test_otel_content_carries_request_and_response(shop_url, tmp_path):
+    import json
+    chats = _otel_run(shop_url, tmp_path, content=True)
+    assert len(chats) == 2
+    first, second = chats
+    system = json.loads(first.attributes["gen_ai.system_instructions"])
+    assert system[0]["type"] == "text" and "web browser" in system[0]["content"]
+    # request: the task and page list as a user message
+    msgs = json.loads(first.attributes["gen_ai.input.messages"])
+    assert msgs[0]["role"] == "user" and "Add to cart" in msgs[0]["parts"][0]["content"]
+    # response: the chosen tool call
+    out = json.loads(first.attributes["gen_ai.output.messages"])
+    assert out[0]["role"] == "assistant" and out[0]["finish_reason"] == "tool_use"
+    assert out[0]["parts"][0] == {"type": "tool_call", "name": "read", "arguments": {}}
+    # the second call sees the first call's reply and the tool's result
+    msgs2 = json.loads(second.attributes["gen_ai.input.messages"])
+    kinds = [p["type"] for m in msgs2 for p in m["parts"]]
+    assert "tool_call" in kinds and "tool_call_response" in kinds
+    assert list(first.attributes["selfbrowse.tools"])[:2] == ["goto", "click"]
+
+
+def test_otel_without_content_has_no_text(shop_url, tmp_path):
+    for span in _otel_run(shop_url, tmp_path, content=False):
+        for key in ("gen_ai.system_instructions", "gen_ai.input.messages", "gen_ai.output.messages"):
+            assert key not in span.attributes
+        assert "Add to cart" not in repr(dict(span.attributes))     # no page text leaks through any attribute
+
+
+def test_otel_long_conversations_stay_valid_json():
+    import json
+    from selfbrowse.otel import _as_json, _clip, _parts
+    long_text = "x" * 50_000
+    assert len(_clip(long_text)) < 8100 and _clip("short") == "short"
+    msgs = [{"role": "user", "parts": _parts([{"type": "text", "text": long_text}])} for _ in range(40)]
+    data = json.loads(_as_json(msgs))                                # still parses
+    assert len(json.dumps(data)) < 140_000
+    assert data[0] == msgs[0] and data[-1] == msgs[-1] and "omitted" in data[1]["parts"][0]["content"]
