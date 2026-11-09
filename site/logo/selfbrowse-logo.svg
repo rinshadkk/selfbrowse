@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 64" role="img" aria-label="Selfbrowse">
+  <rect x="11" y="13" width="49" height="45" rx="9" fill="#FFFFFF" stroke="#17202B" stroke-width="4"/>
+  <path d="M11 22 V22 a9 9 0 0 1 9 -9 h31 a9 9 0 0 1 9 9 v1 H11 Z" fill="#17202B"/>
+  <rect x="21" y="31" width="30" height="4" rx="2" fill="#17202B"/><rect x="21" y="40" width="24" height="4" rx="2" fill="#17202B"/><rect x="21" y="49" width="15" height="4" rx="2" fill="#17202B"/>
+  <rect x="3" y="5" width="22" height="20" rx="5" fill="#F5D547" stroke="#17202B" stroke-width="3.5"/>
+  <path d="M12.2 10.6 L15.6 9 H17.4 V20.5 H14.4 V12.6 L12.2 13.6 Z" fill="#17202B"/>
+
+  <text x="74" y="47" font-family="'Atkinson Hyperlegible Next','Atkinson Hyperlegible',system-ui,sans-serif" font-weight="800" font-size="38" letter-spacing="-1" fill="#17202B">selfbrowse</text>
+</svg>
