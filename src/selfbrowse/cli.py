@@ -40,6 +40,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and confirm risky actions")
     r.add_argument("--max-tokens", type=int, metavar="N", help="stop the run past N total tokens")
     r.add_argument("--max-seconds", type=float, metavar="S", help="stop the run past S seconds")
+    p.add_argument("--secret", action="append", default=[], metavar="NAME",
+                   help="make a secret available as <secret:NAME>; value comes from $SELFBROWSE_SECRET_NAME, "
+                        "or is asked for without echo (repeatable)")
     p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -65,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.task:
         p.error("give a task, e.g. selfbrowse \"open example.com and tell me the heading\"")
 
+    secrets = _load_secrets(args.secret, p)
+
     from selfbrowse.agent import BrowseAgent
     from selfbrowse.browser import Browser, BrowserError
     from selfbrowse.llm import LLMError
@@ -84,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
-                      on_step=show, guardrails=guards, trace=args.trace, show_prompts=args.show_prompts,
+                      on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         try:
             result = agent.run()
@@ -103,6 +108,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[trace: {agent.trace_path}]", file=sys.stderr)
         print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens]", file=sys.stderr)
     return 0 if result.success else 1
+
+
+def _load_secrets(names: list[str], parser: argparse.ArgumentParser) -> dict[str, str]:
+    """Secrets from SELFBROWSE_SECRET_<NAME> env vars (all of them), plus any --secret NAME asked for without echo."""
+    prefix = f"{_about.ENV_PREFIX}SECRET_"
+    secrets = {k[len(prefix):]: v for k, v in os.environ.items() if k.startswith(prefix) and len(k) > len(prefix)}
+    for name in names:
+        if name in secrets:
+            continue
+        if not sys.stdin.isatty():
+            parser.error(f"--secret {name}: set ${prefix}{name}, or run in a terminal to be asked")
+        import getpass
+        secrets[name] = getpass.getpass(f"Value for secret '{name}' (not shown): ")
+    return secrets
 
 
 def _trace_command(rest: list[str], directory: Path, full: bool, parser: argparse.ArgumentParser) -> int:

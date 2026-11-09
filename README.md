@@ -49,9 +49,9 @@ selfbrowse "your task" > result.txt 2>&1
 ## Python
 
 ```python
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 
-result = Agent("find the top story on Hacker News", llm="anthropic:claude-haiku-4-5").run()
+result = BrowseAgent("find the top story on Hacker News", llm="anthropic:claude-haiku-4-5").run()
 print(result.output)
 print(result.usage)        # input/output/cache tokens and number of model calls
 ```
@@ -108,6 +108,47 @@ Environment variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `G
 
 Each tool schema is sent on every model call, so tools are kept few and short (about 790 tokens for all of them on a typical step).
 
+## Use it from Claude, VS Code and other MCP clients
+
+Selfbrowse can run as an [MCP](https://modelcontextprotocol.io) server, so an assistant can use it as its browser:
+
+```bash
+pip install 'selfbrowse[mcp]'
+playwright install chromium
+```
+
+It offers two kinds of tools:
+
+- **`browse(task)`** (task mode). Selfbrowse runs its own model loop and returns only the answer, so the assistant never reads the pages. This is where most of the token saving is. It needs `--model`, for example `ollama:qwen3.6` (free, local) or `anthropic:claude-haiku-4-5`.
+- **`browser_snapshot`, `browser_click`, `browser_type`, `browser_select`, `browser_goto`, `browser_read`, `browser_find`, `browser_scroll`, `browser_press`, `browser_back`, `browser_switch_tab`, `browser_close_tab`** (step mode). The assistant drives the browser and reads Selfbrowse's short numbered list instead of a screenshot. No model is needed on the server. We have not measured how this compares with other browser tools.
+
+**VS Code** (Copilot agent mode): add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "selfbrowse": {
+      "command": "selfbrowse-mcp",
+      "args": ["--model", "ollama:qwen3.6", "--headed", "--channel", "chrome", "--allow-domain", "example.com"]
+    }
+  }
+}
+```
+
+**Claude Code:** `claude mcp add selfbrowse -- selfbrowse-mcp --model ollama:qwen3.6 --headed`
+
+**Claude Desktop** (`claude_desktop_config.json`): `{"mcpServers": {"selfbrowse": {"command": "selfbrowse-mcp", "args": ["--model", "ollama:qwen3.6"]}}}`
+
+Client config formats change between versions, so check your client's MCP docs if one of these is rejected.
+
+Things to know:
+
+- **Guardrails apply.** Use `--allow-domain`, `--block-domain`, `--block-risky`, `--redact-pii`, `--watch-injection`, `--max-tokens` and `--max-seconds`. There is nobody to ask in a terminal, so a risky click is refused, not confirmed; your client's own tool-approval prompt is a second check.
+- **No terminal hand-off.** Stdout carries the protocol. When a CAPTCHA or login needs a person, the tool result says so; start the server with `--headed` so there is a window to finish it in.
+- **Secrets:** set `SELFBROWSE_SECRET_<name>` in the server's environment; the assistant writes `<secret:name>` and never sees the value.
+- **One browser per server.** Task mode and step mode share it, so a `browse` run starts from the page your step tools left open.
+- Only `mcp` 2.x was tested. Selfbrowse also tries the 1.x import, but that path is untested.
+
 ## Models
 
 Use `provider:model`:
@@ -141,7 +182,7 @@ A trace is one JSON line per event: `run_start`, `llm_request` (the exact system
 From Python:
 
 ```python
-agent = Agent("task", trace=True, on_llm_request=lambda system, messages, tools, n: print(n, len(messages)))
+agent = BrowseAgent("task", trace=True, on_llm_request=lambda system, messages, tools, n: print(n, len(messages)))
 agent.run()
 print(agent.trace_path)
 ```
@@ -161,10 +202,10 @@ Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_a
 Rules between the model and the browser. Pass them as a list:
 
 ```python
-from selfbrowse import Agent
+from selfbrowse import BrowseAgent
 from selfbrowse.guardrails import AllowedDomains, ConfirmRisky, RedactPII, InjectionWatch, Budget
 
-Agent(
+BrowseAgent(
     "task",
     guardrails=[
         AllowedDomains(["example.com"]),      # also allows subdomains
@@ -205,13 +246,41 @@ Learned-flow replays obey the same rules and never ask anyone: if a guardrail ob
 
 ## Passwords and secrets
 
-Pass secrets to the agent, not to the model:
+Never put a password in the task text. The task goes to the model; a secret should not. Give the secret to Selfbrowse instead, under a name. The model is told only the name (`<secret:NAME>`), writes that placeholder when it types, and Selfbrowse swaps in the real value at the keyboard. The value never appears in the prompt, the page list, the result, the step history or traces.
 
-```python
-Agent("log in and open my orders", sensitive={"pw": "hunter2"})
+**Command line.** Set an environment variable named `SELFBROWSE_SECRET_<name>` in your own shell:
+
+```bash
+export SELFBROWSE_SECRET_user='me@example.com'
+export SELFBROWSE_SECRET_pw='your-password'
+selfbrowse --headed "Log in to example.com and tell me my latest order number"
 ```
 
-The model writes `<secret:pw>`; Selfbrowse substitutes the real value only when typing. The value never appears in prompts, results or step history.
+Every `SELFBROWSE_SECRET_*` variable is made available. To be asked for a value instead, so it never sits in your shell history or environment, name it with `--secret`:
+
+```bash
+selfbrowse --secret pw "Log in to example.com as me@example.com and tell me my latest order number"
+# Value for secret 'pw' (not shown):
+```
+
+Do not pass the value itself on the command line; it would show up in `ps` and your history, and Selfbrowse has no option for it for that reason.
+
+**Python.**
+
+```python
+import os
+BrowseAgent("log in and open my orders", sensitive={"user": "me@example.com", "pw": os.environ["SITE_PW"]})
+```
+
+**MCP server.** Set the same `SELFBROWSE_SECRET_<name>` variables in the server's environment (the `env` block of your client config). With `browser_type`, the calling assistant passes `<secret:pw>` as the text.
+
+Tips:
+
+- Name the field in your task ("log in with <secret:user> and <secret:pw>") if the site has more than one form.
+- Use `--profile DIR` to log in once and keep the session, so later runs need no secret.
+- For 2FA codes, CAPTCHAs and one-off values you do not want stored, let the model call `ask_human`; you type it in the browser window.
+- Secrets hide what the model sees from the agent's side. They do not stop a page from showing your own details back (an account name, an email address). Add `--redact-pii` for that.
+- Pair secrets with `--allow-domain`, so a credential can only be typed on the site you meant.
 
 ## Sites that show a CAPTCHA (Walmart, Target and similar)
 
@@ -256,14 +325,14 @@ When it needs you, the terminal shows a box with the reason and URL and rings th
 From Python, use the built-in terminal prompt or plug in your own (a desktop notification, a Slack message, a web UI):
 
 ```python
-from selfbrowse import Agent, Browser
+from selfbrowse import BrowseAgent, Browser
 
 def ask_person(request):                  # request.kind: "challenge" or "model"
     print(request.reason, request.url)    # notify however you like
     input("Press Enter when done: ")
     return True                           # False = give up
 
-Agent("task", browser=Browser(headless=False), handoff=ask_person).run()
+BrowseAgent("task", browser=Browser(headless=False), handoff=ask_person).run()
 ```
 
 `handoff="auto"` (default) uses the terminal prompt when the window is visible; `handoff=False` disables it.

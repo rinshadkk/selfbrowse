@@ -70,3 +70,24 @@ def test_unknown_tool_lists_real_tools(shop_url, tmp_path):
     res, llm, _ = run(shop_url, tmp_path, [("send_keys", {"idx": 1}), DONE])
     assert "unknown tool 'send_keys'" in res.history[0].result and "click" in res.history[0].result
 
+
+def test_model_is_told_secret_names_not_values():
+    from selfbrowse.agent import BrowseAgent
+    a = BrowseAgent.__new__(BrowseAgent)
+    a.sensitive = {"pw": "hunter2", "user": "me@x.com"}
+    note = a._secrets_note()
+    assert "<secret:pw>" in note and "<secret:user>" in note
+    assert "hunter2" not in note and "me@x.com" not in note
+    a.sensitive = {}
+    assert a._secrets_note() == ""
+
+
+def test_cli_loads_secrets_from_env(monkeypatch):
+    import argparse
+    from selfbrowse.cli import _load_secrets
+    monkeypatch.setenv("SELFBROWSE_SECRET_pw", "s3cret")
+    monkeypatch.setattr("sys.stdin", type("T", (), {"isatty": lambda self: False})())
+    assert _load_secrets(["pw"], argparse.ArgumentParser()) == {"pw": "s3cret"}
+    import pytest
+    with pytest.raises(SystemExit):
+        _load_secrets(["missing"], argparse.ArgumentParser())

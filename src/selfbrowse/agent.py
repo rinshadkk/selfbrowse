@@ -182,7 +182,8 @@ class BrowseAgent:
     def _loop(self) -> RunResult:
         usage = Usage()
         history: list[Step] = []
-        messages: list[dict[str, Any]] = [{"role": "user", "content": f"Task: {self.task}"}]
+        task_msg = f"Task: {self.task}" + self._secrets_note()
+        messages: list[dict[str, Any]] = [{"role": "user", "content": task_msg}]
         system = [{"text": self._system_text, "cache": True}]
         recent: list[tuple[str, str, str]] = []
         replayed: set[str] = set()
@@ -205,7 +206,7 @@ class BrowseAgent:
 
             if first:
                 state = self._state()
-                messages[0]["content"] = f"Task: {self.task}{PAGE_SEP}{state}"
+                messages[0]["content"] = f"{task_msg}{PAGE_SEP}{state}"
                 first = False
                 if self._stop:
                     error = self._stop
@@ -513,6 +514,13 @@ class BrowseAgent:
             except Exception:
                 pass
         return f"Blocked by guardrail {g.name}: {d.reason}. Went back to the previous page."
+
+    def _secrets_note(self) -> str:
+        """Tell the model which secret names exist (never the values)."""
+        if not self.sensitive:
+            return ""
+        names = ", ".join(f"<secret:{n}>" for n in self.sensitive)
+        return f"\nStored secrets you can type (use the placeholder exactly; you never see the value): {names}"
 
     def _substitute_secrets(self, text: str) -> str:
         def sub(m: re.Match) -> str:
