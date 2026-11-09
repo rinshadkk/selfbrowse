@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "selfbrowse"
 dynamic = ["version"]
-description = "A lean browser agent: about a fifth of the tokens per step, and it learns the sites it visits."
+description = "An open-source browser agent: low token cost, guardrails built in, plug-and-play observability."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -41,8 +41,16 @@ selfbrowse = "selfbrowse.cli:main"
 [tool.hatch.version]
 path = "src/selfbrowse/__init__.py"
 
+[project.urls]
+Repository = "https://github.com/rinshadkk/selfbrowse"
+Issues = "https://github.com/rinshadkk/selfbrowse/issues"
+Roadmap = "https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/selfbrowse"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/selfbrowse", "/tests", "/README.md", "/LICENSE", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -58,7 +58,7 @@ print(result.usage)        # input/output/cache tokens and number of model calls
 
 `result` has `success`, `output`, `steps`, `usage`, `history` and `error`.
 
-Thirteen runnable examples (local models, secrets, guardrails, hand-off, real Chrome, tracing, learning, and an offline one that needs no key) are in [examples/](examples/README.md).
+Thirteen runnable examples (local models, secrets, guardrails, hand-off, real Chrome, tracing, learning, and an offline one that needs no key) are in [examples/](https://github.com/rinshadkk/selfbrowse/blob/main/examples/README.md).
 
 ## Command line reference
 
@@ -104,7 +104,7 @@ Environment variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `G
 
 - **Dropdowns:** a native `<select>` is listed with its current value and options, and `select` picks one by its text or value.
 - **Frames and web components:** controls inside iframes (same-origin and cross-origin) and open shadow roots appear in the same numbered list and are clicked the same way.
-- **Tabs:** when a link or popup opens a new tab the agent follows it, and the page list starts with `[tabs: 1 "Shop" · 2 "Details" (current)]` so the model knows. Not supported yet: closed shadow roots, drag and drop, file uploads, custom (non-`<select>`) dropdowns beyond clicking them. See [ROADMAP.md](ROADMAP.md).
+- **Tabs:** when a link or popup opens a new tab the agent follows it, and the page list starts with `[tabs: 1 "Shop" · 2 "Details" (current)]` so the model knows. Not supported yet: closed shadow roots, drag and drop, file uploads, custom (non-`<select>`) dropdowns beyond clicking them. See [ROADMAP.md](https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md).
 
 Each tool schema is sent on every model call, so tools are kept few and short (about 790 tokens for all of them on a typical step).
 
@@ -303,4 +303,4 @@ The name lives in `src/selfbrowse/_about.py`, the package folder, `pyproject.tom
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). MIT licensed.
+See [CONTRIBUTING.md](https://github.com/rinshadkk/selfbrowse/blob/main/CONTRIBUTING.md). MIT licensed.
