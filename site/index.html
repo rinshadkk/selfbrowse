@@ -553,6 +553,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 24px; flex-wr
         <div><dt>BlockedDomains</dt><dd>Never visit these sites.</dd></div>
         <div><dt>ConfirmRisky</dt><dd>Ask you before a click like Buy, Pay, Delete, Send or Sign out.</dd></div>
         <div><dt>RedactPII</dt><dd>Mask emails, phone numbers, SSNs and card numbers before the model sees the page.</dd></div>
+        <div><dt>PresidioRedact<small>optional</small></dt><dd>Also mask names and more with Microsoft Presidio, running on your machine. <code>pip install "selfbrowse[presidio]"</code></dd></div>
         <div><dt>InjectionWatch</dt><dd>Spot “ignore your instructions” text on a page, warn the model, and ask before risky steps.</dd></div>
         <div><dt>Budget</dt><dd>Stop past a token, time or dollar limit.</dd></div>
         <div><dt>Your own</dt><dd>Subclass <code>Guardrail</code> and override the hooks you need.</dd></div>
@@ -649,7 +650,7 @@ selfbrowse --otel http://localhost:4318 --otel-content <span class="s">"..."</sp
     <div>
       <h2 id="install-title">Try it in a few minutes</h2>
       <p>Install the package, then a browser for it to drive. Add an extra for OpenTelemetry export or Patchright stealth mode.</p>
-      <p class="quiet">Use your installed Chrome with <code>--channel chrome</code>, keep cookies between runs with <code>--profile</code>, and add <code>--headed</code> to watch it work. There are thirteen runnable scripts in <code>examples/</code>, including one that needs no API key.</p>
+      <p class="quiet">Use your installed Chrome with <code>--channel chrome</code>, keep cookies between runs with <code>--profile</code>, and add <code>--headed</code> to watch it work. There are fourteen runnable scripts in <code>examples/</code>, including one that needs no API key.</p>
     </div>
     <div class="stack">
       <div>
@@ -659,7 +660,9 @@ playwright install chromium
 
 <span class="c"># optional extras</span>
 pip install <span class="s">"selfbrowse[otel]"</span>      <span class="c"># OpenTelemetry export</span>
-pip install <span class="s">"selfbrowse[stealth]"</span>   <span class="c"># Patchright</span></code></pre>
+pip install <span class="s">"selfbrowse[stealth]"</span>   <span class="c"># Patchright</span>
+pip install <span class="s">"selfbrowse[mcp]"</span>       <span class="c"># MCP server for VS Code, Claude</span>
+pip install <span class="s">"selfbrowse[presidio]"</span>  <span class="c"># mask names with Presidio</span></code></pre>
       </div>
       <div>
         <p class="code-cap">Command line</p>

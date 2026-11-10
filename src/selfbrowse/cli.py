@@ -37,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--block-domain", action="append", default=[], metavar="DOMAIN", help="never visit these sites (repeatable)")
     r.add_argument("--confirm-risky", action="store_true", help="ask before buy/pay/delete/send/sign-out clicks")
     r.add_argument("--redact-pii", action="store_true", help="mask emails, phones, SSNs, cards in page text sent to the model")
+    r.add_argument("--redact-presidio", action="store_true",
+                   help="also mask names and other personal data with Microsoft Presidio (needs selfbrowse[presidio])")
+    r.add_argument("--presidio-entities", default="", metavar="LIST",
+                   help="Presidio entities to mask, comma-separated (default: person, email, phone, card, ssn, ...)")
+    r.add_argument("--presidio-model", default="en_core_web_sm", metavar="NAME",
+                   help="spaCy model for Presidio (default en_core_web_sm; en_core_web_lg is more accurate)")
     r.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and confirm risky actions")
     r.add_argument("--max-tokens", type=int, metavar="N", help="stop the run past N total tokens")
     r.add_argument("--max-seconds", type=float, metavar="S", help="stop the run past S seconds")
@@ -83,7 +89,16 @@ def main(argv: list[str] | None = None) -> int:
 
     guards = gr.build_guards(allow=args.allow_domain, block=args.block_domain, confirm_risky=args.confirm_risky,
                              redact_pii=args.redact_pii, watch_injection=args.watch_injection,
-                             max_tokens=args.max_tokens, max_seconds=args.max_seconds)
+                             max_tokens=args.max_tokens, max_seconds=args.max_seconds,
+                             presidio=args.redact_presidio,
+                             presidio_entities=[x.strip() for x in args.presidio_entities.split(",") if x.strip()],
+                             presidio_model=args.presidio_model)
+    try:
+        for g in guards:
+            getattr(g, "check_ready", lambda: None)()
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     def show(step) -> None:
         if not args.quiet and not args.json:

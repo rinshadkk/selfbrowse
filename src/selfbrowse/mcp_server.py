@@ -57,16 +57,22 @@ class ServerConfig:
     page_text: int = 0
     modes: tuple[str, ...] = ("task", "step")
     secrets: dict[str, str] = field(default_factory=dict)
+    presidio: bool = False
+    presidio_entities: list[str] = field(default_factory=list)
+    presidio_model: str = "en_core_web_sm"
     permissions: list[str] = field(default_factory=list)
     dialogs: str = "auto"
     home: str | None = None
+    _shared: dict = field(default_factory=dict, repr=False)   # guardrails that are costly to build
     llm: Any = None                       # a ready-made model object (tests, embedding); wins over ``model``
 
     def guards(self, *, with_budget: bool) -> list[gr.Guardrail]:
         guards = gr.build_guards(
             allow=self.allow_domains, block=self.block_domains, confirm_risky=self.block_risky,
             redact_pii=self.redact_pii, watch_injection=self.watch_injection,
-            max_tokens=self.max_tokens if with_budget else None, max_seconds=self.max_seconds if with_budget else None)
+            max_tokens=self.max_tokens if with_budget else None, max_seconds=self.max_seconds if with_budget else None,
+            presidio=self.presidio, presidio_entities=self.presidio_entities, presidio_model=self.presidio_model)
+        guards = [self._shared.setdefault("presidio", g) if isinstance(g, gr.PresidioRedact) else g for g in guards]
         return [gr.SafeUrls(), *guards]
 
 
@@ -342,6 +348,10 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     g.add_argument("--block-domain", action="append", default=[], metavar="DOMAIN", help="never visit these sites (repeatable)")
     g.add_argument("--block-risky", action="store_true", help="refuse buy/pay/delete/send/sign-out clicks (there is nobody to ask here)")
     g.add_argument("--redact-pii", action="store_true", help="mask emails, phones, SSNs, cards in page text")
+    g.add_argument("--redact-presidio", action="store_true",
+                   help="also mask names and other personal data with Microsoft Presidio (needs selfbrowse[presidio])")
+    g.add_argument("--presidio-entities", default="", metavar="LIST", help="Presidio entities to mask, comma-separated")
+    g.add_argument("--presidio-model", default="en_core_web_sm", metavar="NAME", help="spaCy model for Presidio")
     g.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and block risky actions after it")
     g.add_argument("--max-tokens", type=int, metavar="N", help="stop a `browse` run past N tokens")
     g.add_argument("--max-seconds", type=float, metavar="S", help="stop a `browse` run past S seconds")
@@ -356,7 +366,8 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     return ServerConfig(
         model=a.model, headed=a.headed, channel=a.channel, profile=a.profile, stealth=a.stealth,
         allow_domains=a.allow_domain, block_domains=a.block_domain, block_risky=a.block_risky,
-        redact_pii=a.redact_pii, watch_injection=a.watch_injection, max_tokens=a.max_tokens, max_seconds=a.max_seconds,
+        redact_pii=a.redact_pii, watch_injection=a.watch_injection, presidio=a.redact_presidio,
+        presidio_entities=[x.strip() for x in a.presidio_entities.split(",") if x.strip()], presidio_model=a.presidio_model, max_tokens=a.max_tokens, max_seconds=a.max_seconds,
         max_steps=a.max_steps, learn=not a.no_learn, page_text=a.page_text, modes=modes, secrets=secrets,
         permissions=[x.strip() for x in a.permissions.split(",") if x.strip()], dialogs=a.dialogs,
         home=os.environ.get("SELFBROWSE_HOME"))
@@ -365,8 +376,10 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
 def main(argv: list[str] | None = None) -> int:
     cfg = parse_args(argv)
     try:
+        for g in cfg.guards(with_budget=False):
+            getattr(g, "check_ready", lambda: None)()        # Presidio: fail at start-up, not on the first page
         server = create_server(cfg)
-    except ImportError as exc:
+    except (ImportError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     try:

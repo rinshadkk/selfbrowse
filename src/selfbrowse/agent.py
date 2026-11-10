@@ -124,6 +124,8 @@ class BrowseAgent:
         if self.browser is None:
             from selfbrowse.browser import Browser
             self.browser = Browser()
+        for g in self.guards.items:                       # e.g. Presidio: fail now, not mid-run
+            getattr(g, "check_ready", lambda: None)()
         self.browser.start()
         self._handler = self._resolve_handler()
         self.tools = build_tools(vision=self.vision, human=self._handler is not None)

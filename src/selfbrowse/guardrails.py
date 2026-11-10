@@ -9,7 +9,8 @@ A guardrail can look at four moments (override only the ones you need):
 * ``after_step(state)``    – stop the whole run (budgets)
 
 Built in: :class:`SafeUrls`, :class:`AllowedDomains`, :class:`BlockedDomains`,
-:class:`ConfirmRisky`, :class:`RedactPII`, :class:`InjectionWatch`, :class:`Budget`.
+:class:`ConfirmRisky`, :class:`RedactPII`, :class:`PresidioRedact` (optional, needs the ``presidio`` extra),
+:class:`InjectionWatch`, :class:`Budget`.
 
 These reduce risk; they are not guarantees. Pattern matching (PII, injection) misses things, so
 prefer the structural ones (domain allow-list, confirmation, budgets) for anything that matters.
@@ -199,6 +200,89 @@ class RedactPII(Guardrail):
         return text
 
 
+class PresidioRedact(Guardrail):
+    """
+    Mask personal data with Microsoft Presidio before the model sees the page. Unlike
+    :class:`RedactPII` (regex only) it also finds names and, if you ask for them, locations and more,
+    using a spaCy language model. It runs on your machine; no text is sent anywhere.
+
+    Needs: ``pip install 'selfbrowse[presidio]'`` and a spaCy model, e.g.
+    ``python -m spacy download en_core_web_sm``.
+
+    ``entities``    Presidio entity names to mask (default: ``DEFAULT_ENTITIES``). Add ``LOCATION`` or
+                    ``DATE_TIME`` only if you want them: page text is full of both. ``IP_ADDRESS`` is
+                    also off, because it would mask the address of a local page in the URL line.
+    ``threshold``   minimum Presidio score, 0 to 1 (default 0.4). Raise it for fewer false positives.
+    ``model``       spaCy model name. ``en_core_web_sm`` is small and quick; ``en_core_web_lg`` is more
+                    accurate at finding names but is several hundred MB and slower.
+    ``analyzer``    bring your own ``AnalyzerEngine`` (custom recognizers, other languages).
+
+    Statistical name detection has false positives (a product called "Max Pro" may be masked) and
+    misses; it reduces exposure, it does not prove there is none. Masked values cannot be used by the
+    model, so a task like "find the contact email" needs ``EMAIL_ADDRESS`` left out of ``entities``.
+    """
+
+    DEFAULT_ENTITIES = (
+        "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "US_SSN", "IBAN_CODE",
+        "US_PASSPORT", "US_DRIVER_LICENSE", "US_BANK_NUMBER", "MEDICAL_LICENSE", "CRYPTO",
+    )
+
+    def __init__(self, entities: "list[str] | tuple[str, ...] | None" = None, *, threshold: float = 0.4,
+                 model: str = "en_core_web_sm", language: str = "en", analyzer: Any = None) -> None:
+        self.entities = list(entities) if entities else list(self.DEFAULT_ENTITIES)
+        self.threshold, self.language, self.model = threshold, language, model
+        self._analyzer = analyzer
+        self.count = 0                                      # how many values were masked so far
+
+    def _engine(self) -> Any:
+        if self._analyzer is None:
+            try:
+                from presidio_analyzer import AnalyzerEngine
+                from presidio_analyzer.nlp_engine import NlpEngineProvider
+            except ImportError as exc:
+                raise RuntimeError("Presidio is not installed: pip install 'selfbrowse[presidio]'") from exc
+            import logging
+            logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)     # it warns about every unused recognizer
+            try:
+                import spacy
+                if not spacy.util.is_package(self.model):      # Presidio would try to download it; do not
+                    raise OSError(self.model)
+                nlp = NlpEngineProvider(nlp_configuration={
+                    "nlp_engine_name": "spacy",
+                    "models": [{"lang_code": self.language, "model_name": self.model}],
+                }).create_engine()
+            except OSError as exc:
+                raise RuntimeError(
+                    f"The spaCy model {self.model!r} is not installed: python -m spacy download {self.model}") from exc
+            self._analyzer = AnalyzerEngine(nlp_engine=nlp, supported_languages=[self.language])
+        return self._analyzer
+
+    def check_ready(self) -> None:
+        """Load the model now, so a missing install stops the run at the start instead of mid-way."""
+        self._engine()
+
+    def on_page(self, text: str, url: str) -> str:
+        if not text.strip():
+            return text
+        found = self._engine().analyze(text=text, language=self.language, entities=self.entities,
+                                       score_threshold=self.threshold)
+        keep: list[Any] = []
+        for r in sorted(found, key=lambda r: (-r.score, -(r.end - r.start))):   # best match wins an overlap
+            if all(r.end <= k.start or r.start >= k.end for k in keep):
+                keep.append(r)
+        for r in sorted(keep, key=lambda r: r.start, reverse=True):
+            kind = _LABELS.get(r.entity_type, r.entity_type.lower())
+            text = text[:r.start] + f"[{kind}]" + text[r.end:]
+        self.count += len(keep)
+        return text
+
+
+_LABELS = {"EMAIL_ADDRESS": "email", "PHONE_NUMBER": "phone", "CREDIT_CARD": "card", "US_SSN": "ssn",
+           "PERSON": "person", "IP_ADDRESS": "ip", "IBAN_CODE": "iban", "LOCATION": "location",
+           "US_PASSPORT": "passport", "US_DRIVER_LICENSE": "license", "US_BANK_NUMBER": "bank",
+           "MEDICAL_LICENSE": "license", "CRYPTO": "crypto", "DATE_TIME": "date"}
+
+
 _INJECTION = re.compile(
     r"ignore (all |any |the )?(previous|prior|above|earlier) (instructions|prompts?|rules)|"
     r"disregard (all |any |the )?(previous|prior|above|earlier|your) (instructions|prompts?|rules)|"
@@ -312,7 +396,9 @@ class Guards:
 
 def build_guards(*, allow: "list[str] | tuple[str, ...]" = (), block: "list[str] | tuple[str, ...]" = (),
                  confirm_risky: bool = False, redact_pii: bool = False, watch_injection: bool = False,
-                 max_tokens: int | None = None, max_seconds: float | None = None) -> list[Guardrail]:
+                 max_tokens: int | None = None, max_seconds: float | None = None,
+                 presidio: bool = False, presidio_entities: "list[str] | None" = None,
+                 presidio_model: str = "en_core_web_sm") -> list[Guardrail]:
     """The guardrails a command line or server asks for with flags, in a fixed order."""
     guards: list[Guardrail] = []
     if allow:
@@ -323,6 +409,8 @@ def build_guards(*, allow: "list[str] | tuple[str, ...]" = (), block: "list[str]
         guards.append(ConfirmRisky())
     if redact_pii:
         guards.append(RedactPII())
+    if presidio:
+        guards.append(PresidioRedact(presidio_entities, model=presidio_model))
     if watch_injection:
         guards.append(InjectionWatch())
     if max_tokens or max_seconds:

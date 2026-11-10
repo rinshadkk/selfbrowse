@@ -15,7 +15,7 @@ pip install -e '.[dev]'
 playwright install chromium        # or use your installed Chrome with --channel chrome
 ```
 
-Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[otel]'` (OpenTelemetry export), `pip install -e '.[bench]'` (token benchmark).
+Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[otel]'` (OpenTelemetry export), `pip install -e '.[mcp]'` (MCP server), `pip install -e '.[presidio]'` (name and personal-data masking; also run `python -m spacy download en_core_web_sm`), `pip install -e '.[bench]'` (token benchmark).
 
 ## Quick start
 
@@ -58,7 +58,7 @@ print(result.usage)        # input/output/cache tokens and number of model calls
 
 `result` has `success`, `output`, `steps`, `usage`, `history` and `error`.
 
-Thirteen runnable examples (local models, secrets, guardrails, hand-off, real Chrome, tracing, learning, and an offline one that needs no key) are in [examples/](https://github.com/rinshadkk/selfbrowse/blob/main/examples/README.md).
+Fourteen runnable examples (local models, secrets, guardrails, name masking, hand-off, real Chrome, tracing, learning, and two that need no key) are in [examples/](https://github.com/rinshadkk/selfbrowse/blob/main/examples/README.md).
 
 ## Command line reference
 
@@ -91,6 +91,9 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--allow-domain D` / `--block-domain D` | only visit / never visit these sites (repeatable) |
 | `--confirm-risky` | ask before buy, pay, delete, send, sign-out clicks |
 | `--redact-pii` | mask emails, phones, SSNs, cards in page text sent to the model |
+| `--redact-presidio` | also mask names and other personal data with Microsoft Presidio (needs the `presidio` extra; see [Names and other personal data](#names-and-other-personal-data-presidio)) |
+| `--presidio-entities LIST` | which Presidio entities to mask, e.g. `PERSON,EMAIL_ADDRESS,LOCATION` |
+| `--presidio-model NAME` | spaCy model for Presidio (default `en_core_web_sm`; `en_core_web_lg` finds more names) |
 | `--watch-injection` | warn on instruction-like page text and confirm risky actions |
 | `--max-tokens N` / `--max-seconds S` | stop a run that goes over |
 | `--no-learn` | do not read or write site knowledge |
@@ -145,7 +148,7 @@ Client config formats change between versions, so check your client's MCP docs i
 
 Things to know:
 
-- **Guardrails apply.** Use `--allow-domain`, `--block-domain`, `--block-risky`, `--redact-pii`, `--watch-injection`, `--max-tokens` and `--max-seconds`. There is nobody to ask in a terminal, so a risky click is refused, not confirmed; your client's own tool-approval prompt is a second check.
+- **Guardrails apply.** Use `--allow-domain`, `--block-domain`, `--block-risky`, `--redact-pii`, `--redact-presidio` (with `--presidio-entities` and `--presidio-model`), `--watch-injection`, `--max-tokens` and `--max-seconds`. There is nobody to ask in a terminal, so a risky click is refused, not confirmed; your client's own tool-approval prompt is a second check.
 - **No terminal hand-off.** Stdout carries the protocol. When a CAPTCHA or login needs a person, the tool result says so; start the server with `--headed` so there is a window to finish it in.
 - **Secrets:** set `SELFBROWSE_SECRET_<name>` in the server's environment; the assistant writes `<secret:name>` and never sees the value.
 - **One browser per server.** Task mode and step mode share it, so a `browse` run starts from the page your step tools left open.
@@ -205,7 +208,7 @@ Rules between the model and the browser. Pass them as a list:
 
 ```python
 from selfbrowse import BrowseAgent
-from selfbrowse.guardrails import AllowedDomains, ConfirmRisky, RedactPII, InjectionWatch, Budget
+from selfbrowse.guardrails import AllowedDomains, ConfirmRisky, RedactPII, PresidioRedact, InjectionWatch, Budget
 
 BrowseAgent(
     "task",
@@ -213,6 +216,7 @@ BrowseAgent(
         AllowedDomains(["example.com"]),      # also allows subdomains
         ConfirmRisky(),                       # asks before Buy / Pay / Delete / Send / Sign out
         RedactPII(),                          # masks emails, phones, SSNs, cards before the model sees them
+        PresidioRedact(),                     # optional: also names, via Microsoft Presidio (needs selfbrowse[presidio])
         InjectionWatch(),                     # warns on "ignore previous instructions"-style page text
         Budget(max_tokens=50_000, max_seconds=300),
     ],
@@ -226,6 +230,7 @@ BrowseAgent(
 | `BlockedDomains([...])` | never these sites |
 | `ConfirmRisky()` | asks a person before a click whose label looks irreversible; with nobody to ask (headless) it blocks instead |
 | `RedactPII(kinds=...)` | masks emails, phone numbers, US SSNs and Luhn-valid card numbers in page text. Names and addresses are not detected, and the model cannot use redacted values |
+| `PresidioRedact(entities=, threshold=, model=)` | optional. Uses Microsoft Presidio and a spaCy model to mask names as well as emails, phones, cards, SSNs, IBANs, passports and similar. Runs locally. Install with `pip install 'selfbrowse[presidio]'`; see [Names and other personal data](#names-and-other-personal-data-presidio) |
 | `InjectionWatch()` | flags instruction-like page text, tells the model to treat it as data, and requires confirmation before navigating, typing or risky clicks from that page |
 | `Budget(max_tokens=, max_seconds=, max_usd=, price=(in, out))` | stops a run that goes over; `max_usd` needs the per-million-token prices you pay, and counts cached input at full price, so it is a ceiling |
 
@@ -241,6 +246,44 @@ class NoSocial(Guardrail):
         if "facebook.com" in url:
             return Block("social sites are off limits")
 ```
+
+### Names and other personal data (Presidio)
+
+`RedactPII` is regex-only: it cannot see names or addresses. For those, turn on [Microsoft Presidio](https://microsoft.github.io/presidio/), which uses a small language model to find personal data in page text. It runs on your machine; nothing is sent to Microsoft or anyone else. It is optional, so the default install stays small.
+
+```bash
+pip install 'selfbrowse[presidio]'
+python -m spacy download en_core_web_sm        # one-time model download (about 12 MB)
+
+selfbrowse --redact-presidio "Open my account page and tell me the order status"
+```
+
+If either piece is missing, Selfbrowse stops before the run and prints the command to fix it. It never downloads a model by itself.
+
+Choose what to mask with Presidio's entity names, and trade speed for accuracy with a bigger model:
+
+```bash
+selfbrowse --redact-presidio --presidio-entities PERSON,EMAIL_ADDRESS,LOCATION "task"
+selfbrowse --redact-presidio --presidio-model en_core_web_lg "task"      # several hundred MB, slower, finds more names
+```
+
+```python
+from selfbrowse.guardrails import PresidioRedact
+
+PresidioRedact()                                   # defaults below
+PresidioRedact(["PERSON", "LOCATION"])             # only these
+PresidioRedact(threshold=0.7)                      # fewer false positives, more misses
+PresidioRedact(model="en_core_web_lg")
+PresidioRedact(analyzer=my_analyzer_engine)        # your own AnalyzerEngine: custom recognizers, other languages
+```
+
+- **Default entities:** `PERSON`, `EMAIL_ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `US_SSN`, `IBAN_CODE`, `US_PASSPORT`, `US_DRIVER_LICENSE`, `US_BANK_NUMBER`, `MEDICAL_LICENSE`, `CRYPTO`. `LOCATION` and `DATE_TIME` are off because page text is full of both; `IP_ADDRESS` is off because it would mask the address of a local page in the URL line. Add any of them by naming them. [All Presidio entity names](https://microsoft.github.io/presidio/supported_entities/).
+- **What the model sees:** a label in place of the value: `Hello [person], your email is [email]`. The model cannot use a masked value, so a task like "find the contact email" needs `EMAIL_ADDRESS` left out of the list.
+- **Use it with `--redact-pii` or alone.** Both can be on; the regex layer runs first, then Presidio.
+- **Accuracy:** statistical name detection has false positives (a product called "Max Pro" may be masked) and misses, more so with the small model and on short fragments. It lowers exposure; it does not prove nothing leaked. Measure it on your own pages before relying on it.
+- **Cost:** `en_core_web_sm` loads once per run (about 0.8 s on one laptop). After that a short page takes a few milliseconds and about 9,000 characters of page text took about 0.2 s. Those figures come from one machine and one synthetic page, so treat them as a rough guide, and `en_core_web_lg` will be slower.
+- **Scope:** it masks the page text sent to the model. It does not scrub traces, screenshots (`--vision`) or text you type; use `redact_trace=` for traces and avoid `--vision` with sensitive pages.
+- **MCP server:** `selfbrowse-mcp` takes the same `--redact-presidio`, `--presidio-entities` and `--presidio-model` flags and loads the model once at start-up.
 
 Learned-flow replays obey the same rules and never ask anyone: if a guardrail objects, the replay stops and the model takes over.
 
@@ -305,7 +348,7 @@ Tips:
 - Name the field in your task ("log in with <secret:user> and <secret:pw>") if the site has more than one form.
 - Use `--profile DIR` to log in once and keep the session, so later runs need no secret.
 - For 2FA codes, CAPTCHAs and one-off values you do not want stored, let the model call `ask_human`; you type it in the browser window.
-- Secrets hide what the model sees from the agent's side. They do not stop a page from showing your own details back (an account name, an email address). Add `--redact-pii` for that.
+- Secrets hide what the model sees from the agent's side. They do not stop a page from showing your own details back (an account name, an email address). Add `--redact-pii` (or `--redact-presidio` for names too) for that.
 - Pair secrets with `--allow-domain`, so a credential can only be typed on the site you meant.
 
 ## Pop-ups, notifications and permissions

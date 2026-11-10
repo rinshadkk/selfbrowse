@@ -33,6 +33,7 @@ dependencies = [
 stealth = ["patchright>=1.50"]   # drop-in Playwright fork that hides common automation fingerprints
 bench   = ["tiktoken>=0.7"]
 mcp     = ["mcp>=1.2"]
+presidio = ["presidio-analyzer>=2.2", "spacy>=3.7"]      # also: python -m spacy download en_core_web_sm
 otel    = ["opentelemetry-sdk>=1.25", "opentelemetry-exporter-otlp-proto-http>=1.25"]      # token counting for benchmarks/
 dev     = ["pytest>=8", "mcp>=1.2", "tiktoken>=0.7", "opentelemetry-sdk>=1.25", "opentelemetry-exporter-otlp-proto-http>=1.25"]
 
