@@ -57,6 +57,7 @@ class ServerConfig:
     page_text: int = 0
     modes: tuple[str, ...] = ("task", "step")
     secrets: dict[str, str] = field(default_factory=dict)
+    restore: bool = True
     presidio: bool = False
     presidio_entities: list[str] = field(default_factory=list)
     presidio_model: str = "en_core_web_sm"
@@ -71,7 +72,8 @@ class ServerConfig:
             allow=self.allow_domains, block=self.block_domains, confirm_risky=self.block_risky,
             redact_pii=self.redact_pii, watch_injection=self.watch_injection,
             max_tokens=self.max_tokens if with_budget else None, max_seconds=self.max_seconds if with_budget else None,
-            presidio=self.presidio, presidio_entities=self.presidio_entities, presidio_model=self.presidio_model)
+            presidio=self.presidio, presidio_entities=self.presidio_entities, presidio_model=self.presidio_model,
+            restore=self.restore)
         guards = [self._shared.setdefault("presidio", g) if isinstance(g, gr.PresidioRedact) else g for g in guards]
         return [gr.SafeUrls(), *guards]
 
@@ -209,7 +211,7 @@ class BrowserSession:
         agent = BrowseAgent(
             task, llm=c.llm or c.model, browser=self.browser, max_steps=max_steps, learn=c.learn,
             sensitive=c.secrets, handoff=False, guardrails=c.guards(with_budget=True)[1:],
-            page_text=c.page_text, home=c.home)
+            page_text=c.page_text, home=c.home, restore_answer=False)   # the answer goes to the caller's model
         res = agent.run()
         u = res.usage
         return {"success": res.success, "answer": res.output, "error": res.error, "steps": res.steps,
@@ -230,7 +232,7 @@ def create_server(cfg: ServerConfig | None = None, *, browser: Any = None) -> An
 
     cfg = cfg or ServerConfig()
     session = BrowserSession(cfg, browser)
-    mcp = MCPServer("selfbrowse", instructions=INSTRUCTIONS)
+    mcp = MCPServer("selfbrowse", instructions=INSTRUCTIONS + (" " + gr.PLACEHOLDER_NOTE if session.guards.vault else ""))
     mcp.selfbrowse_session = session                                  # for tests and shutdown
 
     if "task" in cfg.modes:
@@ -266,12 +268,17 @@ def create_server(cfg: ServerConfig | None = None, *, browser: Any = None) -> An
         @mcp.tool()
         async def browser_type(ref: int, text: str, submit: bool = False) -> str:
             """Click element #ref and type text into it (replacing what is there). submit=true presses Enter after.
-            Use <secret:NAME> for secrets stored on the server."""
+            Use <secret:NAME> for secrets stored on the server, and a placeholder such as <EMAIL_1> exactly as the
+            page showed it (when the server masks personal data) to have the real value filled in."""
             def do(b: Any) -> str:
                 try:
                     real = session.substitute_secrets(text)
                 except KeyError as exc:
                     raise RuntimeError(f"Unknown secret {exc}. Available: {', '.join(cfg.secrets) or 'none'}.") from None
+                real, refused = session.guards.restore(real, b.url)
+                if refused:
+                    raise RuntimeError(f"{', '.join(refused)} came from a different site than this page, so it is "
+                                       "not filled in here.")
                 b.click_ref(ref)
                 b.type_text(real, clear=True)
                 if submit:
@@ -352,6 +359,9 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
                    help="also mask names and other personal data with Microsoft Presidio (needs selfbrowse[presidio])")
     g.add_argument("--presidio-entities", default="", metavar="LIST", help="Presidio entities to mask, comma-separated")
     g.add_argument("--presidio-model", default="en_core_web_sm", metavar="NAME", help="spaCy model for Presidio")
+    g.add_argument("--no-restore", action="store_true",
+                   help="mask for good as [email]. By default the model sees <EMAIL_1> and browser_type fills in the "
+                        "real value on the same site; answers are never restored here")
     g.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and block risky actions after it")
     g.add_argument("--max-tokens", type=int, metavar="N", help="stop a `browse` run past N tokens")
     g.add_argument("--max-seconds", type=float, metavar="S", help="stop a `browse` run past S seconds")
@@ -366,7 +376,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     return ServerConfig(
         model=a.model, headed=a.headed, channel=a.channel, profile=a.profile, stealth=a.stealth,
         allow_domains=a.allow_domain, block_domains=a.block_domain, block_risky=a.block_risky,
-        redact_pii=a.redact_pii, watch_injection=a.watch_injection, presidio=a.redact_presidio,
+        redact_pii=a.redact_pii, watch_injection=a.watch_injection, presidio=a.redact_presidio, restore=not a.no_restore,
         presidio_entities=[x.strip() for x in a.presidio_entities.split(",") if x.strip()], presidio_model=a.presidio_model, max_tokens=a.max_tokens, max_seconds=a.max_seconds,
         max_steps=a.max_steps, learn=not a.no_learn, page_text=a.page_text, modes=modes, secrets=secrets,
         permissions=[x.strip() for x in a.permissions.split(",") if x.strip()], dialogs=a.dialogs,

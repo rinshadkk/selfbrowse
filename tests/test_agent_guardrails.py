@@ -97,7 +97,7 @@ def test_redaction_happens_before_the_model_sees_the_page(shop_url, tmp_path):
     llm = ScriptedLLM([("read", {}), DONE])
     with Browser() as b:
         b.goto(page(shop_url, "contact.html"))
-        BrowseAgent("t", llm=llm, browser=b, home=tmp_path, guardrails=[RedactPII()]).run()
+        BrowseAgent("t", llm=llm, browser=b, home=tmp_path, guardrails=[RedactPII(restore=False)]).run()
     seen = repr(llm.seen)
     assert "jane.doe@example.com" not in seen and "555-0187" not in seen and "4111" not in seen
     assert "[email]" in seen and "[card]" in seen

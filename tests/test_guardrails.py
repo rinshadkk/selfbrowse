@@ -44,7 +44,7 @@ def test_confirm_risky():
 
 
 def test_redact_pii():
-    g = RedactPII()
+    g = RedactPII(restore=False)
     out = g.on_page("mail jane.doe@example.com, tel (312) 555-0187, ssn 123-45-6789, "
                     "card 4111 1111 1111 1111, order 1234567890123, price $1,234.56", "u")
     assert "[email]" in out and "[phone]" in out and "[ssn]" in out and "[card]" in out

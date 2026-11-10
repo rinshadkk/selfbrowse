@@ -21,7 +21,7 @@ def test_masks_with_labels_and_the_best_overlap_wins():
     person_over_email = R(entity_type="PERSON", score=0.85, start=16, end=32)     # "mail priya@acme.com" is wrong
     email = R(entity_type="EMAIL_ADDRESS", score=1.0, start=21, end=35)
     name = R(entity_type="PERSON", score=0.9, start=3, end=14)
-    g = PresidioRedact(analyzer=FakeAnalyzer([person_over_email, email, name]))
+    g = PresidioRedact(analyzer=FakeAnalyzer([person_over_email, email, name]), restore=False)
     assert g.on_page(text, "u") == "Hi [person], mail [email] now"
     assert g.count == 2
 
@@ -69,7 +69,7 @@ def _real_or_skip():
 
 def test_real_presidio_masks_a_name_and_an_email():
     _real_or_skip()
-    g = PresidioRedact()
+    g = PresidioRedact(restore=False)
     out = g.on_page("Hello Priya Raman, your email is priya.raman@acme.com. Card 4111 1111 1111 1111.", "u")
     assert "Priya" not in out and "acme.com" not in out and "4111" not in out
     assert "[person]" in out and "[email]" in out and "[card]" in out
@@ -77,7 +77,7 @@ def test_real_presidio_masks_a_name_and_an_email():
 
 def test_real_presidio_entity_list_limits_what_is_masked():
     _real_or_skip()
-    out = PresidioRedact(["EMAIL_ADDRESS"]).on_page("Priya Raman: priya.raman@acme.com", "u")
+    out = PresidioRedact(["EMAIL_ADDRESS"], restore=False).on_page("Priya Raman: priya.raman@acme.com", "u")
     assert "Priya Raman" in out and "[email]" in out
 
 
@@ -95,7 +95,7 @@ def test_agent_never_shows_the_model_the_name(site, tmp_path):
     llm = ScriptedLLM([("read", {}), ("done", {"answer": "ok", "success": True})])
     with Browser() as b:
         b.goto(site("person.html"))
-        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path, learn=False, guardrails=[PresidioRedact()]).run()
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path, learn=False, guardrails=[PresidioRedact(restore=False)]).run()
     seen = str(llm.seen[1])
     assert res.success and "Priya" not in seen and "acme.com" not in seen and "[person]" in seen
 

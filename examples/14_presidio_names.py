@@ -39,9 +39,9 @@ page = Path(tempfile.mkdtemp()) / "account.html"
 page.write_text(PAGE)
 
 for label, guards in [
-    ("RedactPII only (regex: no names)", [RedactPII()]),
-    ("PresidioRedact (names too)", [PresidioRedact()]),
-    ("PresidioRedact, only emails", [PresidioRedact(["EMAIL_ADDRESS"])]),
+    ("RedactPII only (regex: no names)", [RedactPII(restore=False)]),
+    ("PresidioRedact (names too)", [PresidioRedact(restore=False)]),
+    ("PresidioRedact, only emails", [PresidioRedact(["EMAIL_ADDRESS"], restore=False)]),
 ]:
     llm = Script()
     with Browser() as browser:

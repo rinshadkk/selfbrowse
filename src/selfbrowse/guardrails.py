@@ -64,6 +64,9 @@ class RunState:
 class Guardrail:
     """Base class: every hook defaults to "no opinion"."""
 
+    reversible = False                  # masks with placeholders that can be swapped back (see Vault)
+    vault: "Vault | None" = None
+
     @property
     def name(self) -> str:
         return type(self).__name__
@@ -151,6 +154,78 @@ class ConfirmRisky(Guardrail):
         return None
 
 
+# ── placeholders ───────────────────────────────────────────────────────────────────
+
+class Vault:
+    """
+    Keeps the real values behind reversible placeholders such as ``<EMAIL_1>``. Lives in memory only;
+    it is never written to a prompt, a trace or the disk. The same value always gets the same token,
+    and each token remembers the sites it was seen on, so it can only be typed back into those sites.
+    """
+
+    def __init__(self) -> None:
+        self._by_token: dict[str, str] = {}
+        self._token_of: dict[tuple[str, str], str] = {}
+        self._hosts: dict[str, set[str]] = {}
+        self._counts: dict[str, int] = {}
+        self._pattern: re.Pattern[str] | None = None
+
+    def __len__(self) -> int:
+        return len(self._by_token)
+
+    def __bool__(self) -> bool:                 # an empty vault is still a vault
+        return True
+
+    def mint(self, kind: str, value: str, url: str = "") -> str:
+        kind = re.sub(r"[^A-Z0-9]", "", kind.upper()) or "VALUE"
+        key = (kind, value)
+        if key not in self._token_of:
+            self._counts[kind] = self._counts.get(kind, 0) + 1
+            name = f"{kind}_{self._counts[kind]}"
+            self._token_of[key], self._by_token[name] = name, value
+            self._pattern = None
+        name = self._token_of[key]
+        self._hosts.setdefault(name, set()).add(_host(url))
+        return f"<{name}>"
+
+    def remask(self, text: str, url: str = "") -> str:
+        """Put tokens back over any value this vault already knows. Catches echoes, such as a text box
+        that now holds the value the model just typed, which a detector may not recognise in that spot."""
+        for name, value in sorted(self._by_token.items(), key=lambda kv: -len(kv[1])):
+            if len(value) >= 4 and value in text:
+                text = text.replace(value, f"<{name}>")
+                self._hosts.setdefault(name, set()).add(_host(url))
+        return text
+
+    def restore(self, text: str, url: str | None = None) -> tuple[str, list[str]]:
+        """Swap tokens for real values. With ``url``, only for tokens seen on that site.
+        Returns (text, tokens that were refused because they came from another site)."""
+        if not self._by_token:
+            return text, []
+        if self._pattern is None:
+            names = sorted(self._by_token, key=len, reverse=True)
+            self._pattern = re.compile(r"[<\[{]?\b(" + "|".join(map(re.escape, names)) + r")\b[>\]}]?")
+        refused: list[str] = []
+
+        def sub(m: re.Match) -> str:
+            name = m.group(1)
+            if url is not None and _host(url) not in self._hosts.get(name, ()):
+                refused.append(name)
+                return m.group(0)
+            return self._by_token[name]
+        return self._pattern.sub(sub, text), refused
+
+
+def _host(url: str) -> str:
+    host = urlparse(url).netloc.lower().removeprefix("www.")
+    return host.rsplit("@", 1)[-1].split(":")[0]
+
+
+PLACEHOLDER_NOTE = (
+    "Personal values on pages are replaced by placeholders like <EMAIL_1> or <PERSON_1>. You cannot see the real "
+    "value, but you can use a placeholder: type it exactly as written and it is filled in for you."
+)
+
 # ── page text ──────────────────────────────────────────────────────────────────────
 
 def _luhn(digits: str) -> bool:
@@ -175,28 +250,37 @@ class RedactPII(Guardrail):
     Mask emails, phone numbers, US SSNs and card numbers (Luhn-checked) in page text before the
     model sees them. Names and addresses are NOT detected. Redacted values cannot be used by the
     model, so a task like "find the contact email" needs ``kinds`` without ``"email"``.
+
+    Values are masked with placeholders like ``<EMAIL_1>``, and Selfbrowse types the real value back
+    when the model types the placeholder into a field on the same site (``restore=True``, the default).
+    ``restore=False`` masks for good as ``[email]``: nothing keeps the value and the model cannot type it.
     """
 
     ALL = ("card", "ssn", "phone", "email")
 
-    def __init__(self, kinds: tuple[str, ...] = ALL) -> None:
+    def __init__(self, kinds: tuple[str, ...] = ALL, *, restore: bool = True) -> None:
         unknown = set(kinds) - set(self.ALL)
         if unknown:
             raise ValueError(f"unknown kinds {sorted(unknown)}; choose from {self.ALL}")
         self.kinds = kinds
+        self.reversible = restore
+        self.vault = Vault() if restore else None
+
+    def _mask(self, kind: str, value: str, url: str) -> str:
+        return self.vault.mint(kind, value, url) if self.vault else f"[{kind}]"
 
     def on_page(self, text: str, url: str) -> str:
         if "card" in self.kinds:
             def card(m: re.Match) -> str:
                 digits = re.sub(r"\D", "", m.group(0))
-                return "[card]" if 13 <= len(digits) <= 19 and _luhn(digits) else m.group(0)
+                return self._mask("card", m.group(0), url) if 13 <= len(digits) <= 19 and _luhn(digits) else m.group(0)
             text = _CARD.sub(card, text)
         if "ssn" in self.kinds:
-            text = _SSN.sub("[ssn]", text)
+            text = _SSN.sub(lambda m: self._mask("ssn", m.group(0), url), text)
         if "phone" in self.kinds:
-            text = _PHONE.sub("[phone]", text)
+            text = _PHONE.sub(lambda m: self._mask("phone", m.group(0), url), text)
         if "email" in self.kinds:
-            text = _EMAIL.sub("[email]", text)
+            text = _EMAIL.sub(lambda m: self._mask("email", m.group(0), url), text)
         return text
 
 
@@ -216,6 +300,8 @@ class PresidioRedact(Guardrail):
     ``model``       spaCy model name. ``en_core_web_sm`` is small and quick; ``en_core_web_lg`` is more
                     accurate at finding names but is several hundred MB and slower.
     ``analyzer``    bring your own ``AnalyzerEngine`` (custom recognizers, other languages).
+    ``restore``     True (default): mask with placeholders like ``<PERSON_1>`` and type the real value back
+                    when the model types the placeholder. False: mask for good as ``[person]``.
 
     Statistical name detection has false positives (a product called "Max Pro" may be masked) and
     misses; it reduces exposure, it does not prove there is none. Masked values cannot be used by the
@@ -228,7 +314,10 @@ class PresidioRedact(Guardrail):
     )
 
     def __init__(self, entities: "list[str] | tuple[str, ...] | None" = None, *, threshold: float = 0.4,
-                 model: str = "en_core_web_sm", language: str = "en", analyzer: Any = None) -> None:
+                 model: str = "en_core_web_sm", language: str = "en", analyzer: Any = None,
+                 restore: bool = True) -> None:
+        self.reversible = restore
+        self.vault = Vault() if restore else None
         self.entities = list(entities) if entities else list(self.DEFAULT_ENTITIES)
         self.threshold, self.language, self.model = threshold, language, model
         self._analyzer = analyzer
@@ -272,7 +361,8 @@ class PresidioRedact(Guardrail):
                 keep.append(r)
         for r in sorted(keep, key=lambda r: r.start, reverse=True):
             kind = _LABELS.get(r.entity_type, r.entity_type.lower())
-            text = text[:r.start] + f"[{kind}]" + text[r.end:]
+            mask = self.vault.mint(kind, text[r.start:r.end], url) if self.vault else f"[{kind}]"
+            text = text[:r.start] + mask + text[r.end:]
         self.count += len(keep)
         return text
 
@@ -370,9 +460,26 @@ class Budget(Guardrail):
 class Guards:
     items: list[Guardrail] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        reversible = [g for g in self.items if g.reversible]
+        self.vault: Vault | None = Vault() if reversible else None
+        for g in reversible:                                  # one numbering for every masking guardrail
+            g.vault = self.vault
+
+    def restore(self, text: str, url: str | None = None) -> tuple[str, list[str]]:
+        """Swap placeholders for the real values (see :class:`Vault`). No-op without a reversible guardrail."""
+        return self.vault.restore(text, url) if self.vault else (text, [])
+
+    def note(self) -> str:
+        return PLACEHOLDER_NOTE if self.vault else ""
+
     def page(self, text: str, url: str) -> str:
+        if self.vault:
+            text = self.vault.remask(text, url)
         for g in self.items:
             text = g.on_page(text, url)
+        if self.vault:
+            text = self.vault.remask(text, url)
         return text
 
     def url(self, url: str) -> tuple[Guardrail, Block] | None:
@@ -398,7 +505,7 @@ def build_guards(*, allow: "list[str] | tuple[str, ...]" = (), block: "list[str]
                  confirm_risky: bool = False, redact_pii: bool = False, watch_injection: bool = False,
                  max_tokens: int | None = None, max_seconds: float | None = None,
                  presidio: bool = False, presidio_entities: "list[str] | None" = None,
-                 presidio_model: str = "en_core_web_sm") -> list[Guardrail]:
+                 presidio_model: str = "en_core_web_sm", restore: bool = True) -> list[Guardrail]:
     """The guardrails a command line or server asks for with flags, in a fixed order."""
     guards: list[Guardrail] = []
     if allow:
@@ -408,9 +515,9 @@ def build_guards(*, allow: "list[str] | tuple[str, ...]" = (), block: "list[str]
     if confirm_risky:
         guards.append(ConfirmRisky())
     if redact_pii:
-        guards.append(RedactPII())
+        guards.append(RedactPII(restore=restore))
     if presidio:
-        guards.append(PresidioRedact(presidio_entities, model=presidio_model))
+        guards.append(PresidioRedact(presidio_entities, model=presidio_model, restore=restore))
     if watch_injection:
         guards.append(InjectionWatch())
     if max_tokens or max_seconds:

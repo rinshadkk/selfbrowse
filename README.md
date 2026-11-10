@@ -90,10 +90,11 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--otel URL` / `--otel-content` | export spans to an OTLP endpoint (needs the `otel` extra) |
 | `--allow-domain D` / `--block-domain D` | only visit / never visit these sites (repeatable) |
 | `--confirm-risky` | ask before buy, pay, delete, send, sign-out clicks |
-| `--redact-pii` | mask emails, phones, SSNs, cards in page text sent to the model |
+| `--redact-pii` | hide emails, phones, SSNs, cards from the model: it sees `<EMAIL_1>`, the real value is typed back for it, and your answer shows the real values (see [Keeping personal data from the model](#keeping-personal-data-from-the-model)) |
 | `--redact-presidio` | also mask names and other personal data with Microsoft Presidio (needs the `presidio` extra; see [Names and other personal data](#names-and-other-personal-data-presidio)) |
 | `--presidio-entities LIST` | which Presidio entities to mask, e.g. `PERSON,EMAIL_ADDRESS,LOCATION` |
 | `--presidio-model NAME` | spaCy model for Presidio (default `en_core_web_sm`; `en_core_web_lg` finds more names) |
+| `--no-restore` | with a redaction flag: mask for good as `[email]`. Nothing keeps the value, the model cannot type it, and the answer stays masked |
 | `--watch-injection` | warn on instruction-like page text and confirm risky actions |
 | `--max-tokens N` / `--max-seconds S` | stop a run that goes over |
 | `--no-learn` | do not read or write site knowledge |
@@ -215,7 +216,7 @@ BrowseAgent(
     guardrails=[
         AllowedDomains(["example.com"]),      # also allows subdomains
         ConfirmRisky(),                       # asks before Buy / Pay / Delete / Send / Sign out
-        RedactPII(),                          # masks emails, phones, SSNs, cards before the model sees them
+        RedactPII(),                          # hides emails, phones, SSNs, cards behind <EMAIL_1>-style placeholders
         PresidioRedact(),                     # optional: also names, via Microsoft Presidio (needs selfbrowse[presidio])
         InjectionWatch(),                     # warns on "ignore previous instructions"-style page text
         Budget(max_tokens=50_000, max_seconds=300),
@@ -229,7 +230,7 @@ BrowseAgent(
 | `AllowedDomains([...])` | only these sites (judged on the real hostname, so `https://good.com@evil.com` is evil.com). Also undoes a click that lands elsewhere, and refuses a start page outside the list |
 | `BlockedDomains([...])` | never these sites |
 | `ConfirmRisky()` | asks a person before a click whose label looks irreversible; with nobody to ask (headless) it blocks instead |
-| `RedactPII(kinds=...)` | masks emails, phone numbers, US SSNs and Luhn-valid card numbers in page text. Names and addresses are not detected, and the model cannot use redacted values |
+| `RedactPII(kinds=..., restore=True)` | hides emails, phone numbers, US SSNs and Luhn-valid card numbers behind placeholders like `<EMAIL_1>`; the real value is typed back on the same site. Names and addresses are not detected. `restore=False` masks for good as `[email]` |
 | `PresidioRedact(entities=, threshold=, model=)` | optional. Uses Microsoft Presidio and a spaCy model to mask names as well as emails, phones, cards, SSNs, IBANs, passports and similar. Runs locally. Install with `pip install 'selfbrowse[presidio]'`; see [Names and other personal data](#names-and-other-personal-data-presidio) |
 | `InjectionWatch()` | flags instruction-like page text, tells the model to treat it as data, and requires confirmation before navigating, typing or risky clicks from that page |
 | `Budget(max_tokens=, max_seconds=, max_usd=, price=(in, out))` | stops a run that goes over; `max_usd` needs the per-million-token prices you pay, and counts cached input at full price, so it is a ceiling |
@@ -278,12 +279,51 @@ PresidioRedact(analyzer=my_analyzer_engine)        # your own AnalyzerEngine: cu
 ```
 
 - **Default entities:** `PERSON`, `EMAIL_ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `US_SSN`, `IBAN_CODE`, `US_PASSPORT`, `US_DRIVER_LICENSE`, `US_BANK_NUMBER`, `MEDICAL_LICENSE`, `CRYPTO`. `LOCATION` and `DATE_TIME` are off because page text is full of both; `IP_ADDRESS` is off because it would mask the address of a local page in the URL line. Add any of them by naming them. [All Presidio entity names](https://microsoft.github.io/presidio/supported_entities/).
-- **What the model sees:** a label in place of the value: `Hello [person], your email is [email]`. The model cannot use a masked value, so a task like "find the contact email" needs `EMAIL_ADDRESS` left out of the list.
+- **What the model sees:** a placeholder in place of the value: `Hello <PERSON_1>, your email is <EMAIL_1>` (with `--no-restore`, a label: `[person]`, `[email]`). The model cannot read a hidden value, so a task like "find the contact email" needs `EMAIL_ADDRESS` left out of the list.
 - **Use it with `--redact-pii` or alone.** Both can be on; the regex layer runs first, then Presidio.
 - **Accuracy:** statistical name detection has false positives (a product called "Max Pro" may be masked) and misses, more so with the small model and on short fragments. It lowers exposure; it does not prove nothing leaked. Measure it on your own pages before relying on it.
 - **Cost:** `en_core_web_sm` loads once per run (about 0.8 s on one laptop). After that a short page takes a few milliseconds and about 9,000 characters of page text took about 0.2 s. Those figures come from one machine and one synthetic page, so treat them as a rough guide, and `en_core_web_lg` will be slower.
 - **Scope:** it masks the page text sent to the model. It does not scrub traces, screenshots (`--vision`) or text you type; use `redact_trace=` for traces and avoid `--vision` with sensitive pages.
 - **MCP server:** `selfbrowse-mcp` takes the same `--redact-presidio`, `--presidio-entities` and `--presidio-model` flags and loads the model once at start-up.
+
+### Keeping personal data from the model
+
+Hiding a value has a cost: the model cannot use what it cannot see. With `[email]` on the page it cannot fill a form with that email. So `--redact-pii` and `--redact-presidio` do not just delete the value. Page text gets stable placeholders, `<EMAIL_1>`, `<PERSON_1>`, `<CARD_1>`. The model is told it can type a placeholder, and Selfbrowse swaps in the real value at the keyboard. This is the default; `--no-restore` turns it off.
+
+```bash
+pip install 'selfbrowse[presidio]'
+selfbrowse --redact-pii --redact-presidio --allow-domain example.com \
+  "On my account page, subscribe the email address on file to the newsletter"
+```
+
+What the model sees and does: `Email on file: <EMAIL_1>` ... `type #2 "<EMAIL_1>"`. What the page receives: `priya.raman@acme.com`.
+
+```python
+from selfbrowse.guardrails import RedactPII, PresidioRedact
+BrowseAgent("...", guardrails=[RedactPII(), PresidioRedact()])      # placeholders, restored on typing and in your answer
+BrowseAgent("...", guardrails=[RedactPII(restore=False)])             # mask for good: [email]
+BrowseAgent("...", guardrails=[RedactPII()], restore_answer=False)    # keep the answer masked, e.g. if you forward it to a model or a log
+```
+
+- **The same value always gets the same token**, across pages and across both masking guardrails, so the model can tell two people apart.
+- **Only `type` (and `find`) restore values.** `goto`, `select`, `click` and the traces only ever carry placeholders. Learned site flows never store typed text, so no placeholder can be replayed into a later run with a different meaning.
+- **Same site only.** Each placeholder remembers which sites it was seen on and is refused anywhere else (`www.` and port are ignored). A page that tricks the model into typing `<EMAIL_1>` into a form on another site gets the placeholder back, not your email. The model is told why.
+- **Echoes are masked too.** After the real value is typed, the page often shows it back (a text box now holding the name). Selfbrowse masks every value it already knows wherever it appears, even where the detector would not have recognised it.
+- **Your answer shows the real values.** The model writes `Confirmation sent to <EMAIL_1>` and you get the real address. The recorded steps and traces keep the placeholders. If you pass the answer on to another model or a log, use `restore_answer=False` in Python. Over MCP the answer goes to the calling assistant, so it is never restored there.
+- **It needs the model to copy the placeholder exactly.** Brackets are optional (`EMAIL_1` works) and `EMAIL_1` never matches `EMAIL_10`, but a model that rewrites a token into words (`the email`) cannot be restored. See the check below.
+- **MCP server:** `selfbrowse-mcp --redact-pii` uses placeholders too; `browser_type` fills in the real value on the same site. `--no-restore` masks for good.
+- **When to use `--no-restore`:** when your rule is that the value must not exist anywhere in the process. By default a mapping from placeholder to real value sits in memory for the length of the run (never on disk, in prompts or in traces). With `--no-restore` the value is discarded the moment the page is masked.
+- **It does not remove the need to trust the page.** A value the detector missed was shown to the model in plain text. Combine this with `--allow-domain`.
+
+**Checked against local qwen3.6** (`benchmarks/reversible/run.py`, 5 trials per mode, a profile page with a name and an email and a form that asks for both):
+
+| | Form filled with the real values | Real value seen by the model | Model calls (median) | Tokens (median) | Time per run |
+|---|---|---|---|---|---|
+| placeholders (default) | 5 of 5 | 0 of 5 | 6 | 8,287 | 25 to 39 s (one run took 9 calls) |
+| `--no-restore` (masked as `[email]`) | 0 of 5 | 0 of 5 | 10 | 21,676 | 187 to 225 s |
+
+With `--no-restore` the model typed the literal text `[email]` into the form every time and still reported success, so the page received nothing useful and the model did not notice. This is one local model, one page and five trials, so read it as a working demonstration, not a rate. Raw rows are in `benchmarks/reversible/qwen3.6-result.json`; rerun with `python benchmarks/reversible/run.py --model ollama:qwen3.6-bench --trials 5`.
+
 
 Learned-flow replays obey the same rules and never ask anyone: if a guardrail objects, the replay stops and the model takes over.
 

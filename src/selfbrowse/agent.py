@@ -57,6 +57,9 @@ class BrowseAgent:
             Fewer ``read`` calls, more tokens per step.
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
             real value only when typing, so secrets never enter the model's context.
+        restore_answer: put the real values back into the final answer you get (default True; the model
+            never sees them, and the recorded steps stay masked). Pass False if you forward the answer to
+            another model or a log.
         home: data folder (default ``~/.selfbrowse``, or ``$SELFBROWSE_HOME``).
         on_step: callback receiving each :class:`selfbrowse.Step`.
     """
@@ -73,6 +76,7 @@ class BrowseAgent:
         page_text: int = 0,
         max_output_tokens: int = 2048,
         sensitive: dict[str, str] | None = None,
+        restore_answer: bool = True,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
         guardrails: "list[Guardrail] | None" = None,
@@ -99,6 +103,7 @@ class BrowseAgent:
         self.page_text = max(0, int(page_text))
         self.max_output_tokens = max(256, int(max_output_tokens))
         self.sensitive = dict(sensitive or {})
+        self.restore_answer = restore_answer
         self.on_step = on_step
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
         self.knowledge = SiteKnowledge(home_dir / "sites") if learn else None
@@ -187,7 +192,7 @@ class BrowseAgent:
     def _loop(self) -> RunResult:
         usage = Usage()
         history: list[Step] = []
-        task_msg = f"Task: {self.task}" + self._secrets_note()
+        task_msg = f"Task: {self.task}" + self._secrets_note() + (f"\n{self.guards.note()}" if self.guards.note() else "")
         messages: list[dict[str, Any]] = [{"role": "user", "content": task_msg}]
         system = [{"text": self._system_text, "cache": True}]
         recent: list[tuple[str, str, str]] = []
@@ -330,6 +335,8 @@ class BrowseAgent:
 
         if self.knowledge:
             self.knowledge.commit(success, self.task)
+        if self.restore_answer and output:
+            output = self.guards.restore(output)[0]
         return RunResult(success=success, output=output, steps=len(history), usage=usage, history=history, error=error)
 
     def _click_key(self, url: str, args: dict[str, Any]) -> tuple[str, str, str] | None:
@@ -569,6 +576,10 @@ class BrowseAgent:
                     text = self._substitute_secrets(str(a["text"]))
                 except KeyError as exc:
                     return f"Unknown secret {exc}. Available: {', '.join(self.sensitive) or 'none'}.", False
+                text, refused = self.guards.restore(text, b.url)
+                if refused:
+                    return (f"Blocked: {', '.join(refused)} came from a different site than this page, so it is not "
+                            "filled in here. Type a value you were given, or ask the person."), False
                 b.click_ref(int(a["ref"]))
                 b.type_text(text, clear=True)
                 if a.get("submit"):
@@ -578,7 +589,8 @@ class BrowseAgent:
             if name == "select":
                 return b.select_ref(int(a["ref"]), str(a["option"])), True
             if name == "find":
-                return self.guards.page(b.find_text(str(a["text"]), int(a.get("nth", 1))), b.url), True
+                wanted, _ = self.guards.restore(str(a["text"]), b.url)
+                return self.guards.page(b.find_text(wanted, int(a.get("nth", 1))), b.url), True
             if name == "switch_tab":
                 return b.switch_tab(int(a["index"])), True
             if name == "close_tab":

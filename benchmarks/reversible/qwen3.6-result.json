@@ -1,0 +1,175 @@
+{
+ "model": "ollama:qwen3.6-bench",
+ "rows": [
+  {
+   "mode": "reversible",
+   "success": true,
+   "steps": 9,
+   "calls": 9,
+   "seconds": 25,
+   "tokens": 12068,
+   "submitted": "subscribed:priya.raman@acme.com|Priya Raman",
+   "filled": true,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "<EMAIL_1>",
+    "<PERSON_1>"
+   ],
+   "answer": "Newsletter email: <EMAIL_1>, Your name: <PERSON_1>"
+  },
+  {
+   "mode": "reversible",
+   "success": true,
+   "steps": 6,
+   "calls": 6,
+   "seconds": 26,
+   "tokens": 8287,
+   "submitted": "subscribed:priya.raman@acme.com|Priya Raman",
+   "filled": true,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "<EMAIL_1>",
+    "<PERSON_1>"
+   ],
+   "answer": "Email: <EMAIL_1>, Name: <PERSON_1>"
+  },
+  {
+   "mode": "reversible",
+   "success": true,
+   "steps": 6,
+   "calls": 6,
+   "seconds": 29,
+   "tokens": 8287,
+   "submitted": "subscribed:priya.raman@acme.com|Priya Raman",
+   "filled": true,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "<EMAIL_1>",
+    "<PERSON_1>"
+   ],
+   "answer": "Email: <EMAIL_1>, Name: <PERSON_1>"
+  },
+  {
+   "mode": "reversible",
+   "success": true,
+   "steps": 6,
+   "calls": 6,
+   "seconds": 32,
+   "tokens": 8287,
+   "submitted": "subscribed:priya.raman@acme.com|Priya Raman",
+   "filled": true,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "<EMAIL_1>",
+    "<PERSON_1>"
+   ],
+   "answer": "Email: <EMAIL_1>, Name: <PERSON_1>"
+  },
+  {
+   "mode": "reversible",
+   "success": true,
+   "steps": 6,
+   "calls": 6,
+   "seconds": 39,
+   "tokens": 8287,
+   "submitted": "subscribed:priya.raman@acme.com|Priya Raman",
+   "filled": true,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "<EMAIL_1>",
+    "<PERSON_1>"
+   ],
+   "answer": "Email: <EMAIL_1>, Name: <PERSON_1>"
+  },
+  {
+   "mode": "masked",
+   "success": true,
+   "steps": 6,
+   "calls": 9,
+   "seconds": 187,
+   "tokens": 18865,
+   "submitted": "subscribed:[email]|[person]",
+   "filled": false,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "[email]",
+    "[person]"
+   ],
+   "answer": "email: [email], name: [person]"
+  },
+  {
+   "mode": "masked",
+   "success": true,
+   "steps": 6,
+   "calls": 10,
+   "seconds": 200,
+   "tokens": 21676,
+   "submitted": "subscribed:[email]|[person]",
+   "filled": false,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "[email]",
+    "[person]"
+   ],
+   "answer": "Newsletter email: [email], Your name: [person]"
+  },
+  {
+   "mode": "masked",
+   "success": true,
+   "steps": 6,
+   "calls": 10,
+   "seconds": 225,
+   "tokens": 21676,
+   "submitted": "subscribed:[email]|[person]",
+   "filled": false,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "[email]",
+    "[person]"
+   ],
+   "answer": "Newsletter email: [email], Your name: [person]"
+  },
+  {
+   "mode": "masked",
+   "success": true,
+   "steps": 6,
+   "calls": 10,
+   "seconds": 225,
+   "tokens": 21676,
+   "submitted": "subscribed:[email]|[person]",
+   "filled": false,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "[email]",
+    "[person]"
+   ],
+   "answer": "Newsletter email: [email], Your name: [person]"
+  },
+  {
+   "mode": "masked",
+   "success": true,
+   "steps": 6,
+   "calls": 10,
+   "seconds": 221,
+   "tokens": 21676,
+   "submitted": "subscribed:[email]|[person]",
+   "filled": false,
+   "leaked": false,
+   "leak_context": [],
+   "typed": [
+    "[email]",
+    "[person]"
+   ],
+   "answer": "Newsletter email: [email], Your name: [person]"
+  }
+ ]
+}

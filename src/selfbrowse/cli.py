@@ -43,6 +43,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="Presidio entities to mask, comma-separated (default: person, email, phone, card, ssn, ...)")
     r.add_argument("--presidio-model", default="en_core_web_sm", metavar="NAME",
                    help="spaCy model for Presidio (default en_core_web_sm; en_core_web_lg is more accurate)")
+    r.add_argument("--no-restore", action="store_true",
+                   help="with --redact-pii/--redact-presidio: mask for good as [email]. By default the model sees "
+                        "<EMAIL_1>, the real value is typed back on the same site, and your answer shows the real values")
     r.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and confirm risky actions")
     r.add_argument("--max-tokens", type=int, metavar="N", help="stop the run past N total tokens")
     r.add_argument("--max-seconds", type=float, metavar="S", help="stop the run past S seconds")
@@ -92,7 +95,9 @@ def main(argv: list[str] | None = None) -> int:
                              max_tokens=args.max_tokens, max_seconds=args.max_seconds,
                              presidio=args.redact_presidio,
                              presidio_entities=[x.strip() for x in args.presidio_entities.split(",") if x.strip()],
-                             presidio_model=args.presidio_model)
+                             presidio_model=args.presidio_model, restore=not args.no_restore)
+    if args.no_restore and not (args.redact_pii or args.redact_presidio):
+        p.error("--no-restore needs --redact-pii or --redact-presidio")
     try:
         for g in guards:
             getattr(g, "check_ready", lambda: None)()

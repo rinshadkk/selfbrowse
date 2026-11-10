@@ -552,7 +552,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 24px; flex-wr
         <div><dt>AllowedDomains</dt><dd>Stay on these sites and their subdomains. Redirects elsewhere are sent back.</dd></div>
         <div><dt>BlockedDomains</dt><dd>Never visit these sites.</dd></div>
         <div><dt>ConfirmRisky</dt><dd>Ask you before a click like Buy, Pay, Delete, Send or Sign out.</dd></div>
-        <div><dt>RedactPII</dt><dd>Mask emails, phone numbers, SSNs and card numbers before the model sees the page.</dd></div>
+        <div><dt>RedactPII</dt><dd>Hide emails, phone numbers, SSNs and card numbers from the model behind placeholders like &lt;EMAIL_1&gt;; the real value is typed back on the same site.</dd></div>
         <div><dt>PresidioRedact<small>optional</small></dt><dd>Also mask names and more with Microsoft Presidio, running on your machine. <code>pip install "selfbrowse[presidio]"</code></dd></div>
         <div><dt>InjectionWatch</dt><dd>Spot “ignore your instructions” text on a page, warn the model, and ask before risky steps.</dd></div>
         <div><dt>Budget</dt><dd>Stop past a token, time or dollar limit.</dd></div>

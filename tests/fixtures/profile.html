@@ -1,0 +1,11 @@
+<!doctype html><html><head><title>Profile</title></head><body>
+<h1>Your profile</h1>
+<p>Account holder: Priya Raman</p>
+<p>Email on file: priya.raman@acme.com</p>
+<form onsubmit="event.preventDefault();document.getElementById('o').textContent='subscribed:'+document.getElementById('e').value+'|'+document.getElementById('n').value">
+  <label>Newsletter email <input id="e" name="email" type="text"></label>
+  <label>Your name <input id="n" name="name" type="text"></label>
+  <button type="submit">Subscribe</button>
+</form>
+<p id="o"></p>
+</body></html>
