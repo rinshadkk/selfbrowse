@@ -701,6 +701,15 @@ class Browser:
         except Exception:
             pass
 
+    def save_screenshot(self, path: "str | Path") -> bool:
+        """Save the viewport as a JPEG file. False if the page cannot be captured right now
+        (closed, or blocked by an open dialog); a missing picture must never stop a run."""
+        try:
+            self.page.screenshot(path=str(path), type="jpeg", quality=self.screenshot_quality, timeout=5000)
+            return True
+        except Exception:
+            return False
+
     def screenshot(self) -> str:
         """Base64 JPEG of the viewport."""
         raw = self.page.screenshot(type="jpeg", quality=self.screenshot_quality)

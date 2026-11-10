@@ -38,6 +38,7 @@ class Step:
     result: str
     url: str = ""
     from_cache: bool = False       # replayed from learned site knowledge, no model call
+    screenshot: str = ""           # path of this step's evidence image, when screenshots are on
 
 
 @dataclass

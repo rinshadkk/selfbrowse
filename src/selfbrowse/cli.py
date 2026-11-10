@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-m", "--model", default=os.environ.get(f"{_about.ENV_PREFIX}MODEL", "anthropic:claude-haiku-4-5"),
                    help="provider:model (default: anthropic:claude-haiku-4-5)")
     p.add_argument("--headed", action="store_true", help="show the browser window")
-    p.add_argument("--max-steps", type=int, default=25)
+    p.add_argument("--max-steps", type=int, default=100, help="stop after N tool calls (default: 100)")
     p.add_argument("--profile", help="folder to keep cookies/logins between runs")
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-output-tokens", type=int, default=2048, metavar="N",
                    help="cap on each model reply (raise for reasoning models that think at length; default 2048)")
     p.add_argument("--vision", action="store_true", help="allow screenshots (more tokens)")
+    p.add_argument("--screenshots", metavar="DIR",
+                   help="save a screenshot after every step, plus an index.html, in a new folder under DIR (evidence; the images are not redacted and are not sent to the model)")
     g = p.add_argument_group("observability")
     g.add_argument("--trace", action="store_true", help="record the run to ~/.selfbrowse/traces/")
     g.add_argument("--show-prompts", action="store_true", help="print every model request to stderr")
@@ -114,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth,
                           permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
-                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
+                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         try:
@@ -132,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
         u = result.usage
         if agent.trace_path:
             print(f"[trace: {agent.trace_path}]", file=sys.stderr)
+        if agent.screenshots_dir:
+            print(f"[screenshots: {agent.screenshots_dir}]", file=sys.stderr)
         print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens]", file=sys.stderr)
     return 0 if result.success else 1
 

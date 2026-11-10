@@ -1,6 +1,7 @@
 """The agent loop."""
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -35,6 +36,9 @@ class BrowseAgent:
         max_steps: hard cap on tool calls.
         learn: read and write per-site knowledge (replay known flows, remember facts).
         vision: let the model request screenshots (off by default; costs tokens).
+        screenshots: folder to save one image per step as evidence (``step-01.jpg``, ...) plus an
+            ``index.html`` of the run, in a new sub-folder per run. The images show the page as it
+            really is, so redaction guardrails do not apply to them. Not sent to the model.
         handoff: what to do when only a person can continue (CAPTCHA, login, 2FA...).
             ``"auto"`` (default): ask in the terminal if the browser window is visible, otherwise
             stop with a clear error; ``False``: never; or your own ``callable(HandoffRequest) -> bool``
@@ -70,9 +74,10 @@ class BrowseAgent:
         *,
         llm: "str | LLM" = "anthropic:claude-haiku-4-5",
         browser: Any = None,
-        max_steps: int = 25,
+        max_steps: int = 100,
         learn: bool = True,
         vision: bool = False,
+        screenshots: "str | Path | None" = None,
         page_text: int = 0,
         max_output_tokens: int = 2048,
         sensitive: dict[str, str] | None = None,
@@ -100,6 +105,8 @@ class BrowseAgent:
         self.browser = browser
         self.max_steps = max_steps
         self.vision = vision
+        self._shots_root = Path(screenshots).expanduser() if screenshots else None
+        self.screenshots_dir: Path | None = None
         self.page_text = max(0, int(page_text))
         self.max_output_tokens = max(256, int(max_output_tokens))
         self.sensitive = dict(sensitive or {})
@@ -139,6 +146,7 @@ class BrowseAgent:
         if hasattr(self.browser, "on_dialog"):
             self.browser.on_dialog = self._dialog_veto
         self._setup_trace()
+        self._start_screenshots()
         self._trace("run_start", task=self.task, model=getattr(self._raw_llm, "model", "?"),
                     headed=not getattr(self.browser, "headless", True), handoff=self._handler is not None,
                     guardrails=[g.name for g in self.guards.items])
@@ -154,6 +162,7 @@ class BrowseAgent:
                 u = result.usage
                 self._trace("run_end", success=result.success, steps=result.steps, error=result.error,
                             tokens_total=u.total_input + u.output_tokens, calls=u.calls)
+            self._write_gallery(result)
             if self.tracer:
                 self.tracer.close()
             if self._own_browser:
@@ -412,9 +421,53 @@ class BrowseAgent:
     def _step(self, history: list[Step], tool: str, args: dict, result: str, url: str = "", cached: bool = False) -> Step:
         shown = {k: ("<hidden>" if k == "text" and _SECRET_RE.search(str(v)) else v) for k, v in args.items()}
         step = Step(len(history) + 1, tool, shown, result.split(PAGE_SEP)[0][:300], url or self.browser.url, cached)
+        step.screenshot = self._shoot(step.number)
         if self.on_step:
             self.on_step(step)
         return step
+
+    def _start_screenshots(self) -> None:
+        self.screenshots_dir = None
+        if self._shots_root:
+            stamp = time.strftime("run-%Y%m%d-%H%M%S")
+            d, n = self._shots_root / stamp, 1
+            while d.exists():
+                n += 1
+                d = self._shots_root / f"{stamp}-{n}"
+            d.mkdir(parents=True, mode=0o700)
+            self.screenshots_dir = d
+
+    def _shoot(self, number: int) -> str:
+        if not self.screenshots_dir or not hasattr(self.browser, "save_screenshot"):
+            return ""
+        path = self.screenshots_dir / f"step-{number:02d}.jpg"
+        ok = self.browser.save_screenshot(path)
+        if ok:
+            self._trace("screenshot", step=number, path=str(path))
+        return path.name if ok else ""
+
+    def _write_gallery(self, result: "RunResult | None") -> None:
+        """index.html next to the images: one row per step, so the folder reads as evidence."""
+        if not self.screenshots_dir:
+            return
+        import html
+        steps = result.history if result else []
+        rows = "".join(
+            f"<section><h2>{s.number}. {html.escape(s.tool)} <small>{html.escape(json.dumps(s.input, ensure_ascii=False))}</small></h2>"
+            f"<p>{html.escape(s.url)}</p><p>{html.escape(s.result)}</p>"
+            + (f'<img src="{html.escape(s.screenshot)}" alt="page after step {s.number}">' if s.screenshot else "<p><i>no screenshot</i></p>")
+            + "</section>" for s in steps)
+        outcome = "no result" if result is None else ("succeeded" if result.success else "failed")
+        page = (f'<!doctype html><meta charset="utf-8"><title>Selfbrowse run</title>'
+                '<style>body{font:15px system-ui;max-width:960px;margin:2rem auto;padding:0 1rem}'
+                'img{max-width:100%;border:1px solid #888}small{font-weight:400;color:#666}'
+                'section{margin:2rem 0}</style>'
+                f"<h1>{html.escape(self.task)}</h1><p>The run {outcome}. Screenshots show the page after each step, "
+                f"unredacted.</p>{rows}")
+        try:
+            (self.screenshots_dir / "index.html").write_text(page, encoding="utf-8")
+        except OSError:
+            pass
 
     @staticmethod
     def _result(tool_use_id: str, text: str) -> dict[str, Any]:

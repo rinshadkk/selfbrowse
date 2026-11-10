@@ -74,13 +74,14 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 |---|---|
 | `-m`, `--model` | `provider:model` (default `anthropic:claude-haiku-4-5`, or `$SELFBROWSE_MODEL`) |
 | `--headed` | show the browser window |
-| `--max-steps N` | stop after N tool calls (default 25) |
+| `--max-steps N` | stop after N tool calls (default 100) |
 | `--channel chrome\|msedge` | use an installed browser instead of bundled Chromium |
 | `--profile DIR` | keep cookies and logins in this folder between runs |
 | `--stealth` | use Patchright to reduce common automation signals |
 | `--page-text N` | also send up to N characters of on-screen text with every page list (more tokens, fewer `read` calls) |
 | `--max-output-tokens N` | cap on each model reply (default 2048); raise it for reasoning models that think at length |
 | `--vision` | let the model request screenshots (more tokens) |
+| `--screenshots DIR` | save a screenshot after every step, plus an `index.html`, in a new folder under `DIR`, as evidence of what the agent did (see [Screenshots as evidence](#screenshots-as-evidence)) |
 | `--permissions LIST` | grant browser permissions to every site, e.g. `notifications,geolocation` (default: none) |
 | `--dialogs auto\|accept\|dismiss` | what to do with JavaScript `alert`/`confirm`/`prompt` (default `auto`) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
@@ -202,6 +203,23 @@ selfbrowse --otel http://localhost:4318 "task"
 ```
 
 Each run becomes a `selfbrowse.run` span with child spans per model call (`gen_ai.*` attributes, token usage) and per tool call; guardrail decisions and hand-offs are span events. Spans carry sizes and timings only. Add `--otel-content` to attach what the model was sent and what it answered: each `chat` span gets `gen_ai.system_instructions`, `gen_ai.input.messages` and `gen_ai.output.messages` (OpenTelemetry GenAI conventions, still experimental). LLM viewers such as Phoenix, Langfuse and Opik show these as a conversation; Jaeger shows them as JSON strings under the span's Tags. Long text is shortened part by part so the JSON stays valid. These attributes contain page text, so only send them to a backend you trust. Spans go only where you point them.
+
+### Screenshots as evidence
+
+To keep proof of what the agent saw and did, save a picture after every step:
+
+```bash
+selfbrowse --screenshots ./evidence "Add the cheapest USB-C cable to the cart on example.com"
+# [screenshots: evidence/run-20261110-093015]
+```
+
+Each run gets its own folder with `step-01.jpg`, `step-02.jpg` and so on, and an `index.html` that lists every step (tool, arguments, URL, result) next to its picture. Python: `BrowseAgent("task", screenshots="./evidence")`, then `agent.screenshots_dir`; each `Step` has a `.screenshot` file name, and a trace records a `screenshot` event per image.
+
+- **The picture shows the page after the step ran**, including the last page when the agent calls `done`.
+- **The model never gets these images.** This is separate from `--vision`, which sends pictures to the model and costs tokens.
+- **They are not redacted.** A screenshot shows the page as it really is: names, emails and anything the agent typed, even a password that is hidden everywhere else. The folder is created private to your user (mode 700). Do not share or commit it without looking, and avoid `--screenshots` on pages with data you would not want stored.
+- **A picture that cannot be taken** (the page just closed, or a pop-up is blocking capture) leaves a gap, marked in `index.html`; the run carries on.
+- The MCP server does not save screenshots.
 
 ## Guardrails
 
