@@ -1,0 +1,45 @@
+name: pages
+# Builds the website (site/) and the documentation (docs/) into one site.
+# It deploys only when run by hand or when the repository variable PAGES_DEPLOY is "true",
+# so nothing becomes public by accident.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "docs/**", "mkdocs.yml", ".github/workflows/pages.yml"]
+  pull_request:
+    paths: ["site/**", "docs/**", "mkdocs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install 'mkdocs>=1.6,<2' 'mkdocs-material>=9.5,<10'
+      - run: mkdocs build --strict            # writes _site/docs
+      - run: cp -R site/. _site/              # the website at the root
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+
+  deploy:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.PAGES_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,20 @@
+:root, [data-md-color-scheme="default"] {
+  --md-primary-fg-color: #1D6A72;
+  --md-primary-fg-color--light: #2a8791;
+  --md-primary-fg-color--dark: #17202B;
+  --md-accent-fg-color: #1D6A72;
+  --md-default-bg-color: #F2F4F1;
+  --md-default-fg-color: #17202B;
+  --md-typeset-a-color: #1D6A72;
+  --md-code-bg-color: #17202B;
+  --md-code-fg-color: #E7EBE6;
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #17202B;
+  --md-accent-fg-color: #6fc3cb;
+  --md-default-bg-color: #141A21;
+  --md-typeset-a-color: #6fc3cb;
+}
+.md-typeset h1 { font-weight: 700; letter-spacing: -0.01em; }
+.md-typeset code { border-radius: 2px; }
+.md-header__button.md-logo img { height: 1.6rem; }

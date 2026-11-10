@@ -18,3 +18,4 @@ build/
 storage.json
 .browser_profile/
 .venv-bu/
+_site/
