@@ -52,7 +52,7 @@ class ServerConfig:
     watch_injection: bool = False
     max_tokens: int | None = None
     max_seconds: float | None = None
-    max_steps: int = 25
+    max_steps: int = 100
     learn: bool = True
     page_text: int = 0
     modes: tuple[str, ...] = ("task", "step")
@@ -343,7 +343,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
     p.add_argument("--profile", help="folder to keep cookies and logins between runs")
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
-    p.add_argument("--max-steps", type=int, default=25, help="step limit for `browse` (default 25)")
+    p.add_argument("--max-steps", type=int, default=100, help="step limit for `browse` (default 100)")
     p.add_argument("--page-text", type=int, default=0, metavar="N", help="also send up to N characters of on-screen text with each page list")
     p.add_argument("--permissions", default="", metavar="LIST",
                    help="grant browser permissions to every site, comma-separated (default: none)")

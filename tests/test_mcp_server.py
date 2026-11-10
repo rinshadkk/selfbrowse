@@ -156,6 +156,8 @@ def test_browse_without_a_model_says_how_to_fix_it(served):
 
 def test_parse_args_reads_flags_and_secret_env(monkeypatch):
     monkeypatch.setenv("SELFBROWSE_SECRET_login", "abc")
+    assert ServerConfig().max_steps == 100
+    assert parse_args([]).max_steps == 100
     cfg = parse_args(["--model", "ollama:qwen3.6", "--allow-domain", "a.com", "--headed", "--modes", "step", "--block-risky"])
     assert (cfg.model, cfg.allow_domains, cfg.headed, cfg.modes, cfg.block_risky) == ("ollama:qwen3.6", ["a.com"], True, ("step",), True)
     assert cfg.secrets == {"login": "abc"}
