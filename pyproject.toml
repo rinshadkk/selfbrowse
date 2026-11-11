@@ -58,4 +58,5 @@ include = ["/src/selfbrowse", "/tests", "/README.md", "/LICENSE", "/pyproject.to
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]                 # tests import each other as tests.conftest
 markers = ["browser: needs a real Chromium/Chrome (skipped when none can be launched)"]
