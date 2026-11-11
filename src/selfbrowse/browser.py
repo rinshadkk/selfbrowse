@@ -328,10 +328,11 @@ class Browser:
             except Exception as exc:
                 self.close()
                 raise BrowserError(f"Could not grant permissions {self.permissions}: {exc}") from exc
+        self._watched: set[int] = set()
         self._context.on("page", self._on_new_page)    # follow links that open a new tab
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(self.timeout_ms)
-        self._page.on("dialog", self._on_dialog)
+        self._watch_dialogs(self._page)                # new_page() may already have fired the event above
         return self
 
     def close(self) -> None:
@@ -357,7 +358,13 @@ class Browser:
     def _on_new_page(self, page: Any) -> None:
         self._page = page
         page.set_default_timeout(self.timeout_ms)
-        page.on("dialog", self._on_dialog)
+        self._watch_dialogs(page)
+
+    def _watch_dialogs(self, page: Any) -> None:
+        """Listen for dialogs on this page, once. A second listener would record every dialog twice."""
+        if id(page) not in self._watched:
+            self._watched.add(id(page))
+            page.on("dialog", self._on_dialog)
 
     def _on_dialog(self, dialog: Any) -> None:
         """alert / confirm / prompt / beforeunload. Record it, then accept or dismiss per policy."""

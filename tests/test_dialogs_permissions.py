@@ -101,3 +101,12 @@ def test_unknown_permission_and_policy_are_rejected():
         Browser(permissions=["notifcations"])
     with pytest.raises(BrowserError, match="dialogs"):
         Browser(dialogs="maybe")
+
+
+def test_a_dialog_is_recorded_once_even_when_the_page_event_fires_first(site):
+    """On some platforms new_page() fires the context's page event before start() finishes."""
+    with Browser() as b:
+        b.goto(site("dialogs.html"))
+        b._watch_dialogs(b.page)            # attaching again must not add a second listener
+        click(b, "Save")
+        assert len(b.pop_dialogs()) == 1
