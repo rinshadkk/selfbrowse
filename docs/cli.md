@@ -10,7 +10,7 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 
 | Option | Meaning |
 |---|---|
-| `-m`, `--model` | `provider:model` (default `anthropic:claude-haiku-4-5`, or `$SELFBROWSE_MODEL`) |
+| `-m`, `--model` | `provider:model` (default `anthropic:claude-haiku-4-5`, or `$SELFBROWSE_MODEL`), or your own model as `module:Name` or `./file.py:Name` (see [Bring your own model](models.md#bring-your-own-model)) |
 | `--headed` | show the browser window |
 | `--max-steps N` | stop after N tool calls (default 100) |
 | `--channel chrome\|msedge` | use an installed browser instead of bundled Chromium |

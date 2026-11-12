@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog=_about.NAME, description="Run a browser task described in plain language.")
     p.add_argument("task", nargs="*", help='the task, or "sites" / "forget <domain>"')
     p.add_argument("-m", "--model", default=os.environ.get(f"{_about.ENV_PREFIX}MODEL", "anthropic:claude-haiku-4-5"),
-                   help="provider:model (default: anthropic:claude-haiku-4-5)")
+                   help="provider:model (default: anthropic:claude-haiku-4-5), or your own model as module:Name or ./file.py:Name")
     p.add_argument("--headed", action="store_true", help="show the browser window")
     p.add_argument("--max-steps", type=int, default=100, help="stop after N tool calls (default: 100)")
     p.add_argument("--profile", help="folder to keep cookies/logins between runs")

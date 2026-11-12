@@ -337,7 +337,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
         prog="selfbrowse-mcp",
         description="Run Selfbrowse as an MCP server over stdio, for Claude Code, VS Code, Claude Desktop, Cursor and others.")
     p.add_argument("-m", "--model", default=os.environ.get("SELFBROWSE_MODEL"),
-                   help="provider:model for the `browse` tool, e.g. ollama:qwen3.6 (default: $SELFBROWSE_MODEL; without one only step tools work)")
+                   help="provider:model (or module:Name / ./file.py:Name for your own) for the `browse` tool, e.g. ollama:qwen3.6 (default: $SELFBROWSE_MODEL; without one only step tools work)")
     p.add_argument("--modes", default="task,step", help="which tools to offer: task, step or task,step (default both)")
     p.add_argument("--headed", action="store_true", help="show the browser window (needed to get past a CAPTCHA yourself)")
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
