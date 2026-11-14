@@ -12,6 +12,27 @@ Use `provider:model`:
 
 Your own provider (Azure OpenAI, AWS Bedrock, an internal gateway) works too; see [Bring your own model](#bring-your-own-model).
 
+### A service that speaks the Anthropic or OpenAI API
+
+If you run a gateway, proxy or wrapper that exposes the Anthropic Messages API (`/v1/messages`) or an OpenAI-style API, you do not need any code. Point the built-in provider at it:
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:3000    # where the service listens
+export ANTHROPIC_API_KEY=any-value                 # the SDK needs one; use the real key if the service checks it
+selfbrowse --model anthropic:haiku "task"          # the model name is whatever the service accepts
+```
+
+```python
+from selfbrowse.llm import make_llm
+BrowseAgent("task", llm=make_llm("anthropic:haiku", base_url="http://localhost:3000", api_key="any-value"))
+```
+
+For an OpenAI-style service, set `OPENAI_BASE_URL` and `OPENAI_API_KEY` and use `openai:<model>`.
+
+- **The service must support tool calling** on that endpoint: a `tools` list in the request and `tool_use` blocks (or OpenAI `tool_calls`) in the reply. A service that only takes a text prompt needs a custom model instead; see [Bring your own model](#bring-your-own-model).
+- **Wrappers around another agent add weight.** A service that runs a coding agent behind the endpoint may add its own system prompt and tools to every call. That inflates token counts, so compare cost, not tokens, across setups. Check that the wrapper does not give the model tools of its own, such as a shell.
+- **Test with a small task first**, for example `selfbrowse --model anthropic:haiku "Open example.com and tell me the page heading"`.
+
 ### Bring your own model
 
 Any provider works if you give Selfbrowse an object with a `model` name and a `complete(system=, messages=, tools=, max_tokens=)` method that returns an `LLMResponse`. Messages and tools arrive as Anthropic-style blocks, so you translate to and from your SDK.

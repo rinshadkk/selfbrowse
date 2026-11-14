@@ -20,6 +20,7 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--max-output-tokens N` | cap on each model reply (default 2048); raise it for reasoning models that think at length |
 | `--vision` | let the model request screenshots (more tokens) |
 | `--screenshots DIR` | save a screenshot after every step, plus an `index.html`, in a new folder under `DIR`, as evidence of what the agent did (see [Screenshots as evidence](observability.md#screenshots-as-evidence)) |
+| `--record-video DIR` | record a video (WebM) of the browser, one file per page, saved in `DIR` when the run ends; the path is printed as `[video: ...]`. Like screenshots it is not redacted |
 | `--permissions LIST` | grant browser permissions to every site, e.g. `notifications,geolocation` (default: none) |
 | `--dialogs auto\|accept\|dismiss` | what to do with JavaScript `alert`/`confirm`/`prompt` (default `auto`) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
