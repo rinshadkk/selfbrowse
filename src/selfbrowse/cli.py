@@ -20,6 +20,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--profile", help="folder to keep cookies/logins between runs")
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
+    rb = p.add_argument_group("remote browser")
+    rb.add_argument("--cdp-url", metavar="URL", default=os.environ.get(f"{_about.ENV_PREFIX}CDP_URL"),
+                    help="attach to a running browser over CDP (wss://... from a cloud provider, or http://localhost:9222) "
+                         "instead of launching one; $SELFBROWSE_CDP_URL also works")
+    rb.add_argument("--cdp-header", action="append", default=[], metavar="NAME=VALUE", help="header for the CDP connection (repeatable)")
+    rb.add_argument("--cloud", choices=["agentcore"], help="start a session on a managed browser: agentcore = Amazon Bedrock AgentCore (needs selfbrowse[aws])")
+    rb.add_argument("--cloud-region", metavar="REGION", help="AWS region for --cloud agentcore (default: $AWS_REGION, else us-east-1)")
+    rb.add_argument("--cloud-browser", metavar="ID", help="AgentCore browser id (default: aws.browser.v1)")
     p.add_argument("--page-text", type=int, default=0, metavar="N",
                    help="also send up to N characters of the text on screen with every page list (more tokens, fewer read calls)")
     p.add_argument("--max-output-tokens", type=int, default=2048, metavar="N",
@@ -114,18 +122,29 @@ def main(argv: list[str] | None = None) -> int:
             tag = " (learned)" if step.from_cache else ""
             print(f"  {step.number:>2}. {step.tool} {json.dumps(step.input, ensure_ascii=False)}{tag}", file=sys.stderr)
 
+    from selfbrowse.cloud import CloudError, remote_kwargs
+    try:
+        remote = remote_kwargs(cdp_url=args.cdp_url, headers=args.cdp_header, cloud=args.cloud,
+                               region=args.cloud_region, identifier=args.cloud_browser)
+    except CloudError as exc:
+        p.error(str(exc))
+    if remote and (args.record_video or args.profile or args.channel):
+        p.error("--record-video, --profile and --channel do not apply to a remote browser (the provider runs it)")
     try:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth,
-                          permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs, record_video_dir=args.record_video)
+                          permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs, record_video_dir=args.record_video,
+                          **remote)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         try:
             result = agent.run()
+            if browser.live_view_url and not args.quiet and not args.json:
+                print("  (live view was: " + browser.live_view_url + ")", file=sys.stderr)
         finally:
             browser.close()
-    except (LLMError, BrowserError) as exc:
+    except (LLMError, BrowserError, CloudError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

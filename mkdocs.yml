@@ -42,6 +42,7 @@ nav:
       - What the agent can do: tools.md
       - Models: models.md
       - MCP server: mcp.md
+      - Remote browsers: remote-browsers.md
       - CAPTCHAs and hand-off: captcha-handoff.md
       - Pop-ups and permissions: popups-permissions.md
   - Safety and privacy:

@@ -285,6 +285,14 @@ class Browser:
         stealth: use Patchright (``pip install selfbrowse[stealth]``) to hide common automation tells.
         record_video_dir: folder to record a video of each page (WebM, at the viewport size). The files are
             finished when the browser closes; :meth:`video_paths` lists them. Shows the page, not the window.
+        cdp_url: attach to a browser that is already running and exposes the Chrome DevTools Protocol
+            (``wss://...`` from a cloud provider, or ``http://localhost:9222`` for a local Chrome started
+            with ``--remote-debugging-port``) instead of launching one. Selfbrowse uses the browser's
+            first tab and leaves the browser running when it closes.
+        cdp_headers: extra headers for the CDP connection (provider auth).
+        cloud: a provider from :mod:`selfbrowse.cloud` (for example ``AgentCoreBrowser()``) that starts a
+            remote browser session and returns where to connect; the session is stopped on close.
+            Remote browsers cannot record video or use a profile folder, and ``viewport`` is theirs to set.
     """
 
     def __init__(
@@ -302,7 +310,21 @@ class Browser:
         permissions: "list[str] | None" = None,
         dialogs: str = "auto",
         record_video_dir: "str | Path | None" = None,
+        cdp_url: str | None = None,
+        cdp_headers: "dict[str, str] | None" = None,
+        cloud: Any = None,
     ) -> None:
+        if cdp_url and cloud:
+            raise BrowserError("Pass either cdp_url or cloud, not both.")
+        if cdp_url or cloud:
+            for what, given in (("record_video_dir", record_video_dir), ("user_data_dir", user_data_dir),
+                                ("executable_path", executable_path), ("channel", channel)):
+                if given:
+                    raise BrowserError(f"{what} does not apply to a remote browser (the provider runs it).")
+        self.cdp_url = cdp_url
+        self.cdp_headers = dict(cdp_headers or {})
+        self.cloud = cloud
+        self.live_view_url: str | None = None
         bad = [p for p in (permissions or []) if p not in PERMISSIONS]
         if bad:
             raise BrowserError(f"Unknown permission {bad[0]!r}. Choose from: {', '.join(sorted(PERMISSIONS))}.")
@@ -341,6 +363,9 @@ class Browser:
 
         self._pw = sync_playwright().start()
         chromium = self._pw.chromium
+        if self.cdp_url or self.cloud:
+            self._connect_remote(chromium)
+            return self._finish_start()
         ctx_kwargs: dict[str, Any] = {"viewport": {"width": self.viewport[0], "height": self.viewport[1]}}
         if self.record_video_dir:
             self.record_video_dir.mkdir(parents=True, exist_ok=True)
@@ -371,6 +396,23 @@ class Browser:
                 f"or install Google Chrome. Last error: {last}"
             )
 
+        return self._finish_start()
+
+    def _connect_remote(self, chromium: Any) -> None:
+        """Attach to a CDP endpoint, starting a cloud session first if there is a provider."""
+        url, headers = self.cdp_url, self.cdp_headers
+        try:
+            if self.cloud:
+                target = self.cloud.open()
+                url, headers, self.live_view_url = target.url, {**target.headers, **headers}, target.live_view_url
+            self._browser = chromium.connect_over_cdp(url, headers=headers or None, timeout=30000)
+        except Exception as exc:
+            self.close()
+            raise BrowserError(f"Could not connect to the remote browser: {exc}") from exc
+        # the provider's browser comes with a context (and usually a tab); a bare one may not
+        self._context = self._browser.contexts[0] if self._browser.contexts else self._browser.new_context()
+
+    def _finish_start(self) -> "Browser":
         if self.permissions:
             try:
                 self._context.grant_permissions(self.permissions)
@@ -396,7 +438,9 @@ class Browser:
                     self._videos.append(Path(page.video.path()))
             except Exception:
                 pass
-        for obj in (self._context, self._browser):
+        remote = bool(self.cdp_url or self.cloud)
+        # a remote browser's own context is not ours to close; closing the connection is enough
+        for obj in ((self._browser,) if remote else (self._context, self._browser)):
             try:
                 if obj:
                     obj.close()
@@ -407,6 +451,11 @@ class Browser:
                 self._pw.stop()
         except Exception:
             pass
+        if self.cloud:
+            try:
+                self.cloud.close()
+            except Exception:
+                pass
         self._pw = self._browser = self._context = self._page = None
 
     def __enter__(self) -> "Browser":

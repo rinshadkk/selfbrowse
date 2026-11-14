@@ -21,6 +21,10 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--vision` | let the model request screenshots (more tokens) |
 | `--screenshots DIR` | save a screenshot after every step, plus an `index.html`, in a new folder under `DIR`, as evidence of what the agent did (see [Screenshots as evidence](observability.md#screenshots-as-evidence)) |
 | `--record-video DIR` | record a video (WebM) of the browser, one file per page, saved in `DIR` when the run ends; the path is printed as `[video: ...]`. Like screenshots it is not redacted |
+| `--cdp-url URL` | attach to a browser that is already running over CDP (a cloud provider's `wss://...`, or `http://localhost:9222`) instead of launching one; also `$SELFBROWSE_CDP_URL`. See [Remote browsers](remote-browsers.md) |
+| `--cdp-header NAME=VALUE` | header for the CDP connection, for provider auth (repeatable) |
+| `--cloud agentcore` | start a session on Amazon Bedrock AgentCore's managed browser (needs `pip install 'selfbrowse[aws]'` and AWS credentials) |
+| `--cloud-region REGION` / `--cloud-browser ID` | AWS region (default `$AWS_REGION`, else `us-east-1`) and browser id (default `aws.browser.v1`) |
 | `--permissions LIST` | grant browser permissions to every site, e.g. `notifications,geolocation` (default: none) |
 | `--dialogs auto\|accept\|dismiss` | what to do with JavaScript `alert`/`confirm`/`prompt` (default `auto`) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |

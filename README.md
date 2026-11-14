@@ -15,7 +15,7 @@ pip install -e '.[dev]'
 playwright install chromium        # or use your installed Chrome with --channel chrome
 ```
 
-Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[otel]'` (OpenTelemetry export), `pip install -e '.[mcp]'` (MCP server), `pip install -e '.[presidio]'` (name and personal-data masking; also run `python -m spacy download en_core_web_sm`), `pip install -e '.[bench]'` (token benchmark).
+Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[otel]'` (OpenTelemetry export), `pip install -e '.[mcp]'` (MCP server), `pip install -e '.[aws]'` (Amazon Bedrock AgentCore browser), `pip install -e '.[presidio]'` (name and personal-data masking; also run `python -m spacy download en_core_web_sm`), `pip install -e '.[bench]'` (token benchmark).
 
 ## Quick start
 
@@ -83,6 +83,10 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--vision` | let the model request screenshots (more tokens) |
 | `--screenshots DIR` | save a screenshot after every step, plus an `index.html`, in a new folder under `DIR`, as evidence of what the agent did (see [Screenshots as evidence](#screenshots-as-evidence)) |
 | `--record-video DIR` | record a video (WebM) of the browser, one file per page, saved in `DIR` when the run ends; the path is printed as `[video: ...]`. Like screenshots it is not redacted |
+| `--cdp-url URL` | attach to a browser that is already running over CDP (a cloud provider's `wss://...`, or `http://localhost:9222`) instead of launching one; also `$SELFBROWSE_CDP_URL`. See [Remote browsers](remote-browsers.md) |
+| `--cdp-header NAME=VALUE` | header for the CDP connection, for provider auth (repeatable) |
+| `--cloud agentcore` | start a session on Amazon Bedrock AgentCore's managed browser (needs `pip install 'selfbrowse[aws]'` and AWS credentials) |
+| `--cloud-region REGION` / `--cloud-browser ID` | AWS region (default `$AWS_REGION`, else `us-east-1`) and browser id (default `aws.browser.v1`) |
 | `--permissions LIST` | grant browser permissions to every site, e.g. `notifications,geolocation` (default: none) |
 | `--dialogs auto\|accept\|dismiss` | what to do with JavaScript `alert`/`confirm`/`prompt` (default `auto`) |
 | `--no-handoff` | never pause for a person (CAPTCHA, login, 2FA) |
@@ -105,6 +109,21 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--version` | print the version |
 
 Environment variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `TOGETHER_API_KEY`, `SELFBROWSE_MODEL`, `SELFBROWSE_HOME` (data folder, default `~/.selfbrowse`).
+
+## Remote and cloud browsers
+
+Selfbrowse can drive a browser that runs somewhere else instead of launching Chromium locally. It attaches over the Chrome DevTools Protocol.
+
+```bash
+# any provider that gives you a CDP address (Browserbase, Steel, Browserless, a local Chrome on a debug port...)
+selfbrowse --cdp-url "wss://connect.example.com?apiKey=..." "open example.com and tell me the heading"
+
+# Amazon Bedrock AgentCore Browser: starts a session, connects with signed headers, stops it when done
+pip install 'selfbrowse[aws]'
+selfbrowse --cloud agentcore --cloud-region us-east-1 "open example.com and tell me the heading"
+```
+
+`--record-video`, `--profile` and `--channel` do not apply to a remote browser (the provider runs it), and hand-off to a person needs the provider's live view. The AgentCore adapter is tested against a stand-in for the AWS SDK, not yet a real account. Details: [Remote browsers](docs/remote-browsers.md).
 
 ## What the agent can do
 

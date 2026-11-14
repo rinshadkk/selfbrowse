@@ -45,6 +45,11 @@ class ServerConfig:
     channel: str | None = None
     profile: str | None = None
     stealth: bool = False
+    cdp_url: str | None = None
+    cdp_headers: list[str] = field(default_factory=list)
+    cloud: str | None = None
+    cloud_region: str | None = None
+    cloud_browser: str | None = None
     allow_domains: list[str] = field(default_factory=list)
     block_domains: list[str] = field(default_factory=list)
     block_risky: bool = False
@@ -113,8 +118,11 @@ class BrowserSession:
         if self._browser is None:
             from selfbrowse.browser import Browser
             c = self.cfg
-            self._browser = Browser(headless=not c.headed, channel=c.channel, user_data_dir=c.profile, stealth=c.stealth,
-                                   permissions=c.permissions, dialogs=c.dialogs)
+            from selfbrowse.cloud import remote_kwargs
+            remote = remote_kwargs(cdp_url=c.cdp_url, headers=c.cdp_headers, cloud=c.cloud,
+                                   region=c.cloud_region, identifier=c.cloud_browser)
+            self._browser = Browser(headless=not c.headed, channel=c.channel, user_data_dir=None if remote else c.profile,
+                                   stealth=c.stealth, permissions=c.permissions, dialogs=c.dialogs, **remote)
         self._browser.start()
         self._browser.on_dialog = self.veto_dialog       # a task run may have pointed it elsewhere
         return self._browser
@@ -345,6 +353,12 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     p.add_argument("--channel", help="use an installed browser: chrome or msedge")
     p.add_argument("--profile", help="folder to keep cookies and logins between runs")
     p.add_argument("--stealth", action="store_true", help="use Patchright to reduce bot detection")
+    p.add_argument("--cdp-url", metavar="URL", default=os.environ.get("SELFBROWSE_CDP_URL"),
+                   help="attach to a running browser over CDP (wss://... from a cloud provider) instead of launching one")
+    p.add_argument("--cdp-header", action="append", default=[], metavar="NAME=VALUE", help="header for the CDP connection (repeatable)")
+    p.add_argument("--cloud", choices=["agentcore"], help="use a managed browser: agentcore = Amazon Bedrock AgentCore (needs selfbrowse[aws])")
+    p.add_argument("--cloud-region", metavar="REGION", help="AWS region for --cloud agentcore")
+    p.add_argument("--cloud-browser", metavar="ID", help="AgentCore browser id (default: aws.browser.v1)")
     p.add_argument("--max-steps", type=int, default=100, help="step limit for `browse` (default 100)")
     p.add_argument("--page-text", type=int, default=0, metavar="N", help="also send up to N characters of on-screen text with each page list")
     p.add_argument("--permissions", default="", metavar="LIST",
@@ -377,6 +391,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     secrets = {k[len(prefix):]: v for k, v in os.environ.items() if k.startswith(prefix) and len(k) > len(prefix)}
     return ServerConfig(
         model=a.model, headed=a.headed, channel=a.channel, profile=a.profile, stealth=a.stealth,
+        cdp_url=a.cdp_url, cdp_headers=a.cdp_header, cloud=a.cloud, cloud_region=a.cloud_region, cloud_browser=a.cloud_browser,
         allow_domains=a.allow_domain, block_domains=a.block_domain, block_risky=a.block_risky,
         redact_pii=a.redact_pii, watch_injection=a.watch_injection, presidio=a.redact_presidio, restore=not a.no_restore,
         presidio_entities=[x.strip() for x in a.presidio_entities.split(",") if x.strip()], presidio_model=a.presidio_model, max_tokens=a.max_tokens, max_seconds=a.max_seconds,
