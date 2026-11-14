@@ -19,3 +19,8 @@ storage.json
 .browser_profile/
 .venv-bu/
 _site/
+
+# Benchmark recordings and terminal captures are large or machine-specific; keep the numbers (runs.jsonl, summary.md) and share videos separately
+benchmarks/compare/results/*/videos/
+benchmarks/compare/results/*.log
+benchmarks/compare/results/*.done

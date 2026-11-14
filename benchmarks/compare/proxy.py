@@ -19,7 +19,8 @@ import tiktoken
 
 ENC = tiktoken.get_encoding("o200k_base")
 UPSTREAM = "http://127.0.0.1:11434"
-ANTHROPIC_UPSTREAM = "https://api.anthropic.com"
+import os
+ANTHROPIC_UPSTREAM = os.environ.get("BENCH_ANTHROPIC_UPSTREAM", "https://api.anthropic.com")   # e.g. a local gateway
 
 
 class Recorder:

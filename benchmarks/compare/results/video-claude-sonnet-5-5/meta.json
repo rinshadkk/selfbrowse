@@ -1,0 +1,14 @@
+{
+  "selfbrowse_commit": "3995957",
+  "selfbrowse_dirty": true,
+  "browser_use": "0.13.14",
+  "ollama": "ollama version is 0.40.2",
+  "model": "claude-sonnet-5-5",
+  "model_digest": "n/a (hosted)",
+  "model_settings": "Anthropic model through a gateway at http://localhost:3000 (a Claude Code wrapper), provider default sampling settings",
+  "anthropic_upstream": "http://localhost:3000",
+  "browser": "Playwright Chromium 1208, headless, same binary for both",
+  "vision": "off for both",
+  "date": "2026-11-12 00:56",
+  "max_steps": 15
+}
