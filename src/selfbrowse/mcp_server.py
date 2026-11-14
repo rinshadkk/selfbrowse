@@ -308,10 +308,12 @@ def create_server(cfg: ServerConfig | None = None, *, browser: Any = None) -> An
             return await session.run(session.act, "back", {}, lambda b: b.back())
 
         @mcp.tool()
-        async def browser_read() -> str:
-            """The text visible on screen (use when the answer is text rather than a control)."""
+        async def browser_read(full: bool = False) -> str:
+            """The text visible on screen (use when the answer is text rather than a control).
+            full=true returns the whole page instead, up to about 12000 characters: for a long list or table."""
             def do() -> str:
-                return "Visible text:\n" + session.guards.page(session.browser.visible_text(), session.browser.url)
+                b = session.browser
+                return "Visible text:\n" + session.guards.page(b.visible_text(12000, whole=True) if full else b.visible_text(), b.url)
             return await session.run(do)
 
         @mcp.tool()

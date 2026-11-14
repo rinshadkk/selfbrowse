@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-output-tokens", type=int, default=2048, metavar="N",
                    help="cap on each model reply (raise for reasoning models that think at length; default 2048)")
     p.add_argument("--vision", action="store_true", help="allow screenshots (more tokens)")
+    p.add_argument("--record-video", metavar="DIR",
+                   help="record a video of the browser page (WebM) into DIR; saved when the run ends. Not redacted")
     p.add_argument("--screenshots", metavar="DIR",
                    help="save a screenshot after every step, plus an index.html, in a new folder under DIR (evidence; the images are not redacted and are not sent to the model)")
     g = p.add_argument_group("observability")
@@ -114,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth,
-                          permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs)
+                          permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs, record_video_dir=args.record_video)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
@@ -136,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[trace: {agent.trace_path}]", file=sys.stderr)
         if agent.screenshots_dir:
             print(f"[screenshots: {agent.screenshots_dir}]", file=sys.stderr)
+        for v in (browser.video_paths() if args.record_video else []):
+            print(f"[video: {v}]", file=sys.stderr)
         print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens]", file=sys.stderr)
     return 0 if result.success else 1
 

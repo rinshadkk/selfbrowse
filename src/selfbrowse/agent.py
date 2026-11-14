@@ -13,7 +13,7 @@ from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, Run
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
 from selfbrowse.handoff import Handler, HandoffRequest, detect_block, terminal_handler
-from selfbrowse.prompts import HUMAN_RULE, OLD_PAGE, PAGE_SEP, SYSTEM
+from selfbrowse.prompts import FULL_READ_CHARS, HUMAN_RULE, KEEP_READS, OLD_PAGE, OLD_READ, PAGE_SEP, READ_PREFIX, SYSTEM
 from selfbrowse.tools import build_tools, extract_text_tool_call, looks_like_junk, normalize_args
 from selfbrowse.trace import Tracer, TracingLLM
 from selfbrowse.types import RunResult, Step, Usage
@@ -232,6 +232,7 @@ class BrowseAgent:
                     break
 
             self._trim_old_pages(messages)
+            self._trim_old_reads(messages)
             try:
                 resp = self.llm.complete(system=system, messages=messages, tools=self.tools, max_tokens=self.max_output_tokens)
             except LLMError as exc:
@@ -504,6 +505,16 @@ class BrowseAgent:
                             part["type"], part["text"] = "text", "[older screenshot omitted]"
                             part.pop("source", None)
 
+    @staticmethod
+    def _trim_old_reads(messages: list[dict[str, Any]], keep: int = KEEP_READS) -> None:
+        """Page text from `read` is large and is sent again with every later call, so only the newest few stay."""
+        reads = [part for m in messages if m["role"] == "user" and not isinstance(m["content"], str)
+                 for block in m["content"] if block.get("type") == "tool_result"
+                 for part in block["content"] if part.get("type") == "text" and part["text"].startswith(READ_PREFIX)
+                 and part["text"] != OLD_READ]
+        for part in reads[:-keep] if keep else reads:
+            part["text"] = OLD_READ
+
     # ── guardrails ─────────────────────────────────────────────────────────────
     def _validate(self, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         spec = next((t for t in self.tools if t["name"] == name), None)
@@ -657,7 +668,8 @@ class BrowseAgent:
             if name == "wait":
                 return b.wait(float(a.get("seconds", 2))), True
             if name == "read":
-                return "Visible text:\n" + self.guards.page(b.visible_text(), b.url), False
+                return "Visible text:\n" + self.guards.page(
+                    b.visible_text(FULL_READ_CHARS, whole=True) if a.get("full") else b.visible_text(), b.url), False
             if name == "ask_human":
                 note = self._hand_off("model", str(a.get("reason", "the agent needs your help")))
                 return note, True

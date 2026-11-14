@@ -29,7 +29,18 @@ const deepFromPoint = (x, y) => {
 };
 """
 
-_SNAPSHOT_JS = "(maxEls) => {" + _JS_HELPERS + r"""
+# A shortened label ("In a Dark, Dark ...") is often the start of the element's own title attribute.
+_UNTRUNCATE_JS = r"""
+const untruncate = (t, el) => {
+  if (!/(\.\.\.|\u2026)$/.test(t)) return '';
+  const head = t.replace(/(\.\.\.|\u2026)$/, '').trim();
+  const holder = el.closest && el.closest('[title]');
+  const title = holder ? holder.getAttribute('title').replace(/\s+/g, ' ').trim() : '';
+  return head && title.length > head.length && title.startsWith(head) ? title : '';
+};
+"""
+
+_SNAPSHOT_JS = "(maxEls) => {" + _UNTRUNCATE_JS + _JS_HELPERS + r"""
   const SEL = [
     'a[href]', 'button', 'input:not([type="hidden"])', 'textarea', 'select', 'summary',
     '[role="button"]', '[role="link"]', '[role="textbox"]', '[role="checkbox"]', '[role="radio"]',
@@ -72,9 +83,11 @@ _SNAPSHOT_JS = "(maxEls) => {" + _JS_HELPERS + r"""
     }
     const isField = tag === 'input' || tag === 'select' || tag === 'textarea';
     const labelled = isField && el.labels && el.labels[0] ? el.labels[0].innerText : '';
-    const text = (el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('placeholder')
-      || labelled || (tag === 'select' ? el.getAttribute('name') : (el.innerText || el.value)) || el.textContent || '')
-      .replace(/\s+/g, ' ').trim().slice(0, 80);
+    let text = (el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('placeholder')
+      || labelled || (tag === 'select' ? el.getAttribute('name') : (el.innerText || el.value)) || el.textContent
+      || el.getAttribute('title') || '')
+      .replace(/\s+/g, ' ').trim();
+    text = (untruncate(text, el) || text).slice(0, 80);
     let value = '';
     let options;
     if (tag === 'select') {
@@ -105,8 +118,9 @@ _SNAPSHOT_JS = "(maxEls) => {" + _JS_HELPERS + r"""
 }
 """
 
-_VISIBLE_TEXT_JS = r"""
-(maxChars) => {
+_VISIBLE_TEXT_JS = _UNTRUNCATE_JS + r"""
+(arg) => {
+  const maxChars = typeof arg === 'number' ? arg : arg.max, whole = typeof arg === 'object' && !!arg.whole;
   const vh = window.innerHeight, vw = window.innerWidth;
   const out = []; let last = null, len = 0;
   const visit = (root) => {
@@ -115,13 +129,16 @@ _VISIBLE_TEXT_JS = r"""
       if (len > maxChars) return;
       const n = walker.currentNode;
       if (n.nodeType === 1) { if (n.shadowRoot) visit(n.shadowRoot); continue; }
-      const t = n.nodeValue.replace(/\s+/g, ' ').trim();
+      let t = n.nodeValue.replace(/\s+/g, ' ').trim();
       if (!t) continue;
       const p = n.parentElement || (n.parentNode && n.parentNode.host);
       if (!p || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(p.tagName)) continue;
       const range = document.createRange(); range.selectNodeContents(n);
       const r = range.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
+      if (r.width < 1 || r.height < 1 || r.right < 0 || r.left > vw) continue;
+      if (!whole && (r.bottom < 0 || r.top > vh)) continue;
+      const full = untruncate(t, p);
+      if (full) t = full;
       const st = getComputedStyle(p);
       if (st.visibility === 'hidden' || st.display === 'none') continue;
       out.push(p === last ? ' ' + t : '\n' + t); last = p; len += t.length + 1;
@@ -157,9 +174,21 @@ _SELECT_JS = "([x, y, want]) => {" + _JS_HELPERS + r"""
 # scrolls the match numbered `skip` into view.
 _FIND_JS = r"""
 ([needle, skip]) => {
+  // Match against the page's text as a reader sees it, not one text node at a time: a label such as
+  // "First appeared" is often split by inline markup (<span>&nbsp;</span>, <b>, <a>) into several nodes.
   const norm = s => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
   const n = norm(needle);
-  const hits = [];
+  let buf = '';
+  const starts = [], nodes = [];                       // where each node's text begins in buf
+  const blockOf = new Map();
+  const block = (el) => {
+    if (blockOf.has(el)) return blockOf.get(el);
+    let b = el;
+    while (b && b.parentElement && /^(inline|contents)$/.test(getComputedStyle(b).display)) b = b.parentElement;
+    blockOf.set(el, b);
+    return b;
+  };
+  let lastBlock = null;
   const visit = (root) => {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
@@ -167,18 +196,29 @@ _FIND_JS = r"""
       if (node.nodeType === 1) { if (node.shadowRoot) visit(node.shadowRoot); continue; }
       const p = node.parentElement || (node.parentNode && node.parentNode.host);
       if (!p || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(p.tagName)) continue;
-      if (!norm(node.nodeValue).includes(n)) continue;
-      if (!p.getClientRects().length || getComputedStyle(p).visibility === 'hidden') continue;
-      hits.push(node);
+      if (!p.getClientRects().length || getComputedStyle(p).visibility === 'hidden') { lastBlock = null; continue; }
+      let t = node.nodeValue.replace(/\s+/g, ' ');
+      if (!t) continue;
+      const b = block(p);
+      if (b !== lastBlock && buf && !buf.endsWith('\n')) buf += '\n';   // a block boundary ends a phrase
+      if (buf.endsWith(' ') && t.startsWith(' ')) t = t.slice(1);
+      if (!t) continue;
+      starts.push(buf.length); nodes.push(node);
+      buf += t;
+      lastBlock = b;
     }
   };
   if (document.body && n) visit(document.body);
-  if (skip < 0 || skip >= hits.length) return { count: hits.length };
-  const node = hits[skip], p = node.parentElement || node.parentNode.host;
+  const low = buf.toLowerCase();
+  const found = [];
+  if (n) for (let i = low.indexOf(n); i >= 0; i = low.indexOf(n, i + n.length)) found.push(i);
+  if (skip < 0 || skip >= found.length) return { count: found.length };
+  const at = found[skip];
+  let k = starts.length - 1;
+  while (k > 0 && starts[k] > at) k--;
+  const node = nodes[k], p = node.parentElement || node.parentNode.host;
   p.scrollIntoView({ block: 'center', inline: 'nearest' });
-  const t = node.nodeValue.replace(/\s+/g, ' ').trim();
-  const i = Math.max(0, t.toLowerCase().indexOf(n));
-  return { count: hits.length, snippet: t.slice(Math.max(0, i - 50), i + n.length + 70) };
+  return { count: found.length, snippet: buf.slice(Math.max(0, at - 50), at + n.length + 70).replace(/\n+/g, ' ').replace(/ +/g, ' ').trim() };
 }
 """
 
@@ -243,6 +283,8 @@ class Browser:
         user_data_dir: keep cookies and logins between runs in this folder.
         viewport: (width, height).
         stealth: use Patchright (``pip install selfbrowse[stealth]``) to hide common automation tells.
+        record_video_dir: folder to record a video of each page (WebM, at the viewport size). The files are
+            finished when the browser closes; :meth:`video_paths` lists them. Shows the page, not the window.
     """
 
     def __init__(
@@ -259,6 +301,7 @@ class Browser:
         max_elements: int = 120,
         permissions: "list[str] | None" = None,
         dialogs: str = "auto",
+        record_video_dir: "str | Path | None" = None,
     ) -> None:
         bad = [p for p in (permissions or []) if p not in PERMISSIONS]
         if bad:
@@ -267,6 +310,8 @@ class Browser:
             raise BrowserError(f"dialogs must be one of: {', '.join(DIALOG_POLICIES)}.")
         self.permissions = list(permissions or [])
         self.dialogs = dialogs
+        self.record_video_dir = Path(record_video_dir).expanduser() if record_video_dir else None
+        self._videos: list[Any] = []
         self.on_dialog: "Callable[[dict[str, Any]], bool | None] | None" = None   # may veto accepting
         self._dialog_log: list[dict[str, Any]] = []
         self.headless = headless
@@ -296,7 +341,11 @@ class Browser:
 
         self._pw = sync_playwright().start()
         chromium = self._pw.chromium
-        ctx_kwargs = {"viewport": {"width": self.viewport[0], "height": self.viewport[1]}}
+        ctx_kwargs: dict[str, Any] = {"viewport": {"width": self.viewport[0], "height": self.viewport[1]}}
+        if self.record_video_dir:
+            self.record_video_dir.mkdir(parents=True, exist_ok=True)
+            ctx_kwargs["record_video_dir"] = str(self.record_video_dir)
+            ctx_kwargs["record_video_size"] = {"width": self.viewport[0], "height": self.viewport[1]}
         last: Exception | None = None
         for channel in ([self.channel] if self.channel else [None, "chrome"]):
             kwargs: dict[str, Any] = {"headless": self.headless}
@@ -335,7 +384,18 @@ class Browser:
         self._watch_dialogs(self._page)                # new_page() may already have fired the event above
         return self
 
+    def video_paths(self) -> list[Path]:
+        """Video files recorded so far, one per page (complete once the browser has closed)."""
+        return [p for p in self._videos if p]
+
     def close(self) -> None:
+        self._videos = []
+        for page in self._open_pages() if self.record_video_dir else []:
+            try:
+                if page.video:
+                    self._videos.append(Path(page.video.path()))
+            except Exception:
+                pass
         for obj in (self._context, self._browser):
             try:
                 if obj:
@@ -559,13 +619,16 @@ class Browser:
             self._settle()
         return f"closed tab {pos + 1}; now on \"{self.title[:40]}\""
 
-    def visible_text(self, max_chars: int = 3000) -> str:
-        """The text currently on screen (not just the clickable parts), iframes included."""
-        text = self._eval(_VISIBLE_TEXT_JS, max_chars)
+    def visible_text(self, max_chars: int = 3000, whole: bool = False) -> str:
+        """The text currently on screen (not just the clickable parts), iframes included.
+
+        whole=True reads the entire page, not only the part in view (still limited to max_chars)."""
+        arg: Any = {"max": max_chars, "whole": True} if whole else max_chars
+        text = self._eval(_VISIBLE_TEXT_JS, arg)
         if len(self.page.frames) > 1 and len(text) < max_chars:
             vw, vh = self.viewport
             for frame, _, _, _ in self._child_frames(vw, vh):
-                extra = self._eval_in(frame, _VISIBLE_TEXT_JS, max_chars - len(text))
+                extra = self._eval_in(frame, _VISIBLE_TEXT_JS, ({"max": max_chars - len(text), "whole": True} if whole else max_chars - len(text)))
                 if extra:
                     text = (text + "\n" + extra).strip()
                 if len(text) >= max_chars:

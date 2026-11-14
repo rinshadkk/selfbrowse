@@ -33,7 +33,9 @@ def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, 
               {"text": {"type": "string"}, "nth": {"type": "integer"}}, ["text"]),
         _tool("switch_tab", "Switch to another open tab by its number (see [tabs: ...]).", {"index": {"type": "integer"}}, ["index"]),
         _tool("close_tab", "Close a tab (default: the current one) and return to the previous one.", {"index": {"type": "integer"}}),
-        _tool("read", "Return the text visible on screen (use when the answer is text, not a control)."),
+        _tool("read", "Return the text visible on screen (use when the answer is text, not a control). "
+              "full=true returns the whole page instead, up to about 12000 characters: use it for a long list or table.",
+              {"full": {"type": "boolean"}}),
         _tool("remember", "Save one short, reusable fact about this website for future runs.", {"fact": {"type": "string"}}, ["fact"]),
         _tool(
             "done",
