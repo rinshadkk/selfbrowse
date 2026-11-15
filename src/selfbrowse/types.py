@@ -38,6 +38,9 @@ class Step:
     result: str
     url: str = ""
     from_cache: bool = False       # replayed from learned site knowledge, no model call
+    input_tokens: int = 0          # tokens sent (cached or not) and received by the model call that chose this step;
+    output_tokens: int = 0         # 0 for a replayed step, and for later steps taken from the same model reply
+    used_notes: bool = False       # the model chose this step with saved notes about the site in front of it
     screenshot: str = ""           # path of this step's evidence image, when screenshots are on
 
 

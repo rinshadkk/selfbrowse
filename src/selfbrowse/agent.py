@@ -20,6 +20,7 @@ from selfbrowse.types import RunResult, Step, Usage
 
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
 _NOT_LEARNED = ("Error:", "Blocked", "The person declined")
+_DISMISS_RE = re.compile(r"\b(accept|agree|allow|close|dismiss|got it|no thanks|not now|reject|decline|ok|okay|continue)\b", re.I)
 _NUDGE = "Reply with exactly one tool call (tools: {tools}). To finish, call done with your answer."
 _CUT_OFF = ("Your reply was cut off before you chose an action. Think in one or two short sentences, "
             "then call exactly one tool (tools: {tools}).")
@@ -112,6 +113,8 @@ class BrowseAgent:
         self.sensitive = dict(sensitive or {})
         self.restore_answer = restore_answer
         self.on_step = on_step
+        self._notes_shown = False
+        self._step_usage = Usage()
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
         self.knowledge = SiteKnowledge(home_dir / "sites") if learn else None
         self._handoff_opt = handoff
@@ -242,6 +245,7 @@ class BrowseAgent:
                 error = f"model call failed: {exc}"
                 break
             usage.add(resp.usage)
+            self._step_usage.add(resp.usage)
             if (hit := self.guards.step(RunState(len(history), usage, time.monotonic() - t0))):
                 self._trace("guardrail", guardrail=hit[0].name, decision="stop", reason=hit[1].reason)
                 error = f"guardrail {hit[0].name}: {hit[1].reason}"
@@ -374,6 +378,7 @@ class BrowseAgent:
             memo = self.knowledge.get_memo(self.browser.url)
             if memo:
                 text += "\n[Notes for this site: " + "; ".join(memo) + "]"
+                self._notes_shown = True
         return prefix + text
 
     def _detect_block(self, snap: Any) -> str | None:
@@ -421,7 +426,12 @@ class BrowseAgent:
 
     def _step(self, history: list[Step], tool: str, args: dict, result: str, url: str = "", cached: bool = False) -> Step:
         shown = {k: ("<hidden>" if k == "text" and _SECRET_RE.search(str(v)) else v) for k, v in args.items()}
-        step = Step(len(history) + 1, tool, shown, result.split(PAGE_SEP)[0][:300], url or self.browser.url, cached)
+        step = Step(len(history) + 1, tool, shown, result.split(PAGE_SEP)[0][:300], url or self.browser.url, cached,
+                    used_notes=self._notes_shown and not cached)
+        if not cached:                                     # the model call(s) since the last step are this step's cost
+            step.input_tokens, step.output_tokens = self._step_usage.total_input, self._step_usage.output_tokens
+            self._step_usage = Usage()
+            self._notes_shown = False
         step.screenshot = self._shoot(step.number)
         if self.on_step:
             self.on_step(step)
@@ -690,7 +700,13 @@ class BrowseAgent:
         if name == "click":
             desc = self.browser.describe_ref(int(a.get("ref", 0)))   # refs are still valid: no snapshot since the click
             if desc:
-                self.knowledge.record(url_before, {"tool": "click", **desc})
+                # Only scaffolding is worth replaying: a click that moved to another page, or one that dismissed a
+                # banner or dialog. A click that changed the page's state in place ("Add to cart") is the task's own
+                # action; replaying it unchecked could do it twice or to the wrong item, so learning stops there.
+                if self.browser.url != url_before or _DISMISS_RE.search(desc.get("text", "")):
+                    self.knowledge.record(url_before, {"tool": "click", **desc})
+                else:
+                    self.knowledge.record(url_before, {"tool": "effect"})
         elif name == "press":
             self.knowledge.record(url_before, {"tool": "press", "key": str(a.get("key", ""))})
         elif name == "type":

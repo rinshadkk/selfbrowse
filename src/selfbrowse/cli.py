@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from selfbrowse import __version__, _about
@@ -119,8 +120,10 @@ def main(argv: list[str] | None = None) -> int:
 
     def show(step) -> None:
         if not args.quiet and not args.json:
-            tag = " (learned)" if step.from_cache else ""
-            print(f"  {step.number:>2}. {step.tool} {json.dumps(step.input, ensure_ascii=False)}{tag}", file=sys.stderr)
+            tag = (" (learned: replayed from saved flow, no model call)" if step.from_cache
+                   else " (learned: used saved notes about this site)" if step.used_notes else "")
+            tokens = f"  [{step.input_tokens:,} in / {step.output_tokens:,} out]" if step.input_tokens or step.output_tokens else "  [0 tokens]"
+            print(f"  {step.number:>2}. {step.tool} {json.dumps(step.input, ensure_ascii=False)}{tokens}{tag}", file=sys.stderr)
 
     from selfbrowse.cloud import CloudError, remote_kwargs
     try:
@@ -138,8 +141,10 @@ def main(argv: list[str] | None = None) -> int:
                       learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
+        started = time.perf_counter()
         try:
             result = agent.run()
+            elapsed = time.perf_counter() - started
             if browser.live_view_url and not args.quiet and not args.json:
                 print("  (live view was: " + browser.live_view_url + ")", file=sys.stderr)
         finally:
@@ -159,8 +164,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[screenshots: {agent.screenshots_dir}]", file=sys.stderr)
         for v in (browser.video_paths() if args.record_video else []):
             print(f"[video: {v}]", file=sys.stderr)
-        print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens]", file=sys.stderr)
+        print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens, {_elapsed(elapsed)}]", file=sys.stderr)
     return 0 if result.success else 1
+
+
+def _elapsed(seconds: float) -> str:
+    """``8.4s`` under a minute, ``2m 05s`` after."""
+    if round(seconds, 1) < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(round(seconds)), 60)
+    return f"{m}m {s:02d}s"
 
 
 def _load_secrets(names: list[str], parser: argparse.ArgumentParser) -> dict[str, str]:

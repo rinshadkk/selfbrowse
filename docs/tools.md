@@ -18,6 +18,8 @@ Knowledge is stored per site in `~/.selfbrowse/sites/<domain>.json`.
 - **Flows**: click sequences that worked, keyed by page type (for example `/*/dp/*`). A flow is replayed without a model call only when it is trusted:
   - **generic**: it succeeded for at least two *different* tasks (a cookie banner, a sign-in step), so it is replayed for every task;
   - **repeat**: it succeeded at least twice for the *exact same* task, so it is replayed for that task only.
-- Only successful runs are learned from. Steps after typing on a page are never recorded for that page. Risky clicks (buy, pay, delete, send, sign out and similar) are never recorded. Failed actions and detours (clicks followed by going back) are not learned. A flow that stops working is dropped, and flows unused for 90 days expire.
+- Only successful runs are learned from. Steps after typing, or after a click that changes the page in place (such as "Add to cart"), are never recorded for that page; only clicks that open another page or dismiss a banner or dialog are replayed. Risky clicks (buy, pay, delete, send, sign out and similar) are never recorded. Failed actions and detours (clicks followed by going back) are not learned. A flow that stops working is dropped, and flows unused for 90 days expire.
+
+When learning is used, the command line says so on that step: `(learned: replayed from saved flow, no model call)` for a replayed click, `(learned: used saved notes about this site)` when the model chose the step with saved notes in front of it. In Python, check `step.from_cache` and `step.used_notes`.
 
 Known limit: research-style tasks learn little, because most of their clicks are specific to the question. The biggest wins are generic steps and routine jobs you repeat.

@@ -96,3 +96,51 @@ def test_misses_drop_flow(tmp_path):
     kb.record_miss(URL)
     kb.record_miss(URL)
     assert kb.get_steps(URL, "a") == []
+
+
+def test_shared_start_is_trusted_even_when_the_tail_differs(tmp_path):
+    kb = SiteKnowledge(tmp_path)
+    for task, item in (("add lamp", "Desk Lamp"), ("add tray", "Bamboo Tray")):
+        kb.record(URL, click("Accept all"))
+        kb.record(URL, click(item))
+        kb.commit(success=True, task=task)
+    assert kb.get_steps(URL, "add mill") == [click("Accept all")]       # the banner, not the task's own click
+
+
+def test_repeated_task_keeps_its_start_when_the_path_wobbles(tmp_path):
+    kb = SiteKnowledge(tmp_path)
+    for tail in ("Garden", "Gardening"):
+        kb.record(URL, click("Accept all"))
+        kb.record(URL, click(tail))
+        kb.commit(success=True, task="same task")
+    assert kb.get_steps(URL, "same task") == [click("Accept all")]
+    assert kb.get_steps(URL, "other task") == []
+
+
+def test_a_different_path_does_not_erase_a_trusted_flow(tmp_path):
+    kb = SiteKnowledge(tmp_path)
+    for _ in range(2):
+        kb.record(URL, click("A"))
+        kb.record(URL, click("B"))
+        kb.commit(success=True, task="t")
+    kb.record(URL, click("A"))
+    kb.record(URL, click("C"))
+    kb.commit(success=True, task="t")
+    assert kb.get_steps(URL, "t") == [click("A"), click("B")]
+
+
+def test_old_single_sequence_files_still_load(tmp_path):
+    import json
+    (tmp_path / "shop.example.com.json").write_text(json.dumps({"memo": [], "flows": {"/*/dp/*": {
+        "steps": [click("Accept")], "tasks": ["a", "b"], "runs": 2, "misses": 0, "last": __import__("time").time()}}}))
+    assert SiteKnowledge(tmp_path).get_steps(URL, "c") == [click("Accept")]
+
+
+def test_in_place_state_change_seals_the_page(tmp_path):
+    kb = SiteKnowledge(tmp_path)
+    for task in ("a", "b"):
+        kb.record(URL, click("Accept all"))
+        kb.record(URL, {"tool": "effect"})                 # e.g. "Add to cart": the page changed but the URL did not
+        kb.record(URL, click("Cart"))
+        kb.commit(success=True, task=task)
+    assert kb.get_steps(URL, "c") == [click("Accept all")]  # the banner is kept; the state change and what follows are not

@@ -74,3 +74,27 @@ def test_page_list_survives_a_read(shop_url, tmp_path):
         b.goto(shop_url)
         BrowseAgent("t", llm=llm, browser=b, home=tmp_path).run()
     assert "Add to cart" in repr(llm.seen[1])
+
+
+def test_steps_taken_with_saved_notes_are_marked(shop_url, tmp_path):
+    from selfbrowse.knowledge import SiteKnowledge
+    kb = SiteKnowledge(tmp_path / "sites")
+    kb.remember(shop_url, "search box is at the top")
+    kb.commit(success=True)
+    seen = []
+    llm = ScriptedLLM([("read", {}), ("done", {"success": True, "answer": "ok"})])
+    with make_browser() as b:
+        b.goto(shop_url)
+        BrowseAgent("t", llm=llm, browser=b, home=tmp_path, on_step=seen.append).run()
+    assert seen[0].used_notes and not seen[0].from_cache      # the first choice was made with the notes in view
+    assert not seen[1].used_notes                              # the notes are shown once, with the first page
+
+
+def test_each_step_reports_the_tokens_of_the_call_that_chose_it(shop_url, tmp_path):
+    seen = []
+    llm = ScriptedLLM([("read", {}), ("done", {"success": True, "answer": "ok"})])
+    with make_browser() as b:
+        b.goto(shop_url)
+        res = BrowseAgent("t", llm=llm, browser=b, home=tmp_path, learn=False, on_step=seen.append).run()
+    assert [(s.input_tokens, s.output_tokens) for s in seen] == [(100, 10), (100, 10)]
+    assert sum(s.input_tokens for s in seen) == res.usage.total_input        # nothing is lost or counted twice

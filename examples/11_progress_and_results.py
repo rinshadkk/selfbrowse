@@ -8,7 +8,7 @@ from selfbrowse import BrowseAgent, Step
 
 
 def on_step(step: Step) -> None:
-    tag = " (learned)" if step.from_cache else ""
+    tag = " (learned: replayed)" if step.from_cache else " (learned: used notes)" if step.used_notes else ""
     print(f"{step.number:>2}. {step.tool} {json.dumps(step.input)[:70]}{tag}")
 
 

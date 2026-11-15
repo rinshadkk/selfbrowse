@@ -5,17 +5,18 @@ Two kinds of knowledge:
 
 * **memo** – short facts the model chose to remember ("search box is #3 on the home page").
 * **flows** – click sequences that worked, keyed by a normalised page pattern such as
-  ``/*/dp/*``. They are replayed without calling the model, but only when trusted:
+  ``/*/dp/*``. Each pattern keeps every distinct sequence it has seen (*variants*), and trust is
+  worked out for the **start** of a sequence, so a shared first step (a cookie banner) is trusted
+  even when what follows differs by task. A start is replayed without calling the model when:
 
-  - **generic**: the same flow succeeded for at least two *different* tasks (a cookie banner, a
-    sign-in step) → replayed for every task;
-  - **repeat**: the same flow succeeded at least twice for *this exact* task → replayed for that
-    task only (a routine job run again and again).
+  - **generic**: it succeeded for at least two *different* tasks → replayed for every task;
+  - **repeat**: it succeeded at least twice for *this exact* task, whichever way the later clicks
+    went → replayed for that task only (a routine job run again and again).
 
   Repeating one task never makes its incidental clicks look generic. A flow that stops working
   is dropped, and flows unused for 90 days expire.
 
-Only *successful* runs are learned from. Steps after typing on a page are never recorded for it
+Only *successful* runs are learned from. Steps after typing, or after a click that changed the page in place (add to cart), are never recorded for it
 (what was typed is task-specific), and risky clicks (buy, delete, send, sign out...) are never
 recorded at all.
 """
@@ -39,6 +40,7 @@ MAX_FACT_CHARS = 200
 MIN_DISTINCT_TASKS = 2          # generic: succeeded for this many different tasks
 MIN_SAME_TASK_RUNS = 2          # repeat: succeeded this many times for the same task
 MAX_TASKS_KEPT = 20
+MAX_VARIANTS = 8                # distinct sequences kept per page pattern
 EXPIRE_SECONDS = 90 * 24 * 3600
 _RECORDABLE = {"click", "press"}
 
@@ -65,6 +67,33 @@ def _looks_variable(seg: str) -> bool:
     )
 
 
+def _upgrade(flow: dict[str, Any]) -> dict[str, Any]:
+    """Files written before variants existed held one sequence per pattern; wrap it."""
+    if "variants" in flow:
+        return flow
+    tasks = flow.get("tasks", [])
+    runs = flow.get("runs", 1)
+    per_task = {k: (runs if len(tasks) == 1 else 1) for k in tasks}
+    return {"variants": [{"steps": flow.get("steps", []), "tasks": per_task, "runs": runs, "last": flow.get("last", 0)}],
+            "misses": flow.get("misses", 0)}
+
+
+def _trusted_prefix(variants: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """The longest start of any sequence that is trusted, for this task (``key``)."""
+    best: list[dict[str, Any]] = []
+    for v in variants:
+        steps = v["steps"]
+        for k in range(len(steps), len(best), -1):
+            prefix = steps[:k]
+            sharing = [w for w in variants if w["steps"][:k] == prefix]
+            tasks = set().union(*(w["tasks"].keys() for w in sharing))
+            mine = sum(w["tasks"].get(key, 0) for w in sharing) if key else 0
+            if len(tasks) >= MIN_DISTINCT_TASKS or mine >= MIN_SAME_TASK_RUNS:
+                best = prefix
+                break
+    return best
+
+
 def domain_of(url: str) -> str:
     return urlparse(url).netloc.lower().removeprefix("www.")
 
@@ -87,6 +116,8 @@ class SiteKnowledge:
             if isinstance(data, dict):
                 data.setdefault("memo", [])
                 data.setdefault("flows", {})
+                for pattern, flow in list(data["flows"].items()):
+                    data["flows"][pattern] = _upgrade(flow)
                 return data
         except (OSError, ValueError):
             pass
@@ -108,16 +139,13 @@ class SiteKnowledge:
         return list(self._load(domain_of(url))["memo"])
 
     def get_steps(self, url: str, task: str = "") -> list[dict[str, Any]]:
-        """Steps to replay for this page, or [] if there is no trusted flow."""
+        """Steps to replay for this page, or [] if there is no trusted start of a flow."""
         flow = self._load(domain_of(url))["flows"].get(normalize_path(url))
-        if not flow or not flow.get("steps"):
+        if not flow:
             return []
-        if time.time() - flow.get("last", 0) > EXPIRE_SECONDS:
-            return []
-        tasks = flow.get("tasks", [])
-        generic = len(tasks) >= MIN_DISTINCT_TASKS
-        repeat = bool(task) and task_key(task) in tasks and flow.get("runs", 0) >= MIN_SAME_TASK_RUNS
-        return list(flow["steps"]) if generic or repeat else []
+        now = time.time()
+        live = [v for v in flow["variants"] if v.get("steps") and now - v.get("last", 0) <= EXPIRE_SECONDS]
+        return list(_trusted_prefix(live, task_key(task) if task else "")) if live else []
 
     # ── learning (during a run) ────────────────────────────────────────────────
     def record(self, url: str, step: dict[str, Any]) -> None:
@@ -125,6 +153,9 @@ class SiteKnowledge:
         domain, pattern = domain_of(url), normalize_path(url)
         sealed = self._sealed.setdefault(domain, set())
         if pattern in sealed:
+            return
+        if step.get("tool") == "effect":                   # an in-place state change ("Add to cart"): keep what led
+            sealed.add(pattern)                            # up to it, learn nothing from it or after it
             return
         if step.get("tool") == "type":
             sealed.add(pattern)
@@ -156,7 +187,8 @@ class SiteKnowledge:
         if not flow:
             return
         flow["misses"] = flow.get("misses", 0) + 1
-        if flow["misses"] >= 2 and flow["misses"] > flow.get("runs", 0) // 2:
+        runs = sum(v.get("runs", 0) for v in flow["variants"])
+        if flow["misses"] >= 2 and flow["misses"] > runs // 2:
             del data["flows"][pattern]
         self._save(domain, data)
 
@@ -173,15 +205,18 @@ class SiteKnowledge:
             for pattern, steps in pending.get(domain, {}).items():
                 if not steps or len(steps) > MAX_FLOW_STEPS:
                     continue
-                old = data["flows"].get(pattern)
-                if old and old.get("steps") == steps:
-                    old["runs"] = old.get("runs", 0) + 1
-                    old["last"] = time.time()
-                    if key and key not in old.setdefault("tasks", []):
-                        old["tasks"] = (old["tasks"] + [key])[-MAX_TASKS_KEPT:]
-                else:
-                    data["flows"][pattern] = {"steps": steps, "tasks": [key] if key else [],
-                                              "runs": 1, "misses": 0, "last": time.time()}
+                flow = data["flows"].setdefault(pattern, {"variants": [], "misses": 0})
+                same = next((v for v in flow["variants"] if v["steps"] == steps), None)
+                if same is None:
+                    same = {"steps": steps, "tasks": {}, "runs": 0, "last": 0}
+                    flow["variants"].append(same)
+                same["runs"] += 1
+                same["last"] = time.time()
+                if key:
+                    same["tasks"][key] = same["tasks"].get(key, 0) + 1
+                    while len(same["tasks"]) > MAX_TASKS_KEPT:
+                        same["tasks"].pop(next(iter(same["tasks"])))
+                flow["variants"] = sorted(flow["variants"], key=lambda v: v["last"])[-MAX_VARIANTS:]
             for fact in memos.get(domain, []):
                 if fact not in data["memo"]:
                     data["memo"].append(fact)
