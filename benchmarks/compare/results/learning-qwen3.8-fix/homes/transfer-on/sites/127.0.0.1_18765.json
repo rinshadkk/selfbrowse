@@ -1,0 +1,62 @@
+{
+ "memo": [],
+ "flows": {
+  "/": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "button",
+       "text": "Accept all"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Desk Lamp"
+      }
+     ],
+     "tasks": {
+      "137aa14e5def": 2
+     },
+     "runs": 2,
+     "last": 1794716639.521195
+    }
+   ],
+   "misses": 0
+  },
+  "/search": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Bamboo Tray"
+      }
+     ],
+     "tasks": {
+      "13e58d93524c": 1
+     },
+     "runs": 1,
+     "last": 1794716580.129478
+    },
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Salt Mill"
+      }
+     ],
+     "tasks": {
+      "72fa73f260c4": 1
+     },
+     "runs": 1,
+     "last": 1794716606.0370991
+    }
+   ],
+   "misses": 0
+  }
+ }
+}

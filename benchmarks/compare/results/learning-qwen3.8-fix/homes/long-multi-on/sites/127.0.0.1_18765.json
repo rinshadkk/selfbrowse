@@ -1,0 +1,148 @@
+{
+ "memo": [],
+ "flows": {
+  "/": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "button",
+       "text": "Reject"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Home"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 1
+     },
+     "runs": 1,
+     "last": 1794717498.517309
+    },
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "button",
+       "text": "Accept all"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Kitchen"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Home"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Garden"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 2
+     },
+     "runs": 2,
+     "last": 1794717656.6663182
+    },
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Kitchen"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Home"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 1
+     },
+     "runs": 1,
+     "last": 1794717833.463783
+    }
+   ],
+   "misses": 0
+  },
+  "/category/kitchen": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Home"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 1
+     },
+     "runs": 1,
+     "last": 1794717592.353065
+    }
+   ],
+   "misses": 0
+  },
+  "/menu": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Home"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 1
+     },
+     "runs": 1,
+     "last": 1794717592.353067
+    }
+   ],
+   "misses": 0
+  },
+  "/category/garden": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Trowel Set"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 1
+     },
+     "runs": 1,
+     "last": 1794717656.666822
+    },
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "Home"
+      }
+     ],
+     "tasks": {
+      "5b97cbbf4162": 1
+     },
+     "runs": 1,
+     "last": 1794717833.463518
+    }
+   ],
+   "misses": 0
+  }
+ }
+}

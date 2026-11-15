@@ -1,0 +1,55 @@
+{
+ "memo": [],
+ "flows": {
+  "/": {
+   "steps": [
+    {
+     "tool": "click",
+     "role": "button",
+     "text": "Accept all"
+    },
+    {
+     "tool": "click",
+     "role": "link",
+     "text": "Desk Lamp"
+    }
+   ],
+   "tasks": [
+    "137aa14e5def"
+   ],
+   "runs": 2,
+   "misses": 0,
+   "last": 1794681417.1975732
+  },
+  "/product/*": {
+   "steps": [
+    {
+     "tool": "click",
+     "role": "button",
+     "text": "Add to cart"
+    }
+   ],
+   "tasks": [
+    "137aa14e5def"
+   ],
+   "runs": 1,
+   "misses": 0,
+   "last": 1794681417.197574
+  },
+  "/search": {
+   "steps": [
+    {
+     "tool": "click",
+     "role": "link",
+     "text": "Salt Mill"
+    }
+   ],
+   "tasks": [
+    "72fa73f260c4"
+   ],
+   "runs": 1,
+   "misses": 0,
+   "last": 1794681395.141527
+  }
+ }
+}

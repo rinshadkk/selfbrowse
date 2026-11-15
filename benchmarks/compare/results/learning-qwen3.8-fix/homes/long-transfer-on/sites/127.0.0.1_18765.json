@@ -1,0 +1,43 @@
+{
+ "memo": [],
+ "flows": {
+  "/list": {
+   "variants": [
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "4"
+      }
+     ],
+     "tasks": {
+      "46ba68e11070": 1
+     },
+     "runs": 1,
+     "last": 1794718078.127907
+    },
+    {
+     "steps": [
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "2"
+      },
+      {
+       "tool": "click",
+       "role": "link",
+       "text": "3"
+      }
+     ],
+     "tasks": {
+      "1ba7ad8fac77": 1
+     },
+     "runs": 1,
+     "last": 1794718147.245322
+    }
+   ],
+   "misses": 0
+  }
+ }
+}

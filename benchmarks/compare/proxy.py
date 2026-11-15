@@ -27,6 +27,15 @@ class Recorder:
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.lock = threading.Lock()
+        self.inflight = 0                  # requests the model is still working on
+
+    def wait_idle(self, limit: float = 400.0) -> float:
+        """Wait until no request is in flight. A client that gave up (timed out) leaves its request running in the
+        model, and that work would otherwise slow, and be counted against, whatever runs next."""
+        t0 = time.time()
+        while self.inflight and time.time() - t0 < limit:
+            time.sleep(1)
+        return time.time() - t0
 
     def reset(self) -> None:
         with self.lock:
@@ -57,11 +66,16 @@ class Handler(BaseHTTPRequestHandler):
         req = urllib.request.Request(upstream + self.path, data=raw or None, method=self.command,
                                      headers={k: v for k, v in self.headers.items()
                                               if k.lower() not in ("host", "content-length", "accept-encoding")})
+        with REC.lock:
+            REC.inflight += 1
         try:
             with urllib.request.urlopen(req, timeout=900) as resp:
                 out, status, ctype = resp.read(), resp.status, resp.headers.get("Content-Type", "application/json")
         except urllib.error.HTTPError as e:
             out, status, ctype = e.read(), e.code, "application/json"
+        finally:
+            with REC.lock:
+                REC.inflight -= 1
         secs = time.perf_counter() - t0
         if self.command == "POST" and ("chat" in self.path or "generate" in self.path or self.path.startswith("/v1/messages")):
             rec = {"path": self.path, "seconds": round(secs, 3), "status": status}

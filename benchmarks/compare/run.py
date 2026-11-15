@@ -35,6 +35,9 @@ LIBS = {
     "selfbrowse-json": (SB, {"SB_TOOL_MODE": "json"}),
     "selfbrowse-native": (SB, {"SB_TOOL_MODE": "native"}),          # fixes only, native tool calling
     "browser-use": ([str(HERE / ".venv-bu/bin/python"), str(HERE / "run_browseruse.py")], {}),
+    # fastbrowse: Jev (OpenRouter, needs OPENROUTER_API_KEY in the environment) picks actions; the model here
+    # only writes the start page, field values and the answer
+    "fastbrowse": ([str(HERE / ".venv-fb/bin/python"), str(HERE / "run_fastbrowse.py")], {}),
 }
 DEFAULT_LIBS = "selfbrowse,browser-use"
 
@@ -114,6 +117,7 @@ def run_one(lib: str, task, base: str, proxy_url: str, model: str, max_steps: in
     except subprocess.TimeoutExpired:
         res = {"lib": lib, "answer": "", "agent_success": False, "steps": 0, "error": f"timeout after {timeout}s"}
     wall = time.perf_counter() - t0
+    px.REC.wait_idle()                        # work a timed-out call left in the model finishes before the next run
     state = get_state(base) if base else {}
     state.update(state_extra)
     if task.id == "T7-live-hn":
@@ -177,7 +181,7 @@ def main() -> None:
 
     tasks = [t for t in TASKS if not args.tasks or t.id in args.tasks.split(",")]
     libs = args.libs.split(",")
-    out_dir = Path(args.out) if args.out else HERE / "results" / time.strftime("%Y%m%d-%H%M%S")
+    out_dir = Path(args.out).resolve() if args.out else HERE / "results" / time.strftime("%Y%m%d-%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
     video_dir = out_dir / "videos" if args.record_video else None
     if video_dir:

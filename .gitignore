@@ -24,3 +24,4 @@ _site/
 benchmarks/compare/results/*/videos/
 benchmarks/compare/results/*.log
 benchmarks/compare/results/*.done
+.venv-fb/
