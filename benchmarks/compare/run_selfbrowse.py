@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, os.environ.get("SB_SRC") or str(Path(__file__).resolve().parents[2] / "src"))
 from selfbrowse import BrowseAgent, Browser
 from selfbrowse.llm import make_llm
 
@@ -17,12 +17,14 @@ browser = None
 try:
     mode = os.environ.get("SB_TOOL_MODE", "auto")          # auto = provider default, json, native
     extra = {} if mode == "auto" else {"json_mode": mode == "json"}
-    if model.startswith("claude"):
+    if os.environ.get("VIA_OPENROUTER"):                          # e.g. anthropic/claude-opus-5.5; key from OPENROUTER_API_KEY
+        llm = make_llm("openrouter:" + os.environ["VIA_OPENROUTER"])
+    elif model.startswith("claude"):
         llm = make_llm(f"anthropic:{model}", base_url=proxy)          # key comes from ANTHROPIC_API_KEY
     else:
         llm = make_llm(f"ollama:{model}", base_url=proxy + "/v1", **extra)
     live = bool(os.environ.get("BENCH_LIVE"))
-    browser = Browser(headless=True, executable_path=chrome or None,
+    browser = Browser(headless=not os.environ.get("SB_HEADED"), executable_path=chrome or None, stealth=bool(os.environ.get("SB_STEALTH")),
                       record_video_dir=os.environ.get("BENCH_VIDEO_DIR") or None)
     if live:
         print(f"\033[1mselfbrowse\033[0m  model {model}\n\033[2mtask:\033[0m {task}\n", flush=True)

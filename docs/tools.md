@@ -22,4 +22,18 @@ Knowledge is stored per site in `~/.selfbrowse/sites/<domain>.json`.
 
 When learning is used, the command line says so on that step: `(learned: replayed from saved flow, no model call)` for a replayed click, `(learned: used saved notes about this site)` when the model chose the step with saved notes in front of it. In Python, check `step.from_cache` and `step.used_notes`.
 
+Each page type keeps up to eight distinct click sequences (*variants*), and trust is worked out for the **start** of a sequence. If the cookie-banner click came first in two different tasks, it is replayed for any task even though what followed differed. A different path on a later run is kept as another variant instead of erasing a trusted flow. Files written by earlier versions still load.
+
+Replaying goes by page type and element label: the agent finds the stored control again by role and text on a fresh page list (an exact text match, or a single partial match). If it is missing or ambiguous the flow records a miss and the model takes over, and every replayed click still passes the guardrails.
+
+**Measured** (local model qwen3.8, a local demo shop, one run per cell, success judged by the shop's own state; `benchmarks/compare/learning_eval.py`):
+
+| Scenario | Learning off | Learning on |
+|---|---|---|
+| The same multi-page lookup, 4 runs in a row | 2/4 correct, 6.8 calls, 10,942 tokens on average | 4/4 correct, 5.0 calls, 7,645 tokens on average |
+| Once trusted (runs 3 and 4) | 7 to 9 calls, 55 to 79 s | 3 calls, about 4,000 tokens, 10 to 12 s |
+| Different tasks on one site (add-to-cart, different SKUs) | no change | no change: no shared start was found |
+
+Learning helps routine jobs you repeat, from the third run, and did not help across different tasks in these tests. Details and the earlier results that led to the in-place-click rule are in `benchmarks/compare/results/learning-qwen3.8*`.
+
 Known limit: research-style tasks learn little, because most of their clicks are specific to the question. The biggest wins are generic steps and routine jobs you repeat.

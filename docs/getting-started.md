@@ -3,10 +3,16 @@
 ## Install
 
 ```bash
-git clone <your-repo-url> selfbrowse && cd selfbrowse
+pip install selfbrowse
+playwright install chromium        # or use your installed Chrome with --channel chrome
+```
+
+To work on Selfbrowse itself, install from source:
+
+```bash
+git clone https://github.com/rinshadkk/selfbrowse && cd selfbrowse
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
-playwright install chromium        # or use your installed Chrome with --channel chrome
 ```
 
 Optional extras: `pip install -e '.[stealth]'` (Patchright), `pip install -e '.[otel]'` (OpenTelemetry export), `pip install -e '.[mcp]'` (MCP server), `pip install -e '.[presidio]'` (name and personal-data masking; also run `python -m spacy download en_core_web_sm`), `pip install -e '.[bench]'` (token benchmark).

@@ -16,7 +16,7 @@ print(result.output)
 ```
 
 !!! note "Early release"
-    This is version 0.1. Install it from source for now; see [Get started](getting-started.md).
+    This is version 0.1. Install it with `pip install selfbrowse`; see [Get started](getting-started.md).
 
 ## Start here
 
@@ -27,3 +27,4 @@ print(result.output)
 | See every feature and where it is explained | [Features](features.md) |
 | Use it from Claude, VS Code or another MCP client | [MCP server](mcp.md) |
 | Keep it safe on sites you do not control | [Guardrails](guardrails.md) |
+| Understand how the parts fit together | [Architecture](architecture.md) |

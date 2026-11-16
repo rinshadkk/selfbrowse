@@ -28,7 +28,7 @@ import proxy as px  # noqa: E402
 import store  # noqa: E402
 from tasks import TASKS, _hn_top_title  # noqa: E402
 
-CHROME = Path.home() / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+CHROME = Path(os.environ.get("BENCH_CHROME") or Path.home() / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
 SB = [sys.executable, str(HERE / "run_selfbrowse.py")]
 LIBS = {
     "selfbrowse": (SB, {}),                                         # provider default (JSON mode for ollama)
@@ -167,7 +167,7 @@ def main() -> None:
     ap.add_argument("--libs", default=DEFAULT_LIBS)
     ap.add_argument("--out", default="")
     ap.add_argument("--record-video", action="store_true", help="record a video of every run into <out>/videos and write an index.html")
-    ap.add_argument("--suite", choices=["store", "usecases", "all"], default="store",
+    ap.add_argument("--suite", choices=["store", "usecases", "kayak", "showcase", "all"], default="store",
                     help="store = the local demo shop (plus two live pages); usecases = real public sites; all = both")
     ap.add_argument("--terminal", action="store_true",
                     help="with --record-video: also record the terminal and join it beside the browser (needs asciinema, agg, ffmpeg)")
@@ -176,6 +176,12 @@ def main() -> None:
     if args.suite in ("usecases", "all"):
         from usecases import TASKS as USE
         TASKS = USE if args.suite == "usecases" else [*TASKS, *[t for t in USE if t.id not in {x.id for x in TASKS}]]
+    if args.suite == "kayak":
+        from usecases import KAYAK
+        TASKS = KAYAK
+    if args.suite == "showcase":
+        from usecases import SHOWCASE
+        TASKS = SHOWCASE
     if args.terminal and not args.record_video:
         ap.error("--terminal needs --record-video")
 
@@ -186,7 +192,7 @@ def main() -> None:
     video_dir = out_dir / "videos" if args.record_video else None
     if video_dir:
         video_dir.mkdir(parents=True, exist_ok=True)
-    base = None if args.suite == "usecases" else store.serve()[1]
+    base = None if args.suite in ("usecases", "kayak", "showcase") else store.serve()[1]
     _, proxy_url = px.serve()
     print(f"store {base or '(real sites)'}  proxy {proxy_url}  model {args.model}  -> {out_dir}", flush=True)
 

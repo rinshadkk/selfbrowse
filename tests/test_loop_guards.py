@@ -30,6 +30,7 @@ class FakeBrowser:
     def describe_ref(self, ref): return {"role": "button", "text": "Go"}
     def scroll(self, direction="down", amount=600): return f"scrolled {direction}"
     def click_ref(self, ref): return "clicked #1"
+    def type_text(self, text, clear=False): return "typed"
     def bring_to_front(self): pass
 
 
@@ -85,6 +86,21 @@ def test_clicking_the_same_control_again_is_flagged(tmp_path):
     BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
     assert 'already clicked "Go"' in repr(llm.seen[3])
     assert 'already clicked' not in repr(llm.seen[2])
+
+
+def test_typing_the_same_text_again_is_flagged(tmp_path):
+    llm = ScriptedLLM([("type", {"ref": 1, "text": "COK"}), ("read", {}), ("type", {"ref": 1, "text": "COK"}),
+                       ("done", {"success": True, "answer": "ok"})])
+    BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    assert 'already typed "cok"' in repr(llm.seen[3])
+    assert 'already typed' not in repr(llm.seen[2])
+
+
+def test_typing_different_text_is_not_flagged(tmp_path):
+    llm = ScriptedLLM([("type", {"ref": 1, "text": "COK"}), ("type", {"ref": 1, "text": "ORD"}),
+                       ("done", {"success": True, "answer": "ok"})])
+    BrowseAgent("t", llm=llm, browser=FakeBrowser(), home=tmp_path, learn=False).run()
+    assert 'already typed' not in repr(llm.seen)
 
 
 @pytest.mark.browser

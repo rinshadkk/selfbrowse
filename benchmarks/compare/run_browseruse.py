@@ -55,7 +55,13 @@ async def main() -> dict:
     out = {"lib": "browser-use"}
     t0 = time.perf_counter()
     try:
-        if model.startswith("claude"):
+        if os.environ.get("VIA_OPENROUTER"):
+            # Opus 5.5 rejects forced tool calls (tool_choice "tool"/"any"), so use a JSON-schema response format instead
+            from browser_use.llm import ChatOpenAI
+            llm = ChatOpenAI(model=os.environ["VIA_OPENROUTER"], api_key=os.environ["OPENROUTER_API_KEY"],
+                             base_url="https://openrouter.ai/api/v1", remove_min_items_from_schema=True,
+                             remove_defaults_from_schema=True)
+        elif model.startswith("claude"):
             llm = ChatAnthropic(model=model, base_url=proxy, api_key=os.environ["ANTHROPIC_API_KEY"])
         else:
             llm = ChatOllama(model=model, host=proxy)
@@ -64,10 +70,15 @@ async def main() -> dict:
         # run comes out as a fraction of a second. To get a real-time video like Selfbrowse's, sample the
         # page ten times a second from outside and encode that (this adds a little load while recording).
         extra = {"viewport": {"width": 1280, "height": 800}} if video else {}
-        browser = Browser(headless=True, executable_path=chrome or None, keep_alive=False, **extra)
+        if os.environ.get("BU_PROFILE"):
+            extra["user_data_dir"] = os.environ["BU_PROFILE"]
+        browser = Browser(headless=not os.environ.get("SB_HEADED"), executable_path=chrome or None, keep_alive=False, **extra)
         sampler = asyncio.create_task(sample_frames(browser, frames)) if video else None
         # A local reasoning model can take minutes per call; the library's 75 s default would fail it for being slow.
         slow = {} if model.startswith("claude") else {"llm_timeout": 300, "step_timeout": 600}
+        if os.environ.get("BU_LLM_TIMEOUT"):               # e.g. a slow gateway in front of a big model
+            t = int(os.environ["BU_LLM_TIMEOUT"])
+            slow = {"llm_timeout": t, "step_timeout": t * 2}
         agent = Agent(task=task, llm=llm, browser=browser, use_vision=False, **slow)
         hist = await agent.run(max_steps=max_steps)
         if sampler:

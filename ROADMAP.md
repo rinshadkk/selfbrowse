@@ -12,11 +12,11 @@ A living list of what to build next. Add features at the bottom of the right sec
 
 ## Now (P0, in this order)
 
-1. **O1** Commit the benchmark harness and the results collected so far.
-2. **R1** Decide the default tool mode (native vs JSON) from the finished model results.
-3. **R2** Refuse `done` as the very first action.
-4. **L1** Measure whether site learning helps at all.
-5. **P1/P5** Trademark search and employer-IP check before any public release.
+1. **R1** Decide the default tool mode (native vs JSON) from the finished model results.
+2. **R2** Refuse `done` as the very first action.
+3. **P1/P5** Trademark search and employer-IP check. The repository is public and 0.1.0 is on PyPI, so these are now overdue, not upcoming.
+
+Done from this list: **O1** (harness and results committed) and **L1** (learning measured).
 
 ---
 
@@ -55,15 +55,19 @@ A living list of what to build next. Add features at the bottom of the right sec
 - [ ] **R10 Conversation compaction** (P2) — shrink old turns on long runs.
 - [ ] **R11 Model profiles** (P3) — prompt and mode presets per model strength.
 - [ ] **R12 Generic popup handling** (P2) — dismiss cookie banners and modals by pattern before asking the model.
+- [ ] **R13 Two-model routing** (P2) — a small or local model drives; a larger model is called only when the run stalls (repeated action, step limit close, unrepairable reply), within a budget. `--model ollama:qwen3.8 --escalate-to anthropic:claude-sonnet-5-5`. *Why:* local by default, cloud only when needed. *Done when:* a fixture the small fake model loops on is finished by the second model, and the trace shows which model made each call. *Proves it:* success and cost per task against each model alone on the usecases suite.
+- [ ] **R14 Send only what changed** (P2) — when the page is the same page as the last step, send the lines of the list that changed instead of the whole list. *Why:* "less page" on long forms and in-place updates. *Done when:* a fixture form step sends a diff and the model still completes it. *Proves it:* tokens per call on T4, T5 and the flight search, with success unchanged.
 
 ## L. Learning (per-site memory)
 
-- [ ] **L1 Measure it** (P0) — run a task sequence with learning on and off in the benchmark and compare calls, tokens, time and success. *Done when:* a table in the README shows the result, good or bad.
+- [x] **L1 Measure it** (P0) — run a task sequence with learning on and off in the benchmark and compare calls, tokens, time and success. *Done when:* a table in the README shows the result, good or bad. *Done: `benchmarks/compare/learning_eval.py`, results in `benchmarks/compare/results/learning-qwen3.8-fix`, table in `docs/tools.md`. Helps a repeated task from the third run; no saving across different tasks.*
 - [ ] **L2 Keep only useful steps** (P1) — record only clicks on the path to the final success, not exploration. Today incidental clicks ("History", "(Top)") get saved.
 - [ ] **L3 Self-healing flows** (P2) — verify a flow still works, repair or drop it when the site changes.
-- [ ] **L4 Export and import knowledge** (P3) — share site notes between machines, opt-in.
+- [ ] **L4 Export and import knowledge** (P2) — share site notes and flows between machines, opt-in, and pull community site packs (`selfbrowse pull <domain>`). Flows hold clicks only, never typed text, so they are safe to share; an imported flow starts untrusted until it works locally. *Done when:* a flow exported on one data folder is imported into another and replayed after it earns trust.
 - [ ] **L5 Seed packs** (P3) — shipped generic knowledge (cookie banners on common platforms).
 - [ ] **L6 Make `remember` useful** (P2) — models rarely call it. Test automatic fact extraction at the end of a successful run.
+- [ ] **L7 Export a learned flow as a script** (P1) — `selfbrowse export <domain> [--task ...]` writes a trusted flow as a plain Playwright script, and `selfbrowse replay` runs it with no model at all. Typed text is never stored, so the script takes it as arguments. *Why:* the agent writes its own automation; nobody else offers this. *Done when:* a flow learned on the demo shop exports to a script that passes the same state check with no model call. *Proves it:* zero tokens and wall time for the exported script against run 3 of the learning evaluation.
+- [ ] **L8 Teach by demonstration** (P2) — `selfbrowse teach "task"` opens a visible window, the person does the task once, and the clicks are saved as a trusted flow (same rules: no typed text, no risky clicks, no in-place clicks). *Why:* skips the two runs needed to earn trust. *Done when:* a taught flow is replayed on the next run of the same task. *Proves it:* calls and tokens on run 1 after teaching against run 3 of the learning evaluation.
 
 ## S. Safety and security
 
@@ -80,30 +84,34 @@ A living list of what to build next. Add features at the bottom of the right sec
   - **Python API:** `RedactPII(detectors=[Rules(), Presidio(), GLiNER(labels=[...])])`; a custom detector is anything with `find(text) -> list[Span]`.
   - **Limits and scope:** a per-page time budget (about 200 ms) that falls back to the faster layers and logs it in the trace; per-domain scope; cover traces, screenshots and site knowledge, not only page text.
   *Done when:* each layer can be turned on or off, a fixture page with seeded sensitive values is masked end to end, and a form field can still be filled from a placeholder. *Proves it:* a leak benchmark that reports recall, false positives (masked values that broke the task) and added latency per layer, in a table in the README. Cost figures (size, memory, latency) are estimates until measured.
+- [ ] **S9 Privacy receipt** (P1) — after a run, `selfbrowse receipt <run-id|latest>` reports what the model was sent: sites visited, each placeholder and how often it appeared, which secrets were typed and on which site, and any value that reached the model unmasked. Built from the trace, so it needs `--trace`. *Why:* proof of "less of your data" a person can keep or hand to a reviewer. *Done when:* on the reversible-placeholder fixture the receipt lists `<EMAIL_1>` and `<PERSON_1>`, zero unmasked values, and one typed secret with its site. *Proves it:* the receipt agrees with the leak check in `benchmarks/reversible/run.py` on every row.
+- [ ] **S10 Published injection test results** (P2) — a fixed set of attack pages (hidden text, fake system messages, cross-site form targets, placeholder exfiltration) run on every release, with the pass rate in the README, good or bad. Builds on S4. *Done when:* the suite runs in CI with a fake model and against one real model by hand. *Proves it:* attacks blocked out of attacks tried, per guardrail setting.
+- [ ] **S11 Secrets from a password manager** (P2) — read a secret at typing time from 1Password CLI, the macOS keychain or `pass`, bound to a domain (needs S1). `--secret pw=op://vault/item/password`. *Why:* nothing to export into the shell. *Done when:* a fake provider supplies a value that is typed on the bound site and refused on another.
 
 ## D. Distribution and integration
 
 - [~] **D1 MCP server mode** (P1) — `selfbrowse-mcp` serves `browse(task)` and 12 `browser_*` step tools over stdio, with guardrails; tests drive it through a real MCP client and a real stdio process. *Still to do:* measure tokens against Claude's own browser tools on the same tasks, approvals through MCP elicitation instead of blocking, attach to the user's Chrome (D4), HTTP transport, tested on mcp 1.x. *Proves it:* tokens and success per task, with and without the server.
-- [ ] **D2 Publish to PyPI** (P0, blocked on P1) — only after the name is cleared.
+- [x] **D2 Publish to PyPI** (P0, blocked on P1) — only after the name is cleared. *Done: 0.1.0 is on PyPI. It predates remote browsers, so the next release is needed before the README matches what `pip install` gives. P1 was not cleared first.*
 - [ ] **D3 Async API and streaming** (P1) — `await agent.arun()` and an event stream for UIs.
-- [ ] **D4 Attach to a running Chrome** (P1) — connect over CDP to the user's own browser (fixes most bot-check problems because it uses real cookies and fingerprint).
-- [ ] **D5 Remote browsers** (P2) — connect to a hosted browser by CDP URL.
+- [x] **D4 Attach to a running Chrome** (P1) — connect over CDP to the user's own browser (fixes most bot-check problems because it uses real cookies and fingerprint). *Done: `--cdp-url http://localhost:9222` attaches to a Chrome started with a debug port. Limit: Chrome has to be started that way; there is no attach to an ordinary running window.*
+- [x] **D5 Remote browsers** (P2) — connect to a hosted browser by CDP URL. *Done: `--cdp-url`, `--cdp-header`, and `--cloud agentcore` for Amazon Bedrock AgentCore. The AgentCore adapter is tested against a stand-in for the AWS SDK, not a real account.*
 - [ ] **D6 Docker image and HTTP API** (P2).
 - [ ] **D7 LangChain and LlamaIndex wrappers** (P3).
 - [ ] **D8 TypeScript client** (P3).
 - [ ] **D9 CI on macOS, Linux and Windows** (P1) — browser tests and a lint step. Windows is untested (the terminal prompt uses `select` on stdin).
 - [ ] **D10 Release workflow** (P2) — tagged releases, changelog.
 - [ ] **D11 MCP client mode** (P3) — let a Selfbrowse agent call other MCP servers' tools (a database, Slack) next to the browser. *Why:* tasks that end outside the browser. Different from D1, which lets other assistants use Selfbrowse.
+- [ ] **D12 Watch mode** (P2) — `selfbrowse watch "price of X on example.com" --every 6h` repeats a task, reports only when the answer changes, and relies on learned flows so repeats cost few or no model calls. *Why:* the routine-job case where learning already helps. *Done when:* three scheduled runs against the demo shop report one change, and runs 3 onward replay the saved flow. *Proves it:* tokens per check from run 3 onward.
 
 ## O. Observability and evaluation
 
-- [ ] **O1 Commit the benchmark harness and results** (P0) — `benchmarks/compare/` plus the result folders. Record versions, model aliases and settings.
-- [ ] **O2 Harder tasks** (P1) — real-site tasks and a subset of a public benchmark (WebVoyager or Mind2Web style). The current six tasks use a toy store.
+- [x] **O1 Commit the benchmark harness and results** (P0) — `benchmarks/compare/` plus the result folders. Record versions, model aliases and settings. *Done: `benchmarks/compare/` and its result folders are in git; videos and logs are ignored.*
+- [~] **O2 Harder tasks** (P1) — real-site tasks and a subset of a public benchmark (WebVoyager or Mind2Web style). The current six tasks use a toy store. *Partly done: six real-site tasks (GitHub, PyPI, Wikipedia, books.toscrape.com, Python docs, Hacker News), flight searches and a showcase suite. Still to do: a subset of a public benchmark.*
 - [ ] **O3 Fair browser-use comparison** (P1) — rerun with its recommended settings for each model, longer timeouts for slow models, and several runs.
-- [ ] **O4 More models** (P1) — gpt-oss 20B, Qwen3-Coder 30B, Devstral 24B, Gemma 4 E4B, a 3–4B model, plus Claude Haiku/Sonnet. Same settings alias for each.
+- [~] **O4 More models** (P1) — gpt-oss 20B, Qwen3-Coder 30B, Devstral 24B, Gemma 4 E4B, a 3–4B model, plus Claude Haiku/Sonnet. Same settings alias for each. *Partly done: qwen3.8, Claude Haiku 4.5 and 5.5, Sonnet 5.5 and Opus 5.5 have results. The other models listed have not been run.*
 - [ ] **O5 Confidence in the summary** (P1) — multiple runs, a confidence interval, and a note when the sample is too small to compare.
-- [ ] **O6 Cost accounting** (P2) — configurable price table per model, shown in the summary.
-- [ ] **O7 HTML trace viewer** (P2) — one file you can open to see a run.
+- [~] **O6 Cost accounting** (P2) — configurable price table per model, shown in the summary. *Partly done: `Budget(max_usd=, price=(in, out))` stops a run at a dollar limit. Still to do: a price table per model and cost in the benchmark summary.*
+- [ ] **O7 HTML trace viewer** (P1) — one self-contained file you can open to see a run: steps, the list the model read, tokens, guardrail decisions. Redacted by default (placeholders kept, `redact_trace` applied) so it is safe to post. *Why:* a shareable run page is how people show others what it did. *Done when:* `selfbrowse trace export latest` writes a file that opens offline and contains no value the trace masked.
 - [ ] **O8 Regression tracking** (P2) — keep results over time and flag drops.
 - [ ] **O9 Fast CI smoke benchmark** (P2) — a scripted fake model, no network.
 
@@ -122,18 +130,17 @@ A living list of what to build next. Add features at the bottom of the right sec
 
 - `--vision` is not implemented (A10).
 - `read` returns at most about 3,000 characters of visible text.
-- The agent follows the newest tab without telling the model (A3).
 - Confirmations block instead of asking when running headless.
 - One `BrowseAgent` instance should not run two tasks at once.
 - Live-site tasks (T7, T8) are noisy: the page changes and sites may challenge headless browsers.
-- Benchmarks so far: one toy store, six local tasks, one or two runs each.
+- Benchmarks so far: a demo shop and six real sites, mostly one run per task (O3, O5).
 
 ## Decisions waiting on data
 
 | Question | Waiting on | Linked |
 |---|---|---|
 | Native or JSON tool mode as the Ollama default? | muse-glimmer results | R1 |
-| Is learning worth keeping on by default? | the learning experiment | L1 |
+| Is learning worth keeping on by default? | answered by L1: it stays on; it helps repeated tasks and did no harm on different ones after the in-place-click rule | L1 |
 | Is the 8B model even a supported target? | more small-model runs | O4 |
 
 ## Item template

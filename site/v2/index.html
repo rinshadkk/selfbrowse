@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Selfbrowse</title>
+<meta name="description" content="Selfbrowse is an open-source Python browser agent. The model reads each page as a short numbered list of controls, not screenshots or HTML, and learns what worked on each site.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500;600&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#main" aria-label="Selfbrowse, back to top">
+      <img class="mark mark-light" src="logo/selfbrowse-mark.svg" alt="" width="32" height="32">
+      <img class="mark mark-dark" src="logo/selfbrowse-mark-dark.svg" alt="" width="32" height="32">
+      <span>Selfbrowse</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#install">Install</a>
+      <a href="#features">Features</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#limits">Limits</a>
+      <a href="https://rinshadkk.github.io/selfbrowse/docs/">Docs</a>
+      <a href="https://github.com/rinshadkk/selfbrowse">GitHub</a>
+    </nav>
+    <button type="button" class="theme" id="theme" aria-label="Switch colour theme">
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 2.5a7.5 7.5 0 0 1 0 15z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- Hero -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <h1 id="hero-title">A browser agent that reads the web as a numbered list.</h1>
+  </div>
+  <div class="wrap hero-in">
+    <div class="hero-copy">
+      <p class="lede">You describe a task in plain language and Selfbrowse drives a real browser to do it. The model never gets a screenshot or raw HTML. It gets a short list of what can be clicked or typed into, answers with a number, and Selfbrowse remembers what worked on each site.</p>
+      <div class="hero-actions">
+        <button type="button" class="btn btn-tag" id="read-toggle" aria-expanded="false" aria-controls="reader">Read this page the way the model does</button>
+        <a class="btn btn-line" href="#install">Install from source</a>
+      </div>
+      <p class="fine">Python 3.10+, MIT licensed, early (0.1). Works with any model that can call tools.</p>
+    </div>
+
+    <figure class="term" aria-labelledby="term-cap">
+      <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre class="term-body"><code><span class="p">$</span> selfbrowse -m ollama:qwen3.8 "Open the demo shop and tell me the desk lamp's price"
+   1. goto {"url": "http://localhost:8000"}  <span class="tk">[845 in / 65 out]</span>
+   2. click {"ref": 8}  <span class="tk">[0 tokens]</span> <span class="ln">(learned: replayed from saved flow, no model call)</span>
+   3. click {"ref": 5}  <span class="tk">[912 in / 52 out]</span> <span class="ln">(learned: used saved notes about this site)</span>
+   4. done {"answer": "The desk lamp costs $24.00."}  <span class="tk">[1,040 in / 61 out]</span>
+<span class="out">The desk lamp costs $24.00.</span>
+<span class="dim">[4 steps, 3 model calls, 2797 in / 178 out tokens, 9.8s]</span></code></pre>
+      <figcaption id="term-cap">Illustrative output. The line format is the command line's own: tokens per step, a <code>(learned: …)</code> tag when saved knowledge was used, and the elapsed time on the summary line. The task, page refs and numbers here are an example.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- How it reads a page -->
+<section class="band" id="how" aria-labelledby="how-title">
+  <div class="wrap two">
+    <div class="prose">
+      <h2 id="how-title">One short list per page</h2>
+      <p>On every step Selfbrowse lists what a person could use on the screen: links, buttons, fields, dropdowns and headings, including those inside iframes and open shadow roots. The model picks one by its number. Only the newest list stays in the conversation, and the tool set is kept small because every tool description goes out with every call.</p>
+      <p>The tools are <code>goto</code>, <code>click</code>, <code>type</code>, <code>select</code>, <code>press</code>, <code>scroll</code>, <code>back</code>, <code>wait</code>, <code>read</code>, <code>find</code>, <code>switch_tab</code>, <code>close_tab</code>, <code>remember</code>, <code>ask_human</code> and <code>done</code>.</p>
+      <h3>Models</h3>
+      <p>Name a model as <code>provider:model</code>. Built in:</p>
+      <ul class="providers" aria-label="Built-in providers">
+        <li><code>anthropic</code> Anthropic</li>
+        <li><code>openai</code> OpenAI</li>
+        <li><code>gemini</code> Gemini</li>
+        <li><code>groq</code> Groq</li>
+        <li><code>deepseek</code> DeepSeek</li>
+        <li><code>openrouter</code> OpenRouter</li>
+        <li><code>together</code> Together</li>
+        <li><code>ollama</code> Ollama, local</li>
+        <li><code>lmstudio</code> LM Studio, local</li>
+      </ul>
+      <p>Or bring your own: any object with a <code>complete()</code> method, passed as <code>module:Name</code> or <code>./file.py:Name</code>. A gateway that speaks the Anthropic or OpenAI API needs no code, only a base URL.</p>
+    </div>
+    <figure class="listing" aria-labelledby="listing-cap">
+<pre><code><span class="dim">['Corner Shop | Lamps' | https://corner-shop.test/lamps]</span>
+<span class="r">#1</span> link "Corner Shop" (→/)
+<span class="r">#2</span> textbox "Search products"
+<span class="r">#3</span> button "Search"
+<span class="r">#4</span> link "Cart (0)" (→/cart)
+<span class="r">#5</span> heading "Desk Lamp"
+<span class="r">#6</span> combobox "Finish" (value="Brass", options: Brass | Black | White)
+<span class="r">#7</span> button "Add to cart"
+<span class="r">#8</span> button "Accept"</code></pre>
+      <div class="reply"><span>The model replies</span> <code>click {"ref": 7}</code></div>
+      <figcaption id="listing-cap">What the model reads for a small shop page, for the task “add the desk lamp to the cart”. A sample page, not a real site.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- Install -->
+<section class="band" id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <h2 id="install-title">Install and run</h2>
+    <p class="lede narrow">Selfbrowse is not on PyPI yet, so install it from source. The package name in <code>pyproject.toml</code> is <code>selfbrowse</code>.</p>
+    <div class="code-grid">
+      <div class="code">
+        <div class="code-head"><h3>Install</h3><button type="button" class="copy" data-copy="c-install">Copy</button></div>
+<pre id="c-install"><code>git clone https://github.com/rinshadkk/selfbrowse && cd selfbrowse
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+playwright install chromium</code></pre>
+        <p class="note">Or use your installed Chrome with <code>--channel chrome</code>. Extras: <code>stealth</code>, <code>otel</code>, <code>mcp</code>, <code>aws</code>, <code>presidio</code>, <code>bench</code>.</p>
+      </div>
+      <div class="code">
+        <div class="code-head"><h3>Command line</h3><button type="button" class="copy" data-copy="c-cli">Copy</button></div>
+<pre id="c-cli"><code>export ANTHROPIC_API_KEY=your-key-here
+selfbrowse "Open news.ycombinator.com and tell me the title of the top story."
+selfbrowse -m ollama:qwen3.6:latest "Open news.ycombinator.com and tell me the title of the top story."</code></pre>
+        <p class="note">The third line uses a free local model through Ollama, with no key. Set your key in your own shell; never paste it into a chat or commit it. Add <code>--headed</code> to watch it work.</p>
+      </div>
+      <div class="code">
+        <div class="code-head"><h3>Python</h3><button type="button" class="copy" data-copy="c-py">Copy</button></div>
+<pre id="c-py"><code>from selfbrowse import BrowseAgent
+
+result = BrowseAgent("find the top story on Hacker News", llm="anthropic:claude-haiku-4-5").run()
+print(result.output)
+print(result.usage)        # input/output/cache tokens and number of model calls</code></pre>
+        <p class="note"><code>result</code> has <code>success</code>, <code>output</code>, <code>steps</code>, <code>usage</code>, <code>history</code> and <code>error</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- New in this version -->
+<section class="band band-new" id="new" aria-labelledby="new-title">
+  <div class="wrap">
+    <h2 id="new-title">New in this version</h2>
+    <div class="new-grid">
+      <div>
+        <h3>Tokens on every step</h3>
+        <p>Each step on the command line ends with what it cost, such as <code>[845 in / 65 out]</code>. A step that needed no model call says <code>[0 tokens]</code>.</p>
+      </div>
+      <div>
+        <h3>Learning says when it helped</h3>
+        <p><code>(learned: replayed from saved flow, no model call)</code> marks a replayed click. <code>(learned: used saved notes about this site)</code> marks a step the model chose with saved notes in front of it. In Python, check <code>step.from_cache</code> and <code>step.used_notes</code>.</p>
+      </div>
+      <div>
+        <h3>Elapsed time on the summary</h3>
+        <p>The last line gives steps, model calls, tokens in and out, and how long the run took: <code>8.4s</code> under a minute, <code>2m 05s</code> after.</p>
+      </div>
+      <div>
+        <h3>Safer replays</h3>
+        <p>Learning keeps each distinct variant of a flow it has seen, and it never replays a click that changes the page in place, such as “Add to cart”. Only clicks that open another page or dismiss a banner or dialog are replayed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="band" id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <h2 id="features-title">What it does</h2>
+    <p class="lede narrow">The core reading and learning are always on. Everything else is off until you ask for it.</p>
+
+    <div class="spec">
+      <h3 class="spec-group">Doing the task</h3>
+      <dl>
+        <div><dt>Learning per site</dt><dd>Remembers short facts and the click sequences that worked, per site. A flow trusted for every task, or for the exact same task, is replayed without a model call. Flows that stop working are dropped; unused ones expire after 90 days. <code>--no-learn</code> turns it off.</dd></div>
+        <div><dt>Hand-off to a person</dt><dd>When a CAPTCHA, login or 2-step code appears, it pauses, rings the terminal bell and lets you act in the visible window, then carries on. It does not solve or defeat CAPTCHAs.</dd></div>
+        <div><dt>Pop-ups and permissions</dt><dd>Follows new tabs and login windows. Shows JavaScript dialogs to the model and handles them with <code>--dialogs auto|accept|dismiss</code>. Browser permissions such as notifications or location stay off unless you grant them with <code>--permissions</code>.</dd></div>
+        <div><dt>Remote browsers</dt><dd>Attach to any browser that gives you a CDP address with <code>--cdp-url</code>. <code>--cloud agentcore</code> starts an Amazon Bedrock AgentCore browser session and stops it when done. That adapter is tested with a stand-in client, not yet against a real AWS account.</dd></div>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <h3 class="spec-group">Keeping things safe</h3>
+      <dl>
+        <div><dt>Guardrails</dt><dd>Rules between the model and the browser: <code>--allow-domain</code> and <code>--block-domain</code>, approval before buy, pay, delete, send and sign-out clicks (<code>--confirm-risky</code>), a watch for instruction-like page text (<code>--watch-injection</code>), and token or time budgets. Non-web URLs are blocked by default. You can write your own as a small class.</dd></div>
+        <div><dt>Personal data masking</dt><dd><code>--redact-pii</code> hides emails, phone numbers, US SSNs and card numbers behind placeholders like <code>&lt;EMAIL_1&gt;</code>. <code>--redact-presidio</code> adds names and more with Microsoft Presidio, running on your machine. The real value is typed back only on the same site, and your answer shows it. <code>--no-restore</code> masks for good.</dd></div>
+        <div><dt>Secrets</dt><dd>Give a password by name with <code>SELFBROWSE_SECRET_pw</code> or <code>--secret pw</code>. The model writes <code>&lt;secret:pw&gt;</code> and Selfbrowse swaps in the value at the keyboard. It never appears in prompts, results, history or traces.</dd></div>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <h3 class="spec-group">Seeing what happened</h3>
+      <dl>
+        <div><dt>Traces and prompts</dt><dd><code>--trace</code> records every model call, tool call and guardrail decision; <code>selfbrowse trace show latest</code> prints the timeline. <code>--show-prompts</code> prints each request live. <code>--trace-hashes</code> keeps sizes and hashes only.</dd></div>
+        <div><dt>OpenTelemetry</dt><dd><code>--otel http://localhost:4318</code> sends a span per run, per model call and per tool call to any OTLP/HTTP receiver. <code>--otel-content</code> also attaches the conversation; send that only to a backend you trust.</dd></div>
+        <div><dt>Screenshots as evidence</dt><dd><code>--screenshots DIR</code> saves a picture after every step and an <code>index.html</code> listing each step next to its picture. The model never gets these images. They are not redacted.</dd></div>
+        <div><dt>Video recording</dt><dd><code>--record-video DIR</code> saves a WebM video of the browser, one file per page, when the run ends. Like screenshots, it is not redacted.</dd></div>
+      </dl>
+    </div>
+
+    <div class="spec">
+      <h3 class="spec-group">Using it from other tools</h3>
+      <dl>
+        <div><dt>MCP server</dt><dd><code>selfbrowse-mcp</code> gives Claude, VS Code and other MCP clients a browser: one <code>browse(task)</code> tool that returns only the answer, or step tools that return the numbered list. The same guardrails apply.</dd></div>
+        <div><dt>Python API</dt><dd><code>BrowseAgent(...)</code> with guardrails, step callbacks, your own hand-off handler and your own model.</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- Benchmarks -->
+<section class="band" id="benchmarks" aria-labelledby="bench-title">
+  <div class="wrap">
+    <h2 id="bench-title">Benchmarks</h2>
+    <p class="lede narrow">Small, early numbers. Every run used one local model, qwen3.8 through Ollama, on real public sites and a local demo shop. Each cell is one run. Code checked the result of every task; the agent's own claim of success was never counted.</p>
+
+    <article class="bench" aria-labelledby="fb-title">
+      <h3 id="fb-title">Selfbrowse and Fastbrowse on six real-site tasks</h3>
+      <p class="bench-sub">Tasks on GitHub, PyPI, Wikipedia, books.toscrape.com, the Python docs and Hacker News.</p>
+      <div class="bars" role="table" aria-label="Selfbrowse and Fastbrowse results">
+        <div class="bars-row bars-head" role="row">
+          <span role="columnheader">Tool</span>
+          <span role="columnheader">Correct</span>
+          <span role="columnheader">Tokens sent per task, average</span>
+          <span role="columnheader">Time per task, average</span>
+        </div>
+        <div class="bars-row us" role="row">
+          <span role="rowheader">Selfbrowse</span>
+          <span role="cell"><b>6/6</b></span>
+          <span role="cell" class="bar"><i style="--w:41.2%"></i><b>66,195</b></span>
+          <span role="cell" class="bar"><i style="--w:49.1%"></i><b>84 s</b></span>
+        </div>
+        <div class="bars-row" role="row">
+          <span role="rowheader">Fastbrowse</span>
+          <span role="cell"><b>4/6</b></span>
+          <span role="cell" class="bar"><i style="--w:100%"></i><b>160,574</b></span>
+          <span role="cell" class="bar"><i style="--w:100%"></i><b>171 s</b></span>
+        </div>
+      </div>
+      <ul class="caveats">
+        <li>Fastbrowse picks its actions with a separate, hosted decision model whose tokens are not counted here. Only its language-model part ran on qwen3.8.</li>
+        <li>One task, Wikipedia, took 353,787 of Selfbrowse's 397,168 tokens across the six, so the average leans on it.</li>
+        <li>Both tools averaged 5 model calls per task.</li>
+      </ul>
+    </article>
+
+    <article class="bench" aria-labelledby="learn-title">
+      <h3 id="learn-title">Learning on a repeated multi-page task</h3>
+      <p class="bench-sub">The same task four times in the demo shop: find part ZX-4471 across pages. Once with learning off, once with it on.</p>
+
+      <div class="learn">
+        <table>
+          <caption class="sr">Per run: model calls, tokens sent, seconds and whether the task succeeded</caption>
+          <thead>
+            <tr><th scope="col">Run</th><th scope="col">Learning</th><th scope="col">Calls</th><th scope="col">Tokens sent</th><th scope="col">Seconds</th><th scope="col">Correct</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>off</td><td>6</td><td class="tbar"><i style="--w:59.2%"></i>9,239</td><td>66.1</td><td class="no">no</td></tr>
+            <tr><td>2</td><td>off</td><td>5</td><td class="tbar"><i style="--w:47.7%"></i>7,441</td><td>47.6</td><td class="no">no</td></tr>
+            <tr><td>3</td><td>off</td><td>9</td><td class="tbar"><i style="--w:100%"></i>15,597</td><td>79.4</td><td>yes</td></tr>
+            <tr class="gap"><td>4</td><td>off</td><td>7</td><td class="tbar"><i style="--w:73.7%"></i>11,490</td><td>54.6</td><td>yes</td></tr>
+            <tr class="on"><td>1</td><td>on</td><td>7</td><td class="tbar"><i style="--w:71.8%"></i>11,197</td><td>42.8</td><td>yes</td></tr>
+            <tr class="on"><td>2</td><td>on</td><td>7</td><td class="tbar"><i style="--w:72.6%"></i>11,331</td><td>36.4</td><td>yes</td></tr>
+            <tr class="on hi"><td>3</td><td>on</td><td>3</td><td class="tbar"><i style="--w:25.8%"></i>4,026</td><td>11.9</td><td>yes</td></tr>
+            <tr class="on hi"><td>4</td><td>on</td><td>3</td><td class="tbar"><i style="--w:25.8%"></i>4,025</td><td>10.5</td><td>yes</td></tr>
+          </tbody>
+        </table>
+        <dl class="learn-sum">
+          <div><dt>Correct</dt><dd><span>2/4</span> without learning, <span>4/4</span> with it</dd></div>
+          <div><dt>Model calls, mean</dt><dd><span>6.8</span> to <span>5.0</span></dd></div>
+          <div><dt>Tokens sent, mean</dt><dd><span>10,942</span> to <span>7,645</span></dd></div>
+        </dl>
+      </div>
+      <p class="bench-read">From the third run the saved flow was trusted, and a repeat took 3 model calls, about 4,000 tokens and 10 to 12 seconds, against 7 to 9 calls and 55 to 79 seconds for the successful runs without it. Across different tasks in the same shop, learning gave no saving. It helps routine jobs you repeat.</p>
+    </article>
+
+    <p class="fine">Harness and raw results: <code>benchmarks/compare</code> in the repository, including <code>results/qwen3.8-fastbrowse</code> and <code>results/learning-qwen3.8-fix</code>.</p>
+  </div>
+</section>
+
+<!-- Limits -->
+<section class="band band-limits" id="limits" aria-labelledby="limits-title">
+  <div class="wrap two">
+    <div class="prose">
+      <h2 id="limits-title">Honest limits</h2>
+      <p>Selfbrowse is early software. These are the things we know it does not do well yet, or have not checked.</p>
+    </div>
+    <ul class="limits">
+      <li><b>Research-style tasks learn little.</b> Most of their clicks are specific to the question. A harder task in the demo shop, the cheapest item in each category, failed in all eight runs, with learning on or off.</li>
+      <li><b>One run per cell.</b> All benchmark figures come from single runs on one local model, so a single difference is anecdotal.</li>
+      <li><b>AgentCore is unverified on real AWS.</b> The adapter is tested against a stand-in for the AWS SDK and a local browser only.</li>
+      <li><b>Your own model routes</b> for Azure OpenAI and AWS Bedrock are tested with a fake model, not live accounts.</li>
+      <li><b>Not supported yet:</b> closed shadow roots, drag and drop, file uploads, and custom dropdowns beyond clicking them.</li>
+      <li><b>Guardrails reduce risk; they are not guarantees.</b> Pattern matching for personal data and injection misses things. A hosted model still sees any page text you do not mask.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <p class="foot-brand"><img class="mark mark-light" src="logo/selfbrowse-mark.svg" alt="" width="24" height="24"><img class="mark mark-dark" src="logo/selfbrowse-mark-dark.svg" alt="" width="24" height="24"> Selfbrowse is open source under the MIT licence.</p>
+    <ul>
+      <li><a href="https://github.com/rinshadkk/selfbrowse">Source on GitHub</a></li>
+      <li><a href="https://rinshadkk.github.io/selfbrowse/docs/">Documentation</a></li>
+      <li><a href="https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md">Roadmap</a></li>
+      <li><a href="https://github.com/rinshadkk/selfbrowse/blob/main/examples/README.md">Examples</a></li>
+    </ul>
+  </div>
+</footer>
+
+<aside class="reader" id="reader" aria-labelledby="reader-title" hidden>
+  <div class="reader-head">
+    <h2 id="reader-title">This page, as a list</h2>
+    <button type="button" class="reader-close" id="reader-close">Close</button>
+  </div>
+  <p class="reader-note">Built in your browser from this page's links, buttons and headings, in the same shape as Selfbrowse's list. A demonstration, not the library's own output. Pick a line to see the reply the model would send.</p>
+  <ol class="reader-list" id="reader-list"></ol>
+  <div class="reader-reply" aria-live="polite"><span>The model replies</span> <code id="reader-call">…</code></div>
+</aside>
+
+<script src="site.js"></script>
+</body>
+</html>

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "selfbrowse"
 dynamic = ["version"]
-description = "An open-source browser agent: low token cost, guardrails built in, plug-and-play observability."
+description = "An open-source browser agent that tells the model less: a short numbered list in place of the page, placeholders in place of your data, and learned clicks replayed without a model call."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"

@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 716" role="img" aria-labelledby="arch-title arch-desc" font-family="'Atkinson Hyperlegible Next','Atkinson Hyperlegible',system-ui,-apple-system,'Segoe UI',sans-serif">
+  <title id="arch-title">Selfbrowse architecture</title>
+  <desc id="arch-desc">Three entry points (command line, Python, MCP server) start the agent loop. The loop replays a trusted flow, reads the page from the browser as a numbered list, lets guardrails rewrite the page, asks the model for one action, repairs the reply, lets guardrails check the action, acts in the browser, and records what worked. Only the task, the list, placeholders and secret names cross to the model. Site knowledge and traces are stored on your machine, and a person can be asked to take over.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#17202B"/></marker>
+    <marker id="ahq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#4A5562"/></marker>
+  </defs>
+
+  <rect width="1120" height="716" rx="14" fill="#F2F4F1"/>
+
+  <!-- entry points -->
+  <g font-size="14">
+    <g><rect x="290" y="24" width="150" height="56" rx="7" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/><text x="365" y="48" text-anchor="middle" font-weight="700" fill="#17202B">Command line</text><text x="365" y="67" text-anchor="middle" font-size="12.5" fill="#4A5562">selfbrowse "task"</text></g>
+    <g><rect x="455" y="24" width="150" height="56" rx="7" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/><text x="530" y="48" text-anchor="middle" font-weight="700" fill="#17202B">Python</text><text x="530" y="67" text-anchor="middle" font-size="12.5" fill="#4A5562">BrowseAgent(...).run()</text></g>
+    <g><rect x="620" y="24" width="150" height="56" rx="7" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/><text x="695" y="48" text-anchor="middle" font-weight="700" fill="#17202B">MCP server</text><text x="695" y="67" text-anchor="middle" font-size="12.5" fill="#4A5562">selfbrowse-mcp</text></g>
+  </g>
+  <g stroke="#17202B" stroke-width="1.5" marker-end="url(#ah)">
+    <line x1="365" y1="80" x2="365" y2="116"/><line x1="530" y1="80" x2="530" y2="116"/><line x1="695" y1="80" x2="695" y2="116"/>
+  </g>
+
+  <!-- agent loop -->
+  <rect x="290" y="118" width="480" height="424" rx="10" fill="#E7EBE6" stroke="#17202B" stroke-width="2"/>
+  <text x="308" y="146" font-size="17" font-weight="800" fill="#17202B">Agent loop</text>
+  <text x="752" y="146" font-size="12.5" text-anchor="end" fill="#4A5562">agent.py</text>
+
+  <g font-size="14" fill="#17202B">
+    <!-- rows: y = 162 + 46*i, height 40 -->
+    <g><rect x="304" y="162" width="452" height="40" rx="6" fill="#FFFFFF" stroke="#C9D0D3"/><rect x="312" y="172" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="187" text-anchor="middle" font-size="12.5" font-weight="700">1</text><text x="350" y="187">Replay a trusted flow, with no model call</text></g>
+    <g><rect x="304" y="208" width="452" height="40" rx="6" fill="#FFFFFF" stroke="#C9D0D3"/><rect x="312" y="218" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="233" text-anchor="middle" font-size="12.5" font-weight="700">2</text><text x="350" y="233">Read the page as a numbered list</text></g>
+    <g><rect x="304" y="254" width="452" height="40" rx="6" fill="#D9E9E8" stroke="#1D6A72"/><rect x="312" y="264" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="279" text-anchor="middle" font-size="12.5" font-weight="700">3</text><text x="350" y="279">Guardrails rewrite the page: mask data, flag injection</text></g>
+    <g><rect x="304" y="300" width="452" height="40" rx="6" fill="#FFFFFF" stroke="#C9D0D3"/><rect x="312" y="310" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="325" text-anchor="middle" font-size="12.5" font-weight="700">4</text><text x="350" y="325">Ask the model for one action</text></g>
+    <g><rect x="304" y="346" width="452" height="40" rx="6" fill="#FFFFFF" stroke="#C9D0D3"/><rect x="312" y="356" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="371" text-anchor="middle" font-size="12.5" font-weight="700">5</text><text x="350" y="371">Repair the reply and check the budget</text></g>
+    <g><rect x="304" y="392" width="452" height="40" rx="6" fill="#D9E9E8" stroke="#1D6A72"/><rect x="312" y="402" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="417" text-anchor="middle" font-size="12.5" font-weight="700">6</text><text x="350" y="417">Guardrails check the action: site, risky click</text></g>
+    <g><rect x="304" y="438" width="452" height="40" rx="6" fill="#FFFFFF" stroke="#C9D0D3"/><rect x="312" y="448" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="463" text-anchor="middle" font-size="12.5" font-weight="700">7</text><text x="350" y="463">Act in the browser; real values are typed here</text></g>
+    <g><rect x="304" y="484" width="452" height="40" rx="6" fill="#FFFFFF" stroke="#C9D0D3"/><rect x="312" y="494" width="26" height="20" rx="4" fill="#F5D547" stroke="#17202B"/><text x="325" y="509" text-anchor="middle" font-size="12.5" font-weight="700">8</text><text x="350" y="509">Record what worked, then repeat until done</text></g>
+  </g>
+
+  <!-- browser -->
+  <rect x="24" y="162" width="216" height="316" rx="10" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/>
+  <text x="40" y="190" font-size="17" font-weight="800" fill="#17202B">Browser</text>
+  <text x="224" y="190" font-size="12.5" text-anchor="end" fill="#4A5562">browser.py</text>
+  <g font-size="13.5" fill="#4A5562">
+    <text x="40" y="226">Driven with Playwright:</text>
+    <text x="40" y="254" fill="#17202B">Bundled Chromium</text>
+    <text x="40" y="278" fill="#17202B">Your Chrome and profile</text>
+    <text x="40" y="302" fill="#17202B">Any browser over CDP</text>
+    <text x="40" y="326" fill="#17202B">Amazon Bedrock AgentCore</text>
+    <text x="40" y="366">Reads iframes, shadow</text>
+    <text x="40" y="384">roots, tabs and dialogs</text>
+  </g>
+  <g stroke="#17202B" stroke-width="1.5" marker-end="url(#ah)">
+    <line x1="240" y1="228" x2="302" y2="228"/>
+    <line x1="304" y1="458" x2="242" y2="458"/>
+  </g>
+
+  <!-- model boundary -->
+  <line x1="832" y1="104" x2="832" y2="560" stroke="#B23A26" stroke-width="2" stroke-dasharray="7 6"/>
+  <text x="844" y="120" font-size="13" font-weight="700" fill="#B23A26">Model boundary</text>
+
+  <!-- model -->
+  <rect x="880" y="162" width="216" height="232" rx="10" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/>
+  <text x="896" y="190" font-size="17" font-weight="800" fill="#17202B">Model</text>
+  <text x="1080" y="190" font-size="12.5" text-anchor="end" fill="#4A5562">llm/</text>
+  <g font-size="13.5" fill="#17202B">
+    <text x="896" y="226" fill="#4A5562">Any model with tool calls:</text>
+    <text x="896" y="254">Anthropic</text>
+    <text x="896" y="278">OpenAI-compatible APIs</text>
+    <text x="896" y="302">Ollama and LM Studio, local</text>
+    <text x="896" y="326">Your own class</text>
+  </g>
+  <g stroke="#17202B" stroke-width="1.5" marker-end="url(#ah)">
+    <line x1="756" y1="320" x2="878" y2="320"/>
+    <line x1="880" y1="366" x2="758" y2="366"/>
+  </g>
+  <g font-size="11.5" fill="#4A5562">
+    <text x="777" y="312">the list</text>
+    <text x="777" y="358">one call</text>
+  </g>
+
+  <!-- what crosses -->
+  <rect x="844" y="414" width="252" height="146" rx="8" fill="#F2F4F1" stroke="#B23A26" stroke-width="1.2"/>
+  <g font-size="12.5" fill="#17202B">
+    <text x="858" y="438" font-weight="700">Sent to the model</text>
+    <text x="858" y="457" fill="#4A5562">The task, the numbered list,</text>
+    <text x="858" y="474" fill="#4A5562">placeholders and secret names</text>
+    <text x="858" y="503" font-weight="700">Never sent</text>
+    <text x="858" y="522" fill="#4A5562">Page HTML, evidence screenshots,</text>
+    <text x="858" y="539" fill="#4A5562">passwords, masked values</text>
+  </g>
+
+  <!-- bottom row -->
+  <g stroke="#17202B" stroke-width="1.5">
+    <line x1="460" y1="544" x2="460" y2="596" marker-start="url(#ah)" marker-end="url(#ah)"/>
+    <line x1="695" y1="542" x2="695" y2="596" marker-end="url(#ah)"/>
+    <path d="M318 542 V646 H242" fill="none" marker-start="url(#ah)" marker-end="url(#ah)"/>
+  </g>
+
+  <rect x="24" y="598" width="216" height="94" rx="10" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/>
+  <text x="40" y="624" font-size="15" font-weight="800" fill="#17202B">A person</text>
+  <text x="224" y="624" font-size="12.5" text-anchor="end" fill="#4A5562">handoff.py</text>
+  <text x="40" y="650" font-size="13" fill="#4A5562">CAPTCHA, login, 2-step</text>
+  <text x="40" y="668" font-size="13" fill="#4A5562">code, risky-click approval</text>
+
+  <rect x="336" y="598" width="246" height="94" rx="10" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/>
+  <text x="352" y="624" font-size="15" font-weight="800" fill="#17202B">Site knowledge</text>
+  <text x="568" y="624" font-size="12" text-anchor="end" fill="#4A5562">knowledge.py</text>
+  <text x="352" y="650" font-size="13" fill="#4A5562">Notes and trusted click flows,</text>
+  <text x="352" y="668" font-size="13" fill="#4A5562">one file per site, on your disk</text>
+
+  <rect x="596" y="598" width="204" height="94" rx="10" fill="#FFFFFF" stroke="#17202B" stroke-width="1.5"/>
+  <text x="610" y="624" font-size="15" font-weight="800" fill="#17202B">Trace</text>
+  <text x="784" y="624" font-size="12.5" text-anchor="end" fill="#4A5562">trace.py, otel.py</text>
+  <text x="610" y="650" font-size="13" fill="#4A5562">JSON lines, OpenTelemetry</text>
+  <text x="610" y="668" font-size="13" fill="#4A5562">spans, screenshots, video</text>
+</svg>

@@ -52,4 +52,5 @@ nav:
   - Observe:
       - Traces, prompts and screenshots: observability.md
   - Project:
+      - Architecture: architecture.md
       - Tests and benchmarks: benchmarks.md

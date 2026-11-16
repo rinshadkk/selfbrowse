@@ -216,6 +216,7 @@ class BrowseAgent:
         err_streak = 0
         scroll_log: list[str] = []                           # scroll directions since the last non-scroll action
         click_log: list[tuple[str, str, str]] = []           # (url, role, label) of recent clicks
+        type_log: list[tuple[str, str]] = []                 # (url, text) of recent type actions
         names = [t["name"] for t in self.tools]
 
         if (hit := self.guards.url(self.browser.url)) and self.browser.url not in ("about:blank", ""):
@@ -318,6 +319,12 @@ class BrowseAgent:
                         suffix = (f'\n[You already clicked "{clicked[2][:40]}" on this page a moment ago. If that did not '
                                   "do what you expected, call read or try a different control.]")
                     click_log.append(clicked)
+                if name == "type" and not text.startswith(_NOT_LEARNED) and not text.startswith("Error:"):
+                    typed = (url_before, str(args.get("text", "")).strip().lower())
+                    if typed[1] and typed in type_log[-8:]:
+                        suffix = (f'\n[You already typed "{typed[1][:40]}" on this page a moment ago. Do not type it again: read the '
+                                  "page list for the value or a suggestion to pick (click it, or press Enter), or try another control.]")
+                    type_log.append(typed)
                 if changed or name in ("wait", "scroll", "back"):
                     sig = (name, repr(sorted(args.items())), self.browser.url)
                     recent.append(sig)

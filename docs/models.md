@@ -10,6 +10,8 @@ Use `provider:model`:
 | `lmstudio` | `lmstudio:<model>` |
 | `groq`, `deepseek`, `gemini`, `openrouter`, `together` | `groq:llama-3.3-70b-versatile` |
 
+Google models use the name `gemini` (Gemini's OpenAI-compatible endpoint, key in `GEMINI_API_KEY`), not `google`. Models from OpenRouter use their OpenRouter ID after the provider name, so a Gemini model through OpenRouter is `openrouter:google/<model-name>` with `OPENROUTER_API_KEY`. The model must support tool calling.
+
 Your own provider (Azure OpenAI, AWS Bedrock, an internal gateway) works too; see [Bring your own model](#bring-your-own-model).
 
 ### A service that speaks the Anthropic or OpenAI API

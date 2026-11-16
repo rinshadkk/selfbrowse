@@ -65,3 +65,43 @@ TASKS = [
          _pydocs, live=True),
     next(t for t in _STORE_TASKS if t.id == "T7-live-hn"),
 ]
+
+
+def _gave_a_price(answer: str, state: dict) -> bool:
+    """Prices on a travel site change by the minute and need a search engine to verify, so this only checks that the
+    agent reported a dollar amount. Whether it is the real cheapest fare has to be judged by looking at the run."""
+    return re.search(r"\$\s?\d[\d,]*", answer) is not None
+
+
+# One real, hard task: a flight search on a site that fights automation. Read-only; nothing is booked.
+KAYAK = [
+    Task("K1-kayak", "Kayak: cheapest flight COK to ORD for 4",
+         "Find the cheapest price of ticket from COK to ORD on Dec 26th for 4 people using kayak ",
+         _gave_a_price, live=True),
+    # the same search with no site named: the agent picks where to look
+    Task("K2-flights", "Cheapest flight COK to ORD for 4 (any site)",
+         "Find the cheapest price of ticket from COK to ORD on Dec 26th for 4 people ",
+         _gave_a_price, live=True),
+]
+
+
+def _trending_top(answer: str, state: dict) -> bool:
+    """The top repository on github.com/trending right now must appear in the answer (looked up when judged)."""
+    html = _get("https://github.com/trending")
+    m = re.search(r'<h2 class="h3 lh-condensed">\s*<a[^>]*href="/([^"/]+/[^"/]+)"', html)
+    return bool(m) and m.group(1).split("/")[1].lower() in answer.lower()
+
+
+# Showcase prompts for the README: a hard live task, a real-site lookup, and a multi-page comparison.
+SHOWCASE = [
+    Task("S1-flight-sfo", "Cheapest flight COK to SFO for 4, shortest layover",
+         "Find the cheapest price for tickets from COK to SFO on Dec 26th for 4 people. Prefer shortest layover",
+         _gave_a_price, live=True),
+    Task("S2-trending", "GitHub trending: top repo",
+         "Go to github.com/trending and tell me the top repository today, what it does, its star count and its main language.",
+         _trending_top, live=True),
+    next(t for t in TASKS if t.id == "U4-books"),
+    Task("S4-flight-cok", "Cheapest flight ORD to COK for 4, shortest layover",
+         "Find the cheapest price for tickets from ORD to COK on Dec 26th for 4 people. Prefer shortest layover",
+         _gave_a_price, live=True),
+]

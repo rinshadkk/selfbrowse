@@ -24,13 +24,15 @@ async def main() -> dict:
         from fastbrowse.models import Limits, LocalChrome
         settings = {
             "OPENROUTER_API_KEY": os.environ["OPENROUTER_API_KEY"],      # Jev, the action picker
-            "FASTBROWSE_LLM_BASE_URL": proxy.rstrip("/") + "/v1",       # the chat model: local, through the proxy
-            "FASTBROWSE_LLM_MODEL": model,
+            "FASTBROWSE_LLM_BASE_URL": os.environ.get("FB_CHAT_BASE_URL") or proxy.rstrip("/") + "/v1",   # the chat model: local, through the proxy
+            "FASTBROWSE_LLM_MODEL": os.environ.get("FB_CHAT_MODEL") or model,
             "FASTBROWSE_LLM_STRICT": "0",
             # fastbrowse gives a model 30 s of silence per call; qwen3.8 thinks for longer than that before its
             # first token, so thinking is off for this role (it only writes short text, not the action choices)
-            "FASTBROWSE_LLM_REASONING": "none",
+            "FASTBROWSE_LLM_REASONING": os.environ.get("FB_CHAT_REASONING", "none"),
         }
+        if os.environ.get("FB_CHAT_KEY"):                        # chat model on a hosted API instead of the proxy
+            settings["FASTBROWSE_LLM_API_KEY"] = os.environ["FB_CHAT_KEY"]
         video = os.environ.get("BENCH_VIDEO_DIR")
         rec = None
         if video:

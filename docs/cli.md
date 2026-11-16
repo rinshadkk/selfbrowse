@@ -46,4 +46,6 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `-q`, `--quiet` | do not print each step |
 | `--version` | print the version |
 
+Each step prints with the tokens its model call used, for example `2. done {...}  [901 in / 76 out]`. A step that used saved knowledge ends with `(learned: replayed from saved flow, no model call)` or `(learned: used saved notes about this site)`. The last line gives the totals and the elapsed time: `[2 steps, 2 model calls, 1746 in / 141 out tokens, 24.1s]`.
+
 Environment variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `TOGETHER_API_KEY`, `SELFBROWSE_MODEL`, `SELFBROWSE_HOME` (data folder, default `~/.selfbrowse`).
