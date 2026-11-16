@@ -1,0 +1,34 @@
+# Selfbrowse
+
+> Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and learned-click replay. It is a Python library, a command line tool and an MCP server, MIT licensed, installed with `pip install selfbrowse`.
+
+Use it when you need an LLM to drive a real browser: fill forms, search sites, read pages, compare prices. It works with Claude, OpenAI, Gemini, Groq, DeepSeek, Together, OpenRouter and local Ollama models, or your own model class. It is built on Playwright, with an optional Patchright stealth mode and remote browsers over CDP.
+
+Quick start:
+
+```
+pip install selfbrowse && playwright install chromium
+selfbrowse "Open news.ycombinator.com and tell me the title of the top story."
+```
+
+## Docs
+
+- [Get started](https://rinshadkk.github.io/selfbrowse/docs/getting-started/): install, first run, Python API
+- [Features](https://rinshadkk.github.io/selfbrowse/docs/features/): what Selfbrowse does and why
+- [Command line reference](https://rinshadkk.github.io/selfbrowse/docs/cli/): every option
+- [What the agent can do](https://rinshadkk.github.io/selfbrowse/docs/tools/): the tools the model can call
+- [Models](https://rinshadkk.github.io/selfbrowse/docs/models/): providers, local models, bring your own model
+- [MCP server](https://rinshadkk.github.io/selfbrowse/docs/mcp/): use Selfbrowse from MCP clients
+- [Remote browsers](https://rinshadkk.github.io/selfbrowse/docs/remote-browsers/): CDP and Amazon Bedrock AgentCore
+- [Guardrails](https://rinshadkk.github.io/selfbrowse/docs/guardrails/): domain limits, risky-action confirmation, injection warnings
+- [Personal data](https://rinshadkk.github.io/selfbrowse/docs/personal-data/): placeholders and redaction of emails, phones, cards, names
+- [Passwords and secrets](https://rinshadkk.github.io/selfbrowse/docs/secrets/): secrets the model never sees
+- [Traces, prompts and screenshots](https://rinshadkk.github.io/selfbrowse/docs/observability/): tracing, OpenTelemetry, screenshots as evidence
+- [Architecture](https://rinshadkk.github.io/selfbrowse/docs/architecture/): how the agent loop, browser and model fit together
+- [Tests and benchmarks](https://rinshadkk.github.io/selfbrowse/docs/benchmarks/): token and cost comparisons, with their limits
+
+## Project
+
+- [Source code](https://github.com/rinshadkk/selfbrowse)
+- [PyPI package](https://pypi.org/project/selfbrowse/)
+- [Roadmap](https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md)
