@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "selfbrowse"
 dynamic = ["version"]
-description = "An open-source browser agent that tells the model less: a short numbered list in place of the page, placeholders in place of your data, and learned clicks replayed without a model call."
+description = "Open-source Python browser agent for LLMs. A short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens; with personal-data redaction, guardrails, tracing and learned-click replay."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "Selfbrowse contributors" }]
-keywords = ["browser", "agent", "llm", "automation", "playwright", "web-agent"]
+keywords = ["browser", "agent", "llm", "ai-agent", "browser-automation", "automation", "playwright", "web-agent", "mcp", "pii-redaction", "guardrails"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -47,6 +47,9 @@ selfbrowse-mcp = "selfbrowse.mcp_server:main"
 path = "src/selfbrowse/__init__.py"
 
 [project.urls]
+Homepage = "https://rinshadkk.github.io/selfbrowse/"
+Documentation = "https://rinshadkk.github.io/selfbrowse/docs/"
+Source = "https://github.com/rinshadkk/selfbrowse"
 Repository = "https://github.com/rinshadkk/selfbrowse"
 Issues = "https://github.com/rinshadkk/selfbrowse/issues"
 Roadmap = "https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md"

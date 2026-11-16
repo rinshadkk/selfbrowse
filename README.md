@@ -14,7 +14,7 @@
   <a href="https://github.com/rinshadkk/selfbrowse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
-You describe a task in plain language and Selfbrowse drives a real browser to do it. It is an open-source Python library, a command line tool and an MCP server.
+Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and learned-click replay. You describe a task in plain language and it drives a real browser to do it. It works as a Python library, a command line tool and an MCP server, with Claude, OpenAI, Gemini, Groq, Ollama and OpenRouter models.
 
 Most browser agents hand the model everything: a screenshot or a large slice of the page, your data as it appears on screen, and the same cookie banner on every visit. Selfbrowse sends less of all three, which makes it cheap enough for a model on your laptop and careful enough for sites you are signed in to.
 

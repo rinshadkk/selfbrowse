@@ -14,7 +14,6 @@ A living list of what to build next. Add features at the bottom of the right sec
 
 1. **R1** Decide the default tool mode (native vs JSON) from the finished model results.
 2. **R2** Refuse `done` as the very first action.
-3. **P1/P5** Trademark search and employer-IP check. The repository is public and 0.1.0 is on PyPI, so these are now overdue, not upcoming.
 
 Done from this list: **O1** (harness and results committed) and **L1** (learning measured).
 
@@ -91,7 +90,7 @@ Done from this list: **O1** (harness and results committed) and **L1** (learning
 ## D. Distribution and integration
 
 - [~] **D1 MCP server mode** (P1) — `selfbrowse-mcp` serves `browse(task)` and 12 `browser_*` step tools over stdio, with guardrails; tests drive it through a real MCP client and a real stdio process. *Still to do:* measure tokens against Claude's own browser tools on the same tasks, approvals through MCP elicitation instead of blocking, attach to the user's Chrome (D4), HTTP transport, tested on mcp 1.x. *Proves it:* tokens and success per task, with and without the server.
-- [x] **D2 Publish to PyPI** (P0, blocked on P1) — only after the name is cleared. *Done: 0.1.0 is on PyPI. It predates remote browsers, so the next release is needed before the README matches what `pip install` gives. P1 was not cleared first.*
+- [x] **D2 Publish to PyPI** (P0) — *Done: 0.1.0 is on PyPI. It predates remote browsers, so the next release is needed before the README matches what `pip install` gives.*
 - [ ] **D3 Async API and streaming** (P1) — `await agent.arun()` and an event stream for UIs.
 - [x] **D4 Attach to a running Chrome** (P1) — connect over CDP to the user's own browser (fixes most bot-check problems because it uses real cookies and fingerprint). *Done: `--cdp-url http://localhost:9222` attaches to a Chrome started with a debug port. Limit: Chrome has to be started that way; there is no attach to an ordinary running window.*
 - [x] **D5 Remote browsers** (P2) — connect to a hosted browser by CDP URL. *Done: `--cdp-url`, `--cdp-header`, and `--cloud agentcore` for Amazon Bedrock AgentCore. The AgentCore adapter is tested against a stand-in for the AWS SDK, not a real account.*
@@ -117,11 +116,9 @@ Done from this list: **O1** (harness and results committed) and **L1** (learning
 
 ## P. Project and release
 
-- [ ] **P1 Name and trademark** (P0) — USPTO search in classes 9 and 42, then register PyPI, GitHub and the domain. Selfbrowse is a descriptive name and weak to protect.
 - [ ] **P2 Docs and examples** (P2) — a task gallery, a guide for each guardrail, a "choose a model" page.
 - [ ] **P3 Community files** (P2) — issue templates, code of conduct, PR template.
 - [ ] **P4 SECURITY.md** (P2) — how to report issues; what the tool does and does not protect.
-- [ ] **P5 Employer IP check** (P0) — confirm the project can be released from your account before publishing.
 - [ ] **P6 Split `agent.py`** (P2) — it now mixes the loop, guardrail glue, hand-off and repair logic.
 
 ---

@@ -1,7 +1,7 @@
 """Selfbrowse — a small browser agent that gets cheaper the more you use it."""
 from selfbrowse.types import RunResult, Step, Usage
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = ["BrowseAgent", "Browser", "RunResult", "Step", "Usage", "__version__"]
 
