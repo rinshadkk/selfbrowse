@@ -13,7 +13,7 @@ from selfbrowse import __version__, _about
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog=_about.NAME, description="Run a browser task described in plain language.")
-    p.add_argument("task", nargs="*", help='the task, or "sites" / "forget <domain>"')
+    p.add_argument("task", nargs="*", help='the task, or "sites" / "forget <domain>" / "flow run|show <file>"')
     p.add_argument("-m", "--model", default=os.environ.get(f"{_about.ENV_PREFIX}MODEL", "anthropic:claude-haiku-4-5"),
                    help="provider:model (default: anthropic:claude-haiku-4-5), or your own model as module:Name or ./file.py:Name")
     p.add_argument("--headed", action="store_true", help="show the browser window")
@@ -72,6 +72,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="JavaScript alert/confirm/prompt: auto accepts alerts and declines choices (default)")
     p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
+    p.add_argument("--save-flow", metavar="FILE",
+                   help="when the run succeeds, save every step to FILE as a flow that 'selfbrowse flow run FILE' replays with no model")
+    p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE",
+                   help="with 'flow run': set a flow parameter (repeatable); see 'flow show' for the names")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
     p.add_argument("-q", "--quiet", action="store_true", help="do not print each step")
     p.add_argument("--version", action="version", version=f"{_about.NAME} {__version__}")
@@ -90,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
             p.error("usage: selfbrowse forget <domain>")
         print("forgot" if SiteKnowledge(home / "sites").forget(args.task[1]) else "nothing stored for that domain")
         return 0
+    if args.task and args.task[0] == "flow":
+        return _flow_command(args, p)
     if args.task and args.task[0] == "trace":
         return _trace_command(args.task[1:], home / "traces", args.full, p)
     if not args.task:
@@ -138,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
                           permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs, record_video_dir=args.record_video,
                           **remote)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
-                      learn=not args.no_learn, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
+                      learn=not args.no_learn, save_flow=args.save_flow, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         started = time.perf_counter()
@@ -160,11 +166,80 @@ def main(argv: list[str] | None = None) -> int:
         u = result.usage
         if agent.trace_path:
             print(f"[trace: {agent.trace_path}]", file=sys.stderr)
+        if agent.flow_path:
+            print(f"[flow saved: {agent.flow_path}  replay it with no model: selfbrowse flow run {agent.flow_path}]", file=sys.stderr)
+        elif args.save_flow and result.success:
+            print("[no flow saved: the run had nothing worth replaying]", file=sys.stderr)
         if agent.screenshots_dir:
             print(f"[screenshots: {agent.screenshots_dir}]", file=sys.stderr)
         for v in (browser.video_paths() if args.record_video else []):
             print(f"[video: {v}]", file=sys.stderr)
         print(f"[{result.steps} steps, {u.calls} model calls, {u.total_input} in / {u.output_tokens} out tokens, {_elapsed(elapsed)}]", file=sys.stderr)
+    return 0 if result.success else 1
+
+
+def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """``selfbrowse flow show FILE`` and ``selfbrowse flow run FILE [--param NAME=VALUE]``: no model involved."""
+    from selfbrowse import flow as fl
+
+    rest = args.task[1:]
+    if len(rest) != 2 or rest[0] not in ("run", "show"):
+        parser.error("usage: selfbrowse flow show FILE | selfbrowse flow run FILE [--param NAME=VALUE] [--headed]")
+    try:
+        data = fl.load_flow(rest[1])
+    except fl.FlowError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if rest[0] == "show":
+        print(f"{data.get('name', '')}: {data.get('description', '')}")
+        print(f"sites:   {', '.join(data.get('domains', [])) or '-'}")
+        params = data.get("params", {})
+        print("params:  " + ("; ".join(f"{k}={v['default']!r}" if "default" in v else f"{k} (required)" for k, v in params.items()) or "-"))
+        print(f"secrets: {', '.join(data.get('secrets', [])) or '-'}")
+        print("steps:")
+        defaults = {k: str(v.get("default", "")) for k, v in params.items()}
+        for n, step in enumerate(data["steps"], 1):
+            print(f"  {n:>2}. {fl.describe_step(step, defaults)}")
+        return 0
+
+    given: dict[str, str] = {}
+    for item in args.param:
+        name, eq, value = item.partition("=")
+        if not eq:
+            parser.error(f"--param {item!r}: use NAME=VALUE")
+        given[name] = value
+    secrets = {k[len(f"{_about.ENV_PREFIX}SECRET_"):]: v for k, v in os.environ.items()
+               if k.startswith(f"{_about.ENV_PREFIX}SECRET_") and len(k) > len(f"{_about.ENV_PREFIX}SECRET_")}
+
+    from selfbrowse import guardrails as gr
+    from selfbrowse.browser import Browser, BrowserError
+    from selfbrowse.handoff import terminal_handler
+
+    guards = gr.build_guards(allow=args.allow_domain, block=args.block_domain, max_seconds=args.max_seconds)
+
+    def show(n: int, total: int, text: str) -> None:
+        if not args.quiet and not args.json:
+            print(f"  {n:>2}/{total} {text}", file=sys.stderr)
+
+    try:
+        browser = Browser(headless=not args.headed, channel=args.channel, user_data_dir=args.profile, stealth=args.stealth,
+                          permissions=[x.strip() for x in args.permissions.split(",") if x.strip()], dialogs=args.dialogs)
+        try:
+            browser.start()
+            runner = fl.FlowRunner(data, browser, params=given, secrets=secrets, guardrails=guards,
+                                   handler=terminal_handler if args.headed else None, on_step=show)
+            result = runner.run()
+        finally:
+            browser.close()
+    except (fl.FlowError, BrowserError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(result.output if result.success else f"FAILED: {result.error}")
+        print(f"[{result.steps_run}/{result.total_steps} steps, 0 model calls, 0 tokens, {_elapsed(result.seconds)}]", file=sys.stderr)
     return 0 if result.success else 1
 
 

@@ -717,6 +717,34 @@ class Browser:
         part = [e for e in same if text and text in e["text"].lower()]
         return part[0]["ref"] if len(part) == 1 else None
 
+    def locate_ref(self, ref: int) -> dict[str, Any] | None:
+        """Describe element #ref well enough to find it again: role, text, and which of the identical ones it is."""
+        el = self._el(ref)
+        if el is None:
+            return None
+        text = el["text"].strip().lower()
+        twins = [e for e in self._elements if e["role"] == el["role"] and e["text"].strip().lower() == text]
+        return {"role": el["role"], "text": el["text"], "nth": twins.index(el) if el in twins else 0, "of": len(twins)}
+
+    def find_ref(self, role: str, text: str, nth: int = 0, of: int = 1) -> int | None:
+        """Re-find an element on a fresh snapshot. Uses the exact label; falls back to a unique partial match.
+
+        When the page lists as many identical elements as were seen when recording, ``nth`` picks the same one.
+        Returns None if it cannot tell which element is meant.
+        """
+        self.snapshot()
+        role, text = (role or "").strip().lower(), (text or "").strip().lower()
+        same = [e for e in self._elements if e["role"].lower() == role]
+        exact = [e for e in same if e["text"].strip().lower() == text]
+        if len(exact) == 1:
+            return exact[0]["ref"]
+        if exact and len(exact) == of and 0 <= nth < len(exact):
+            return exact[nth]["ref"]
+        if exact:
+            return None
+        part = [e for e in same if text and text in e["text"].lower()]
+        return part[0]["ref"] if len(part) == 1 else None
+
     def _el(self, ref: int) -> dict[str, Any] | None:
         return next((e for e in self._elements if e["ref"] == ref), None)
 

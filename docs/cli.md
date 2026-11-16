@@ -42,6 +42,8 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--watch-injection` | warn on instruction-like page text and confirm risky actions |
 | `--max-tokens N` / `--max-seconds S` | stop a run that goes over |
 | `--no-learn` | do not read or write site knowledge |
+| `--save-flow FILE` | when the run succeeds, save every step to FILE as a [flow](flows.md) |
+| `--param NAME=VALUE` | with `flow run`: set a flow parameter (repeatable) |
 | `--json` | print the full result as JSON |
 | `-q`, `--quiet` | do not print each step |
 | `--version` | print the version |
