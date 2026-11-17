@@ -44,6 +44,9 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--no-learn` | do not read or write site knowledge |
 | `--save-flow FILE` | when the run succeeds, save every step to FILE as a [flow](flows.md) |
 | `--param NAME=VALUE` | with `flow run`: set a flow parameter (repeatable) |
+| `--answer-with-model` | with `flow run -m MODEL`: one model call turns the text the flow read into an answer ([Flows](flows.md#optional-let-a-model-help)) |
+| `--repair-with-model` | with `flow run -m MODEL`: if a step cannot find its element, the model finishes the task from that page |
+| `--repair-max-steps N` / `--save-repaired FILE` / `--ask TEXT` | cap the repair, keep the repaired flow, or replace the question given to the model |
 | `--json` | print the full result as JSON |
 | `-q`, `--quiet` | do not print each step |
 | `--version` | print the version |

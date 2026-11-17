@@ -170,3 +170,105 @@ def test_cli_show_and_run(recorded, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["success"] and "Fares COK to NRT" in out["output"]
     assert main(["flow", "run", str(recorded), "--param", "nope=1", "-q"]) == 2
+
+
+# ── the optional model steps ─────────────────────────────────────────────────────
+
+class BrokenLLM:
+    model = "broken"
+
+    def complete(self, **kwargs):
+        raise RuntimeError("no network")
+
+
+def test_model_options_need_a_model():
+    with pytest.raises(fl.FlowError, match="need a model"):
+        fl.FlowRunner(make_flow(), None, answer_with_model=True)
+    with pytest.raises(fl.FlowError, match="need a model"):
+        fl.FlowRunner(make_flow(), None, repair_with_model=True)
+
+
+@pytest.mark.browser
+def test_a_model_is_never_called_unless_asked(recorded):
+    llm = ScriptedLLM([])                                    # any call would raise
+    with Browser(channel=None) as b:
+        result = fl.FlowRunner(fl.load_flow(recorded), b, secrets={"PW": "x"}, llm=llm).run()
+    assert result.success and result.model_calls == 0 and not result.answered_by_model
+
+
+@pytest.mark.browser
+def test_answer_with_model_makes_one_call_on_the_text(recorded):
+    llm = ScriptedLLM([("answer", {"answer": "The route is COK to SFO."})])
+    with Browser(channel=None) as b:
+        result = fl.FlowRunner(fl.load_flow(recorded), b, secrets={"PW": "x"}, llm=llm, answer_with_model=True,
+                               task="Which route is shown?").run()
+    assert result.success and result.answered_by_model and result.model_calls == 1
+    assert result.output == "The route is COK to SFO." and "Fares COK to SFO" in result.page_text
+    sent = repr(llm.seen)
+    assert "Which route is shown?" in sent and "Fares COK to SFO" in sent and "from=COK" in sent
+
+
+@pytest.mark.browser
+def test_answer_with_model_failure_keeps_the_page_text(recorded):
+    with Browser(channel=None) as b:
+        result = fl.FlowRunner(fl.load_flow(recorded), b, secrets={"PW": "x"}, llm=BrokenLLM(), answer_with_model=True).run()
+    assert result.success and not result.answered_by_model and "Fares COK to SFO" in result.output
+    assert "model call failed" in result.warning
+
+
+def _search_ref(site):
+    with Browser(channel=None) as b:
+        b.goto(site("flow_search.html"))
+        return next(int(l.split()[0][1:]) for l in b.snapshot().text.splitlines() if 'button "Search"' in l)
+
+
+@pytest.mark.browser
+def test_repair_with_model_finishes_the_task_and_returns_an_updated_flow(recorded, site):
+    flow = fl.load_flow(recorded)
+    flow["steps"][4]["target"]["text"] = "Find fares"        # the site renamed the Search button
+    llm = ScriptedLLM([("click", {"ref": _search_ref(site)}), ("read", {}),
+                       ("done", {"success": True, "answer": "Fares COK to SFO"})])
+    with Browser(channel=None) as b:
+        result = fl.FlowRunner(flow, b, secrets={"PW": "hunter2"}, llm=llm, repair_with_model=True, find_attempts=1).run()
+    assert result.success and result.repaired_by_model and result.repaired_at == 5
+    assert result.model_calls == 3 and "Fares COK to SFO" in result.output
+    steps = result.repaired_flow["steps"]
+    assert [s["do"] for s in steps] == ["goto", "type", "type", "type", "click", "read"]
+    assert steps[4]["target"]["text"] == "Search" and "hunter2" not in repr(result.repaired_flow)
+    assert "hunter2" not in repr(llm.seen)
+    with Browser(channel=None) as b:                          # the updated flow runs again with no model
+        again = fl.FlowRunner(result.repaired_flow, b, secrets={"PW": "x"}).run()
+    assert again.success and again.model_calls == 0 and "Fares COK to SFO" in again.output
+
+
+@pytest.mark.browser
+def test_repair_never_shows_the_model_a_required_parameter(recorded, site):
+    flow = fl.load_flow(recorded)
+    flow["params"]["from"] = {"label": "From"}                # personal: no default
+    flow["steps"][4]["target"]["text"] = "Find fares"
+    llm = ScriptedLLM([("click", {"ref": _search_ref(site)}), ("done", {"success": True, "answer": "ok"})])
+    with Browser(channel=None) as b:
+        result = fl.FlowRunner(flow, b, params={"from": "ZZZ9"}, secrets={"PW": "x"}, llm=llm,
+                               repair_with_model=True, find_attempts=1).run()
+    assert result.success
+    sent = repr(llm.seen)
+    assert "ZZZ9" not in sent and "<secret:param_from>" in sent
+
+
+@pytest.mark.browser
+def test_repair_does_not_override_a_guardrail_stop(recorded):
+    flow = fl.load_flow(recorded)
+    flow["steps"].append({"do": "click", "target": {"role": "button", "text": "Buy now", "nth": 0, "of": 1}})
+    with Browser(channel=None) as b:                          # no person to approve the risky click; the model must not be asked
+        result = fl.FlowRunner(flow, b, secrets={"PW": "x"}, llm=ScriptedLLM([]), repair_with_model=True).run()
+    assert not result.success and not result.repaired_by_model and result.model_calls == 0
+
+
+def test_cli_model_options_need_an_explicit_model(tmp_path, monkeypatch, capsys):
+    path = fl.save_flow(make_flow(), tmp_path / "f.json")
+    monkeypatch.delenv("SELFBROWSE_MODEL", raising=False)
+    assert main(["flow", "run", str(path), "--answer-with-model"]) == 2
+    assert "add -m provider:model" in capsys.readouterr().err
+    assert main(["flow", "run", str(path), "--repair-with-model"]) == 2
+    with pytest.raises(SystemExit):                           # --save-repaired alone makes no sense
+        main(["flow", "run", str(path), "--save-repaired", str(tmp_path / "g.json")])

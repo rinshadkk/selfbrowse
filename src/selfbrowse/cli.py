@@ -74,6 +74,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
     p.add_argument("--save-flow", metavar="FILE",
                    help="when the run succeeds, save every step to FILE as a flow that 'selfbrowse flow run FILE' replays with no model")
+    fg = p.add_argument_group("flow run: optional model steps (off unless you pass them; both use -m)")
+    fg.add_argument("--answer-with-model", action="store_true",
+                    help="after the last step, send the text the flow read to the model (one call) and print its answer to the task")
+    fg.add_argument("--repair-with-model", action="store_true",
+                    help="if a step cannot find its element, let the model carry on from that page and finish the task")
+    fg.add_argument("--repair-max-steps", type=int, default=15, metavar="N", help="with --repair-with-model: at most N actions (default 15)")
+    fg.add_argument("--save-repaired", metavar="FILE", help="with --repair-with-model: save the flow, updated with what the model did, to FILE (never overwrites the original)")
+    fg.add_argument("--ask", metavar="TEXT", help="with --answer-with-model or --repair-with-model: the question or task to give the model (default: the flow's description)")
     p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE",
                    help="with 'flow run': set a flow parameter (repeatable); see 'flow show' for the names")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
@@ -95,7 +103,9 @@ def main(argv: list[str] | None = None) -> int:
         print("forgot" if SiteKnowledge(home / "sites").forget(args.task[1]) else "nothing stored for that domain")
         return 0
     if args.task and args.task[0] == "flow":
-        return _flow_command(args, p)
+        explicit_model = bool(os.environ.get(f"{_about.ENV_PREFIX}MODEL")) or any(
+            a in ("-m", "--model") or a.startswith("--model=") for a in (argv if argv is not None else sys.argv[1:]))
+        return _flow_command(args, p, explicit_model)
     if args.task and args.task[0] == "trace":
         return _trace_command(args.task[1:], home / "traces", args.full, p)
     if not args.task:
@@ -178,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if result.success else 1
 
 
-def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser, explicit_model: bool = False) -> int:
     """``selfbrowse flow show FILE`` and ``selfbrowse flow run FILE [--param NAME=VALUE]``: no model involved."""
     from selfbrowse import flow as fl
 
@@ -216,6 +226,21 @@ def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     from selfbrowse.handoff import terminal_handler
 
     guards = gr.build_guards(allow=args.allow_domain, block=args.block_domain, max_seconds=args.max_seconds)
+    uses_model = args.answer_with_model or args.repair_with_model
+    llm = None
+    if uses_model:
+        if not explicit_model:                       # never fall back to the default model: that would spend money unasked
+            print("error: --answer-with-model and --repair-with-model need a model: add -m provider:model (or set $SELFBROWSE_MODEL)",
+                  file=sys.stderr)
+            return 2
+        from selfbrowse.llm import LLMError, make_llm
+        try:
+            llm = make_llm(args.model)
+        except LLMError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    elif args.save_repaired or args.ask:
+        parser.error("--save-repaired and --ask need --repair-with-model or --answer-with-model")
 
     def show(n: int, total: int, text: str) -> None:
         if not args.quiet and not args.json:
@@ -227,19 +252,38 @@ def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         try:
             browser.start()
             runner = fl.FlowRunner(data, browser, params=given, secrets=secrets, guardrails=guards,
-                                   handler=terminal_handler if args.headed else None, on_step=show)
+                                   handler=terminal_handler if args.headed else None, on_step=show,
+                                   llm=llm, answer_with_model=args.answer_with_model, repair_with_model=args.repair_with_model,
+                                   repair_max_steps=args.repair_max_steps, task=args.ask)
             result = runner.run()
         finally:
             browser.close()
     except (fl.FlowError, BrowserError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except Exception as exc:                          # a model that cannot be reached, a bad key
+        if not uses_model:
+            raise
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    saved = None
+    if args.save_repaired and result.repaired_flow:
+        if Path(args.save_repaired).expanduser().resolve() == Path(rest[1]).expanduser().resolve():
+            print("error: --save-repaired will not overwrite the original flow; give another file name", file=sys.stderr)
+        else:
+            saved = fl.save_flow(result.repaired_flow, args.save_repaired)
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
     else:
         print(result.output if result.success else f"FAILED: {result.error}")
-        print(f"[{result.steps_run}/{result.total_steps} steps, 0 model calls, 0 tokens, {_elapsed(result.seconds)}]", file=sys.stderr)
+        if result.repaired_by_model:
+            print(f"[step {result.repaired_at} could not run, so the model took over for {result.repaired_steps} step(s)"
+                  + (f"; repaired flow saved: {saved}" if saved else "; add --save-repaired FILE to keep the repaired flow") + "]", file=sys.stderr)
+        if result.warning:
+            print(f"[warning: {result.warning}]", file=sys.stderr)
+        print(f"[{result.steps_run}/{result.total_steps} steps, {result.model_calls} model calls, {result.tokens:,} tokens, {_elapsed(result.seconds)}]", file=sys.stderr)
     return 0 if result.success else 1
 
 

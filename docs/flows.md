@@ -30,6 +30,30 @@ selfbrowse flow run fare.json --param from=BLR --param to=LHR
 
 `flow show` lists the sites, the parameters, the secrets and every step, so you can read what a flow will do before you run it. From Python, `run_flow("fare.json", params={"from": "BLR"})`.
 
+## Optional: let a model help
+
+By default a flow never calls a model. Two switches turn one on. Both use the one model you give with `-m` (or `$SELFBROWSE_MODEL`), and the run stops with an error if you ask for either without a model, so nothing is ever spent by default.
+
+| Switch | What it does | Cost |
+|---|---|---|
+| `--answer-with-model` | After the last step, sends the text the flow read to the model and prints its answer to the task | One call |
+| `--repair-with-model` | If a step cannot find its element, the model carries on from the page the flow reached and finishes the task | Like a normal run from that page, capped by `--repair-max-steps` (default 15) |
+
+```bash
+selfbrowse flow run fare.json -m anthropic:claude-haiku-4-5 --answer-with-model --ask "Which fare is cheapest?"
+selfbrowse flow run fare.json -m anthropic:claude-haiku-4-5 --repair-with-model --save-repaired fare.v2.json
+```
+
+`--ask` replaces the flow's recorded task as the question. `--save-repaired FILE` keeps a new flow made of the steps before the failure plus the steps the model took; it never overwrites the original, so read it with `flow show` before you rely on it. From Python: `run_flow(flow, llm="anthropic:...", answer_with_model=True, repair_with_model=True)`, then `result.repaired_flow`.
+
+Rules for repair:
+
+- **Only a missing element is repaired.** A guardrail block, a declined approval, a missing secret or a wrong landing page always stops the run. Nothing has happened at the failed step, so the model cannot repeat a click or submit.
+- **The same guardrails apply**: the flow's sites, risky-click approval, and any `--allow-domain` you added.
+- **Your private values stay hidden.** The model sees `<secret:NAME>` for secrets and for parameters that had no default (personal data), and those values are replaced with the placeholder if they show up in the page list. Values shorter than 3 characters cannot be masked this way. Parameters that have a default, and the page text, are sent to the model.
+- **A model reading page text can be misled by that text**, as in any run. For a flow you did not record, use `--headed`.
+- The summary line shows model calls and tokens, so a flow that has started needing repair is visible.
+
 ## Parameters
 
 Anything that was typed or chosen becomes a parameter, named after the field (`from`, `to`), with the recorded value as its default. Pass `--param NAME=VALUE` to change it. A flow with an unknown or missing parameter stops before opening a browser.
@@ -50,11 +74,11 @@ Anything that was typed or chosen becomes a parameter, named after the field (`f
 
 ## When it fails
 
-Elements are found again by role, label and position among identical ones. If the site changed and one is gone or unclear, the run stops and names the step, for example `step 4 (click button "Search"): could not find ...`. Record the flow again. A flow never asks a model to repair itself.
+Elements are found again by role, label and position among identical ones. If the site changed and one is gone or unclear, the run stops and names the step, for example `step 4 (click button "Search"): could not find ...`. Record the flow again, or run it with `--repair-with-model` (below). Without that switch a flow never asks a model for help.
 
 ## What a flow cannot do
 
-- **It cannot summarise.** Its output is the text of the last `read` step, or the visible text of the final page if there was none.
+- **It cannot summarise on its own.** Its output is the text of the last `read` step, or the visible text of the final page if there was none. `--answer-with-model` adds the summary.
 - **It repeats a path, it does not decide.** A site that shows different pages on different days (a pop-up, an A/B test) can stop it.
 - **A CAPTCHA or login pause** is recorded as a `pause` step and needs `--headed` and a person each time.
 
