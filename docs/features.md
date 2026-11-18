@@ -8,6 +8,7 @@ Each feature below is off unless you ask for it, apart from the core reading and
 |---|---|---|
 | Numbered page list | The model sees each page as a short list of controls (`#1 button "Add to cart"`), not a screenshot | [What the agent can do](tools.md) |
 | Learning per site | Remembers click sequences that worked and replays them without a model call | [What the agent can do](tools.md#how-learning-works) |
+| Flows | Saves a whole run as a file that `selfbrowse flow run` replays with no model call; typed values become parameters, secrets stay names | [Flows](flows.md) |
 | Any model | Anthropic, OpenAI, Ollama and other OpenAI-compatible servers, including local models | [Models](models.md) |
 | Hand-off to a person | Pauses for a CAPTCHA, login or 2-step code, then carries on | [CAPTCHAs and hand-off](captcha-handoff.md) |
 | Pop-ups and permissions | Sees JavaScript dialogs; browser permissions such as notifications are granted only when you say so | [Pop-ups and permissions](popups-permissions.md) |

@@ -1,0 +1,11 @@
+<!doctype html><title>Results</title>
+<body style="font-family:sans-serif">
+<h1 id="h"></h1>
+<p id="pwlen"></p>
+<button onclick="document.getElementById('h').textContent='ORDER PLACED'">Buy now</button>
+<script>
+const q = new URLSearchParams(location.search);
+document.getElementById('h').textContent = 'Fares ' + q.get('from') + ' to ' + q.get('to');
+document.getElementById('pwlen').textContent = 'password length ' + q.get('pw');
+</script>
+</body>

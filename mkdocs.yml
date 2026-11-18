@@ -45,6 +45,7 @@ nav:
       - Remote browsers: remote-browsers.md
       - CAPTCHAs and hand-off: captcha-handoff.md
       - Pop-ups and permissions: popups-permissions.md
+      - Flows, replay with no model: flows.md
   - Safety and privacy:
       - Guardrails: guardrails.md
       - Personal data: personal-data.md

@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from selfbrowse import _about
 from selfbrowse.browser import dialog_note
+from selfbrowse.flow import FlowError, FlowRecorder, save_flow
 from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, RunState, SafeUrls
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
@@ -65,6 +66,8 @@ class BrowseAgent:
         restore_answer: put the real values back into the final answer you get (default True; the model
             never sees them, and the recorded steps stay masked). Pass False if you forward the answer to
             another model or a log.
+        save_flow: write the whole run to this file as a *flow* when it succeeds, so it can be replayed with no
+            model (``selfbrowse flow run FILE``). Typed values become parameters; secrets stay as names.
         home: data folder (default ``~/.selfbrowse``, or ``$SELFBROWSE_HOME``).
         on_step: callback receiving each :class:`selfbrowse.Step`.
     """
@@ -77,6 +80,7 @@ class BrowseAgent:
         browser: Any = None,
         max_steps: int = 100,
         learn: bool = True,
+        save_flow: "str | Path | None" = None,
         vision: bool = False,
         screenshots: "str | Path | None" = None,
         page_text: int = 0,
@@ -117,6 +121,10 @@ class BrowseAgent:
         self._step_usage = Usage()
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
         self.knowledge = SiteKnowledge(home_dir / "sites") if learn else None
+        self._save_flow = Path(save_flow).expanduser() if save_flow else None
+        self._flow: FlowRecorder | None = None
+        self.flow: dict[str, Any] | None = None            # the flow recorded by the last run, if save_flow was set
+        self.flow_path: Path | None = None
         self._handoff_opt = handoff
         self.max_handoffs = max_handoffs
         self._handler: Handler | None = None
@@ -218,6 +226,8 @@ class BrowseAgent:
         click_log: list[tuple[str, str, str]] = []           # (url, role, label) of recent clicks
         type_log: list[tuple[str, str]] = []                 # (url, text) of recent type actions
         names = [t["name"] for t in self.tools]
+        self._flow = FlowRecorder(self.task, self.browser.url) if self._save_flow else None
+        self.flow = self.flow_path = None
 
         if (hit := self.guards.url(self.browser.url)) and self.browser.url not in ("about:blank", ""):
             self._trace("guardrail", guardrail=hit[0].name, decision="block", reason=hit[1].reason)
@@ -297,6 +307,7 @@ class BrowseAgent:
                 else:
                     self._trace("tool_call", tool=name, args=args)
                     started = time.perf_counter()
+                    flow_target = self._flow_target(name, args)
                     text, changed = self._execute(name, args)
                     if dialogs := getattr(self.browser, "pop_dialogs", lambda: [])():
                         text += dialog_note(dialogs)
@@ -309,6 +320,8 @@ class BrowseAgent:
                 history.append(step)
                 if not text.startswith(_NOT_LEARNED):      # failed or blocked actions teach nothing
                     self._learn(url_before, name, args)
+                    if self._flow is not None and blocked is None:
+                        self._flow.add(name, args, url_before=url_before, url_after=self.browser.url, target=flow_target)
                 suffix = ""
                 if name == "scroll":
                     scroll_log.append(str(args.get("direction", "down")))
@@ -356,9 +369,25 @@ class BrowseAgent:
 
         if self.knowledge:
             self.knowledge.commit(success, self.task)
+        if success and self._flow is not None and self._save_flow:
+            try:
+                self.flow = self._flow.build()
+                self.flow_path = save_flow(self.flow, self._save_flow)
+                self._trace("flow_saved", path=str(self.flow_path), steps=len(self.flow["steps"]))
+            except FlowError as exc:                         # e.g. the run did nothing worth replaying
+                self._trace("flow_not_saved", reason=str(exc))
         if self.restore_answer and output:
             output = self.guards.restore(output)[0]
         return RunResult(success=success, output=output, steps=len(history), usage=usage, history=history, error=error)
+
+    def _flow_target(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
+        """How to find the element an action is about again (only while a flow is being recorded)."""
+        if self._flow is None or name not in ("click", "type", "select"):
+            return None
+        try:
+            return self.browser.locate_ref(int(args.get("ref", 0)))
+        except (TypeError, ValueError):
+            return None
 
     def _click_key(self, url: str, args: dict[str, Any]) -> tuple[str, str, str] | None:
         try:
@@ -740,9 +769,14 @@ class BrowseAgent:
                     act = Action("click", {"ref": ref}, before, role=s.get("role", ""), text=s.get("text", ""))
                     if self.guards.action(act):            # replay never asks anyone: leave it to the model
                         return
+                    target = self._flow_target("click", {"ref": ref})
                     text = self.browser.click_ref(ref)
+                    if self._flow is not None:
+                        self._flow.add("click", {"ref": ref}, url_before=before, url_after=self.browser.url, target=target)
                 elif s["tool"] == "press":
                     text = self.browser.press(s["key"])
+                    if self._flow is not None:
+                        self._flow.add("press", {"key": s["key"]}, url_before=before, url_after=self.browser.url)
                 else:
                     continue
             except Exception:
