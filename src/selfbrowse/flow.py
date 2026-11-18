@@ -123,6 +123,29 @@ def validate_flow(data: Any) -> dict[str, Any]:
     return data
 
 
+def flows_dir(home: "str | Path") -> Path:
+    """Where flows saved by name live: ``<home>/flows`` (next to ``sites`` and ``traces``)."""
+    return Path(home).expanduser() / "flows"
+
+
+def is_flow_name(ref: "str | Path") -> bool:
+    """A bare name like ``kayak-fares`` (no folder, no ``.json``); anything else is a path."""
+    r = str(ref)
+    return bool(r) and not r.endswith(".json") and not any(c in r for c in "/\\") and not r.startswith(("~", "."))
+
+
+def resolve_flow_path(ref: "str | Path", home: "str | Path") -> Path:
+    """``kayak-fares`` → ``<home>/flows/kayak-fares.json``; a path stays a path."""
+    if is_flow_name(ref):
+        return flows_dir(home) / f"{ref}.json"
+    return Path(ref).expanduser()
+
+
+def list_flows(home: "str | Path") -> list[Path]:
+    d = flows_dir(home)
+    return sorted(d.glob("*.json")) if d.is_dir() else []
+
+
 def load_flow(path: "str | Path") -> dict[str, Any]:
     p = Path(path).expanduser()
     try:

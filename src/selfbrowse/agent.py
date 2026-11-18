@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from selfbrowse import _about
 from selfbrowse.browser import dialog_note
-from selfbrowse.flow import FlowError, FlowRecorder, save_flow
+from selfbrowse.flow import FlowError, FlowRecorder, resolve_flow_path, save_flow
 from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, RunState, SafeUrls
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
@@ -66,8 +66,9 @@ class BrowseAgent:
         restore_answer: put the real values back into the final answer you get (default True; the model
             never sees them, and the recorded steps stay masked). Pass False if you forward the answer to
             another model or a log.
-        save_flow: write the whole run to this file as a *flow* when it succeeds, so it can be replayed with no
-            model (``selfbrowse flow run FILE``). Typed values become parameters; secrets stay as names.
+        save_flow: write the whole run as a *flow* when it succeeds, so it can be replayed with no model
+            (``selfbrowse flow run NAME``). A bare name like ``kayak-fares`` goes to ``<home>/flows/``; a path
+            (anything with a folder or ``.json``) is used as given. Typed values become parameters; secrets stay as names.
         home: data folder (default ``~/.selfbrowse``, or ``$SELFBROWSE_HOME``).
         on_step: callback receiving each :class:`selfbrowse.Step`.
     """
@@ -121,7 +122,7 @@ class BrowseAgent:
         self._step_usage = Usage()
         home_dir = Path(home or os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME).expanduser()
         self.knowledge = SiteKnowledge(home_dir / "sites") if learn else None
-        self._save_flow = Path(save_flow).expanduser() if save_flow else None
+        self._save_flow = resolve_flow_path(save_flow, home_dir) if save_flow else None
         self._flow: FlowRecorder | None = None
         self.flow: dict[str, Any] | None = None            # the flow recorded by the last run, if save_flow was set
         self.flow_path: Path | None = None

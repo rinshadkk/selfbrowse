@@ -272,3 +272,55 @@ def test_cli_model_options_need_an_explicit_model(tmp_path, monkeypatch, capsys)
     assert main(["flow", "run", str(path), "--repair-with-model"]) == 2
     with pytest.raises(SystemExit):                           # --save-repaired alone makes no sense
         main(["flow", "run", str(path), "--save-repaired", str(tmp_path / "g.json")])
+
+
+# ── flows saved by name, and asking for a missing parameter ──────────────────────
+
+def test_a_bare_name_goes_to_the_flows_folder_and_a_path_stays_a_path(tmp_path):
+    assert fl.resolve_flow_path("kayak-fares", tmp_path) == tmp_path / "flows" / "kayak-fares.json"
+    assert fl.resolve_flow_path("fare.json", tmp_path) == __import__("pathlib").Path("fare.json")
+    assert fl.resolve_flow_path("sub/fare", tmp_path) == __import__("pathlib").Path("sub/fare")
+    assert fl.resolve_flow_path("./fare", tmp_path) == __import__("pathlib").Path("fare")
+
+
+def test_flow_list_and_show_by_name(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SELFBROWSE_HOME", str(tmp_path))
+    assert main(["flow", "list"]) == 0
+    assert "No saved flows yet" in capsys.readouterr().out
+    fl.save_flow(make_flow(name="t", description="open example"), fl.resolve_flow_path("example", tmp_path))
+    assert main(["flow", "list"]) == 0
+    assert "example  open example" in capsys.readouterr().out
+    assert main(["flow", "show", "example"]) == 0
+    assert "open example" in capsys.readouterr().out
+    assert main(["flow", "show", "nothing-here"]) == 2
+
+
+@pytest.mark.browser
+def test_agent_saves_a_flow_by_name_under_home(site, tmp_path):
+    with Browser(channel=None) as b:
+        b.goto(site("flow_search.html"))
+        llm = ScriptedLLM([("read", {}), ("done", {"success": True, "answer": "ok"})])
+        agent = BrowseAgent("look", llm=llm, browser=b, home=tmp_path, save_flow="look-around")
+        assert agent.run().success
+    assert agent.flow_path == tmp_path / "flows" / "look-around.json" and agent.flow_path.exists()
+
+
+@pytest.mark.browser
+def test_missing_parameter_is_asked_for_in_a_terminal_and_refused_otherwise(recorded, tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    data = fl.load_flow(recorded)
+    del data["params"]["from"]["default"]                     # now a required parameter
+    fl.save_flow(data, fl.resolve_flow_path("fare", home))
+    monkeypatch.setenv("SELFBROWSE_HOME", str(home))
+    monkeypatch.setenv("SELFBROWSE_SECRET_PW", "abc")
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    assert main(["flow", "run", "fare", "-q"]) == 2           # scripts and cron fail instead of hanging
+    assert "pass --param from=VALUE" in capsys.readouterr().err
+
+    asked = []
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+    monkeypatch.setattr("builtins.input", lambda prompt="": asked.append(prompt) or "BOM")
+    assert main(["flow", "run", "fare", "--json", "-q"]) == 0
+    assert asked == ["Value for parameter 'from': "]
+    assert "Fares BOM to SFO" in json.loads(capsys.readouterr().out)["output"]

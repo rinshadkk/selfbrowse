@@ -42,8 +42,8 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--watch-injection` | warn on instruction-like page text and confirm risky actions |
 | `--max-tokens N` / `--max-seconds S` | stop a run that goes over |
 | `--no-learn` | do not read or write site knowledge |
-| `--save-flow FILE` | when the run succeeds, save every step to FILE as a [flow](flows.md) |
-| `--param NAME=VALUE` | with `flow run`: set a flow parameter (repeatable) |
+| `--save-flow NAME\|FILE` | when the run succeeds, save every step as a [flow](flows.md). A bare name goes to `~/.selfbrowse/flows/`; a path is used as given |
+| `--param NAME=VALUE` | with `flow run`: set a flow parameter (repeatable); a required one you leave out is asked for in a terminal |
 | `--answer-with-model` | with `flow run -m MODEL`: one model call turns the text the flow read into an answer ([Flows](flows.md#optional-let-a-model-help)) |
 | `--repair-with-model` | with `flow run -m MODEL`: if a step cannot find its element, the model finishes the task from that page |
 | `--repair-max-steps N` / `--save-repaired FILE` / `--ask TEXT` | cap the repair, keep the repaired flow, or replace the question given to the model |
