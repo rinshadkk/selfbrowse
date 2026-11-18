@@ -14,3 +14,5 @@ Start with [docs/architecture.md](docs/architecture.md) for how the loop, the gu
 Keep prompts and tool schemas small — they are sent on every step. If you change what the model sees, run `python benchmarks/step_tokens.py` and include the numbers in your PR.
 
 Planned work and priorities live in [ROADMAP.md](ROADMAP.md). Pick an item, say so in an issue, and use its "Done when" line as the acceptance test. A feature that claims to save tokens or raise success needs a benchmark result to back it up.
+
+Maintainers: see [RELEASING.md](RELEASING.md) for how a version is published to PyPI.
