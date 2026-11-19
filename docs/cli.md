@@ -18,6 +18,7 @@ selfbrowse trace show <id|latest> [--full]   timeline of a run (--full adds prom
 | `--stealth` | use Patchright to reduce common automation signals |
 | `--page-text N` | also send up to N characters of on-screen text with every page list (more tokens, fewer `read` calls) |
 | `--max-output-tokens N` | cap on each model reply (default 2048); raise it for reasoning models that think at length |
+| `--file PATH` | a local file the agent may upload with the `upload` tool (repeatable). Without it the tool is not offered; the model sees file names, never folders |
 | `--vision` | let the model request screenshots (more tokens) |
 | `--screenshots DIR` | save a screenshot after every step, plus an `index.html`, in a new folder under `DIR`, as evidence of what the agent did (see [Screenshots as evidence](observability.md#screenshots-as-evidence)) |
 | `--record-video DIR` | record a video (WebM) of the browser, one file per page, saved in `DIR` when the run ends; the path is printed as `[video: ...]`. Like screenshots it is not redacted |

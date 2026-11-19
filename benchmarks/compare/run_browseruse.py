@@ -79,7 +79,8 @@ async def main() -> dict:
         if os.environ.get("BU_LLM_TIMEOUT"):               # e.g. a slow gateway in front of a big model
             t = int(os.environ["BU_LLM_TIMEOUT"])
             slow = {"llm_timeout": t, "step_timeout": t * 2}
-        agent = Agent(task=task, llm=llm, browser=browser, use_vision=False, **slow)
+        agent = Agent(task=task, llm=llm, browser=browser, use_vision=False,
+                      available_file_paths=[os.environ["BENCH_FILE"]] if os.environ.get("BENCH_FILE") else None, **slow)
         hist = await agent.run(max_steps=max_steps)
         if sampler:
             sampler.cancel()

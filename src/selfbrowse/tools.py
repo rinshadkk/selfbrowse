@@ -12,7 +12,7 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
     }
 
 
-def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, Any]]:
+def build_tools(*, vision: bool = False, human: bool = False, files: bool = False, drag: bool = False) -> list[dict[str, Any]]:
     tools = [
         _tool("goto", "Open a URL.", {"url": {"type": "string"}}, ["url"]),
         _tool("click", "Click element #ref from the latest page list.", {"ref": {"type": "integer"}}, ["ref"]),
@@ -23,7 +23,7 @@ def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, 
             {"ref": {"type": "integer"}, "text": {"type": "string"}, "submit": {"type": "boolean"}},
             ["ref", "text"],
         ),
-        _tool("select", "Choose an option in a native dropdown (a combobox listing options:). Give the option's text.",
+        _tool("select", "Choose an option in a dropdown (a combobox, native or custom) by its text.",
               {"ref": {"type": "integer"}, "option": {"type": "string"}}, ["ref", "option"]),
         _tool("press", "Press a key, e.g. Enter, Escape, Tab, ArrowDown.", {"key": {"type": "string"}}, ["key"]),
         _tool("scroll", "Scroll the page.", {"direction": {"type": "string", "enum": ["down", "up"]}}),
@@ -44,6 +44,12 @@ def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, 
             ["success", "answer"],
         ),
     ]
+    if files:
+        tools.insert(-1, _tool("upload", "Attach one of the allowed files to file input #ref (or to the button that opens a file picker).",
+                               {"ref": {"type": "integer"}, "file": {"type": "string"}}, ["ref", "file"]))
+    if drag:
+        tools.insert(-1, _tool("drag", "Drag element #ref and drop it on element #to.",
+                               {"ref": {"type": "integer"}, "to": {"type": "integer"}}, ["ref", "to"]))
     if vision:
         tools.insert(-2, _tool("screenshot", "See the page as an image (costly; use only when the list is not enough)."))
     if human:
@@ -56,7 +62,9 @@ def build_tools(*, vision: bool = False, human: bool = False) -> list[dict[str, 
 # Fix what is unambiguous, and when it cannot be fixed say exactly what is expected.
 
 _ALIASES: dict[str, tuple[str, ...]] = {
-    "ref": ("id", "idx", "index", "element", "element_id", "ref_id", "number", "target", "node", "selector"),
+    "ref": ("id", "idx", "index", "element", "element_id", "ref_id", "number", "target", "node", "selector", "from", "source", "src"),
+    "to": ("dest", "destination", "onto", "into", "to_ref", "drop", "drop_on", "target"),
+    "file": ("path", "filename", "file_path", "name", "files"),
     "text": ("txt", "value", "input", "content", "keys", "string", "query", "search"),
     "option": ("value", "choice", "label", "text", "item", "selection", "name"),
     "url": ("link", "href", "address", "page", "website"),

@@ -28,6 +28,7 @@ import proxy as px  # noqa: E402
 import store  # noqa: E402
 from tasks import TASKS, _hn_top_title  # noqa: E402
 
+RESUME = HERE / "assets" / "resume.txt"
 CHROME = Path(os.environ.get("BENCH_CHROME") or Path.home() / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
 SB = [sys.executable, str(HERE / "run_selfbrowse.py")]
 LIBS = {
@@ -86,11 +87,11 @@ def run_one(lib: str, task, base: str, proxy_url: str, model: str, max_steps: in
         urllib.request.urlopen(base + "/__reset", timeout=10).read()
     px.REC.reset()
     state_extra = {"hn_before": _hn_top_title()} if task.id == "T7-live-hn" else {}
-    prompt = task.prompt.format(base=base)
+    prompt = task.prompt.format(base=base, file=str(RESUME))
     t0 = time.perf_counter()
     try:
         cmd, extra_env = LIBS[lib]
-        extra_env = dict(extra_env)
+        extra_env = {**extra_env, "BENCH_FILE": str(RESUME)}    # the one local file an agent may upload (task W3)
         if video_dir:                                    # one folder per run; the biggest file is the run
             tmp = video_dir / f"_{lib}-{task.id}"
             shutil.rmtree(tmp, ignore_errors=True)
@@ -167,7 +168,7 @@ def main() -> None:
     ap.add_argument("--libs", default=DEFAULT_LIBS)
     ap.add_argument("--out", default="")
     ap.add_argument("--record-video", action="store_true", help="record a video of every run into <out>/videos and write an index.html")
-    ap.add_argument("--suite", choices=["store", "usecases", "kayak", "showcase", "all"], default="store",
+    ap.add_argument("--suite", choices=["store", "usecases", "kayak", "showcase", "widgets", "all"], default="store",
                     help="store = the local demo shop (plus two live pages); usecases = real public sites; all = both")
     ap.add_argument("--terminal", action="store_true",
                     help="with --record-video: also record the terminal and join it beside the browser (needs asciinema, agg, ffmpeg)")
@@ -179,6 +180,9 @@ def main() -> None:
     if args.suite == "kayak":
         from usecases import KAYAK
         TASKS = KAYAK
+    if args.suite == "widgets":
+        from tasks import WIDGETS
+        TASKS = WIDGETS
     if args.suite == "showcase":
         from usecases import SHOWCASE
         TASKS = SHOWCASE

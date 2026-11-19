@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Custom dropdowns</title>
+<style>ul.pop{list-style:none;margin:0;padding:0;border:1px solid #333;width:200px;position:absolute;background:#fff}
+ul.pop li{padding:6px;cursor:pointer} .hidden{display:none}
+.menu{position:absolute;border:1px solid #333;background:#fff;width:200px}
+.menu div{padding:6px;cursor:pointer}</style></head><body>
+<h1>Preferences</h1>
+<!-- 1. ARIA combobox: a button that opens a listbox -->
+<div style="height:90px">
+ <button id="fruit" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="fruit-list">Pick a fruit</button>
+ <ul class="pop hidden" id="fruit-list" role="listbox">
+  <li role="option">Apple</li><li role="option">Banana</li><li role="option">Cherry</li>
+ </ul>
+</div>
+<p id="fruit-out">no fruit</p>
+<!-- 2. plain divs, no ARIA at all -->
+<div style="height:90px">
+ <button id="size">Size</button>
+ <div class="menu hidden" id="size-menu"><div>Small</div><div>Medium</div><div>Large</div></div>
+</div>
+<p id="size-out">no size</p>
+<!-- 3. autocomplete: type, suggestions appear -->
+<div style="height:120px">
+ <input id="city" role="combobox" aria-expanded="false" aria-controls="city-list" aria-label="City" autocomplete="off">
+ <ul class="pop hidden" id="city-list" role="listbox"></ul>
+</div>
+<p id="city-out">no city</p>
+<script>
+function wireList(btn, list, onPick, items) {
+  btn.addEventListener('click', () => { const open = list.classList.toggle('hidden') === false; btn.setAttribute('aria-expanded', String(open)); });
+  list.addEventListener('click', e => { const t = e.target.closest('li,div'); if (!t) return; onPick(t.textContent); list.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); });
+}
+const fruit = document.getElementById('fruit'), fl = document.getElementById('fruit-list');
+wireList(fruit, fl, v => { document.getElementById('fruit-out').textContent = 'fruit=' + v; fruit.textContent = v; });
+const size = document.getElementById('size'), sm = document.getElementById('size-menu');
+size.addEventListener('click', () => sm.classList.toggle('hidden'));
+sm.addEventListener('click', e => { if (e.target.parentElement === sm) { document.getElementById('size-out').textContent = 'size=' + e.target.textContent; sm.classList.add('hidden'); } });
+const city = document.getElementById('city'), cl = document.getElementById('city-list');
+const CITIES = ['Chicago', 'Charlotte', 'Chennai', 'Cochin', 'Boston'];
+city.addEventListener('input', () => {
+  const q = city.value.toLowerCase(); cl.innerHTML = '';
+  CITIES.filter(c => q && c.toLowerCase().startsWith(q)).forEach(c => { const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = c; cl.appendChild(li); });
+  const open = cl.children.length > 0; cl.classList.toggle('hidden', !open); city.setAttribute('aria-expanded', String(open));
+});
+cl.addEventListener('click', e => { if (e.target.tagName === 'LI') { city.value = e.target.textContent; document.getElementById('city-out').textContent = 'city=' + e.target.textContent; cl.classList.add('hidden'); city.setAttribute('aria-expanded', 'false'); } });
+</script></body></html>

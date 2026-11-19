@@ -141,7 +141,7 @@ class BlockedDomains(Guardrail):
 # ── actions ────────────────────────────────────────────────────────────────────────
 
 class ConfirmRisky(Guardrail):
-    """Ask a person before clicking something like Buy, Pay, Delete, Send or Sign out."""
+    """Ask a person before clicking something like Buy, Pay, Delete, Send or Sign out, and before uploading a file."""
 
     def __init__(self, pattern: "str | re.Pattern[str] | None" = None) -> None:
         self.pattern = re.compile(pattern, re.I) if isinstance(pattern, str) else (pattern or RISKY_RE)
@@ -149,6 +149,8 @@ class ConfirmRisky(Guardrail):
     def before_action(self, action: Action) -> Block | Confirm | None:
         if action.tool == "click" and self.pattern.search(action.text):
             return Confirm(f'click "{action.text}" may be irreversible')
+        if action.tool == "upload":
+            return Confirm(f'uploading "{action.args.get("file", "a file")}" sends a local file to this site')
         if action.tool == "dialog" and self.pattern.search(action.text):
             return Confirm(f'accepting the dialog "{action.text[:60]}" may be irreversible')
         return None

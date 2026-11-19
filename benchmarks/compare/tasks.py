@@ -62,3 +62,18 @@ TASKS = [
          "Go to en.wikipedia.org, find the article 'Web browser' and tell me in which year the first web browser was created.",
          lambda a, s: "1990" in a, live=True),
 ]
+
+
+# Widgets that a plain click-and-type agent struggles with: a custom dropdown, drag and drop, a file upload.
+# {file} is a local file the agent is allowed to use (run.py fills it in and passes it to the runner).
+WIDGETS = [
+    Task("W1-dropdowns", "Custom dropdowns",
+         "On {base}/prefs choose Banana as the favourite fruit and Large as the T-shirt size, then click Save preferences. Say done.",
+         lambda a, s: s.get("prefs") == {"fruit": "Banana", "size": "Large"}),
+    Task("W2-drag", "Drag and drop",
+         "On {base}/board drag the card 'Write tests' into the Done column. Say done.",
+         lambda a, s: s.get("board", {}).get("Write tests") == "done" and "Ship it" not in s.get("board", {})),
+    Task("W3-upload", "File upload",
+         "On {base}/apply attach the file {file} as the résumé. Say done.",
+         lambda a, s: s.get("upload", {}).get("name") == "resume.txt" and "Ada Lovelace" in s.get("upload", {}).get("text", "")),
+]

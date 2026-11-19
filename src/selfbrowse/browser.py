@@ -29,6 +29,35 @@ const deepFromPoint = (x, y) => {
 };
 """
 
+# Leaf elements with a little text, inside an absolutely or fixed positioned panel, near a point: what a dropdown or
+# menu that was just opened looks like when it carries no ARIA roles at all.
+_FLOATING_NEAR_JS = r"""
+const floatingNear = (near, skip, cap) => {
+  const out = [];
+  const floating = (el) => {
+    for (let p = el; p && p !== document.body; p = p.parentElement) {
+      const pos = getComputedStyle(p).position;
+      if (pos === 'absolute' || pos === 'fixed') return true;
+    }
+    return false;
+  };
+  let n = 0;
+  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+    if (out.length >= cap || ++n > 6000) break;
+    if (skip.has(el) || el.children.length) continue;
+    const t = (el.innerText || '').trim();
+    if (!t || t.length > 60) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    if (Math.abs(r.top + r.height / 2 - near[1]) > 360 || Math.abs(r.left + r.width / 2 - near[0]) > 420) continue;
+    if (el.closest('a,button,h1,h2,h3,label,input,select,textarea,[role="button"],[role="link"]')) continue;
+    if (!floating(el)) continue;
+    out.push(el);
+  }
+  return out;
+};
+"""
+
 # A shortened label ("In a Dark, Dark ...") is often the start of the element's own title attribute.
 _UNTRUNCATE_JS = r"""
 const untruncate = (t, el) => {
@@ -40,45 +69,180 @@ const untruncate = (t, el) => {
 };
 """
 
-_SNAPSHOT_JS = "(maxEls) => {" + _UNTRUNCATE_JS + _JS_HELPERS + r"""
+# Runs in every page before its own scripts. A page that listens for drop or dragstart tells us which elements
+# take part in drag and drop, even when they are plain <div>s with no markup. (Frameworks that listen on the
+# page root instead are invisible to this; draggable="true" and ondrop="" attributes are read from the page.)
+_DND_WATCH_JS = r"""
+(() => {
+  if (window.__sb) return;
+  const sb = window.__sb = { drop: [], drag: [] };
+  const add = (list, el) => { if (el && el.nodeType === 1 && list.length < 300 && !list.includes(el)) list.push(el); };
+  const orig = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, ...rest) {
+    try {
+      if (type === 'drop' || type === 'dragover') add(sb.drop, this);
+      else if (type === 'dragstart') add(sb.drag, this);
+    } catch (e) {}
+    return orig.call(this, type, ...rest);
+  };
+})();
+"""
+
+# Remember what is on screen now, so what appears after the next click (a dropdown's choices, whatever markup
+# it uses) can be told apart from the rest of the page.
+_MARK_VISIBLE_JS = r"""
+() => {
+  const before = new WeakSet();
+  let n = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    if (++n > 6000) break;
+    const r = el.getBoundingClientRect();
+    if (r.width >= 2 && r.height >= 2 && getComputedStyle(el).display !== 'none') before.add(el);
+  }
+  window.__sbBefore = before;
+  return n;
+}
+"""
+
+# The choices of the dropdown that is open on the page (custom widgets: role=option / menuitem, list items in a
+# listbox or menu, and the popup an aria-expanded control points at). With `want`, pick the one whose text matches,
+# scroll it into view and say where it is; otherwise list them.
+_POPUP_OPTIONS_JS = "([want, near]) => {" + _JS_HELPERS + _FLOATING_NEAR_JS + r"""
+  const norm = s => String(s).replace(/\s+/g, ' ').trim();
+  const ROLES = '[role="option"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="treeitem"]';
+  const popups = new Set();
+  for (const el of document.querySelectorAll('[role="listbox"],[role="menu"],[role="tree"]')) popups.add(el);
+  for (const host of document.querySelectorAll('[aria-expanded="true"]')) {
+    for (const id of (host.getAttribute('aria-controls') || host.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean)) {
+      const pop = host.getRootNode().getElementById ? host.getRootNode().getElementById(id) : document.getElementById(id);
+      if (pop) popups.add(pop);
+    }
+  }
+  const cands = new Set();
+  for (const el of document.querySelectorAll(ROLES)) cands.add(el);
+  const before = window.__sbBefore;                 // set just before the dropdown was opened: whatever is new is a choice
+  if (before) {
+    let n = 0;
+    for (const el of document.querySelectorAll('body *')) {
+      if (++n > 6000) break;
+      if (before.has(el) || el.children.length) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width >= 2 && r.height >= 2) cands.add(el);
+    }
+  }
+  for (const pop of popups) {
+    const inner = pop.querySelectorAll(ROLES + ',li');
+    if (inner.length) inner.forEach(e => cands.add(e));
+    else Array.from(pop.children).forEach(e => cands.add(e));
+  }
+  if (!before && near) for (const k of floatingNear(near, cands, 40)) cands.add(k);   // already open, no ARIA
+  const vh = window.innerHeight, vw = window.innerWidth;
+  const seen = new Set(), found = [];
+  for (const el of cands) {
+    const text = norm(el.innerText || el.textContent || el.getAttribute('aria-label') || '').slice(0, 60);
+    if (!text || seen.has(el)) continue;
+    seen.add(el);
+    let r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.display === 'none') continue;
+    found.push({ el, text, selected: el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-checked') === 'true' });
+  }
+  const label = f => f.text + (f.selected ? ' (selected)' : '');
+  if (want === null) return { options: found.map(label) };
+  const w = norm(want).toLowerCase();
+  let hit = found.filter(f => f.text.toLowerCase() === w);
+  if (hit.length !== 1) hit = hit.length ? hit : found.filter(f => w && f.text.toLowerCase().includes(w));
+  if (hit.length !== 1) {
+    return { error: hit.length ? 'more than one option matches' : 'no option matches', options: found.map(label) };
+  }
+  const el = hit[0].el;
+  el.scrollIntoView({ block: 'nearest' });
+  const r = el.getBoundingClientRect();
+  const cx = Math.round(Math.min(Math.max(r.left + r.width / 2, 0), vw - 1));
+  const cy = Math.round(Math.min(Math.max(r.top + r.height / 2, 0), vh - 1));
+  const top = deepFromPoint(cx, cy);
+  if (top && !(el.contains(top) || top.contains(el))) return { error: 'that option is hidden behind something else', options: found.map(label) };
+  return { chosen: hit[0].text, cx, cy };
+}
+"""
+
+_SNAPSHOT_JS = "(arg) => { const maxEls = typeof arg === 'number' ? arg : arg.max; const near = typeof arg === 'object' && arg ? arg.near : null;" + _UNTRUNCATE_JS + _JS_HELPERS + _FLOATING_NEAR_JS + r"""
   const SEL = [
     'a[href]', 'button', 'input:not([type="hidden"])', 'textarea', 'select', 'summary',
     '[role="button"]', '[role="link"]', '[role="textbox"]', '[role="checkbox"]', '[role="radio"]',
     '[role="combobox"]', '[role="option"]', '[role="menuitem"]', '[role="tab"]', '[role="switch"]',
-    '[role="slider"]', '[contenteditable=""]', '[contenteditable="true"]', 'h1', 'h2', 'h3',
+    '[role="slider"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]', '[role="treeitem"]',
+    '[contenteditable=""]', '[contenteditable="true"]', 'h1', 'h2', 'h3',
+    '[draggable="true"]', '[ondragstart]', '[ondrop]', '[ondragover]',
   ];
+  const sb = window.__sb || { drop: [], drag: [] };
   const seen = new Set(), els = [];
   const collect = (root) => {
+    root.querySelectorAll('[data-sb-file]').forEach(e => e.removeAttribute('data-sb-file'));
     for (const sel of SEL) for (const el of root.querySelectorAll(sel)) {
       if (!seen.has(el)) { seen.add(el); els.push(el); }
     }
     for (const host of root.querySelectorAll('*')) if (host.shadowRoot) collect(host.shadowRoot);
   };
   collect(document);
+  sb.drop = sb.drop.filter(e => e.isConnected);
+  sb.drag = sb.drag.filter(e => e.isConnected);
+  for (const el of sb.drop.concat(sb.drag)) if (!seen.has(el)) { seen.add(el); els.push(el); }
+  // the choices of an open custom dropdown belong in the list too (the popup an aria-expanded control points at)
+  const popupItems = new Set();
+  for (const host of Array.from(els)) {
+    if (host.getAttribute('aria-expanded') !== 'true') continue;
+    for (const id of (host.getAttribute('aria-controls') || host.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean)) {
+      const pop = host.getRootNode().getElementById ? host.getRootNode().getElementById(id) : document.getElementById(id);
+      if (!pop) continue;
+      const inner = pop.querySelectorAll('[role="option"],[role="menuitem"],[role="treeitem"],li');
+      const kids = inner.length ? Array.from(inner) : Array.from(pop.children);
+      for (const k of kids.slice(0, 30)) { popupItems.add(k); if (!seen.has(k)) { seen.add(k); els.push(k); } }
+    }
+  }
+  if (near) for (const k of floatingNear(near, seen, 12)) { popupItems.add(k); seen.add(k); els.push(k); }
   const vh = window.innerHeight, vw = window.innerWidth;
   const items = [];
+  let fileSeq = 0;
   for (const el of els) {
     if (el.disabled) continue;
-    const r = el.getBoundingClientRect();
+    const isFile = el.tagName === 'INPUT' && (el.getAttribute('type') || '').toLowerCase() === 'file';
+    let r = el.getBoundingClientRect();
+    let st = getComputedStyle(el);
+    const shown = r.width >= 2 && r.height >= 2 && st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
+    if (isFile && !shown) {                         // file inputs are usually hidden behind a styled button: use their label
+      const anchor = el.closest('label') || el.parentElement;
+      if (!anchor) continue;
+      r = anchor.getBoundingClientRect();
+      st = getComputedStyle(anchor);
+      if (r.width < 2 || r.height < 2 || st.visibility === 'hidden' || st.display === 'none') continue;
+    }
     if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
-    const st = getComputedStyle(el);
-    if (st.visibility === 'hidden' || st.display === 'none' || st.opacity === '0') continue;
+    if (!isFile && (st.visibility === 'hidden' || st.display === 'none' || st.opacity === '0')) continue;
     const cx = Math.round(Math.min(Math.max(r.left + r.width / 2, 0), vw - 1));
     const cy = Math.round(Math.min(Math.max(r.top + r.height / 2, 0), vh - 1));
     const top = deepFromPoint(cx, cy);                        // skip anything covered by a modal/overlay
-    if (top && !(el.contains(top) || top.contains(el))) continue;
+    if (!isFile && top && !(el.contains(top) || top.contains(el))) continue;
 
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || '').toLowerCase();
+    const draggable = el.getAttribute('draggable') === 'true' || el.hasAttribute('ondragstart') || sb.drag.includes(el);
+    const dropTarget = el.hasAttribute('ondrop') || el.hasAttribute('ondragover') || sb.drop.includes(el);
     let role = el.getAttribute('role');
     if (!role) {
-      if (tag === 'a') role = 'link';
+      if (isFile) role = 'file';
+      else if (popupItems.has(el)) role = 'option';
+      else if (tag === 'a') role = 'link';
       else if (tag === 'button' || tag === 'summary') role = 'button';
       else if (tag === 'select') role = 'combobox';
       else if (tag === 'textarea') role = 'textbox';
       else if (/^h[1-3]$/.test(tag)) role = 'heading';
       else if (tag === 'input') role = ['checkbox', 'radio'].includes(type) ? type
         : ['submit', 'button', 'reset', 'image'].includes(type) ? 'button' : 'textbox';
+      else if (el.isContentEditable) role = 'textbox';
+      else if (draggable) role = 'draggable';
+      else if (dropTarget) role = 'dropzone';
       else role = 'textbox';
     }
     const isField = tag === 'input' || tag === 'select' || tag === 'textarea';
@@ -87,6 +251,7 @@ _SNAPSHOT_JS = "(maxEls) => {" + _UNTRUNCATE_JS + _JS_HELPERS + r"""
       || labelled || (tag === 'select' ? el.getAttribute('name') : (el.innerText || el.value)) || el.textContent
       || el.getAttribute('title') || '')
       .replace(/\s+/g, ' ').trim();
+    if (isFile && !text) text = ((el.closest('label') || el.parentElement || {}).innerText || el.getAttribute('name') || '').replace(/\s+/g, ' ').trim();
     text = (untruncate(text, el) || text).slice(0, 80);
     let value = '';
     let options;
@@ -102,9 +267,16 @@ _SNAPSHOT_JS = "(maxEls) => {" + _UNTRUNCATE_JS + _JS_HELPERS + r"""
         href = (u.origin === location.origin ? u.pathname + u.search : '').slice(0, 50);
       } catch (e) {}
     }
+    let fileId = null;
+    if (isFile) { fileId = ++fileSeq; el.setAttribute('data-sb-file', String(fileId)); }
+    const exp = el.getAttribute('aria-expanded');
     items.push({ role, text, type, value, href, cx, cy, y: r.top, x: r.left, options,
                  checked: (type === 'checkbox' || type === 'radio') ? !!el.checked : null,
-                 focused: document.activeElement === el });
+                 focused: document.activeElement === el,
+                 file: isFile, fileId, accept: isFile ? (el.getAttribute('accept') || '').slice(0, 30) : '',
+                 multiple: isFile && el.multiple, drag: draggable, drop: dropTarget,
+                 expanded: exp === 'true' ? true : exp === 'false' ? false : null,
+                 selected: el.getAttribute('aria-selected') === 'true' });
   }
   items.sort((a, b) => (Math.abs(a.y - b.y) > 10 ? a.y - b.y : a.x - b.x));
   const total = items.length;
@@ -347,6 +519,7 @@ class Browser:
         self.max_elements = max_elements
         self._pw = self._browser = self._context = self._page = None
         self._elements: list[dict[str, Any]] = []
+        self._click_point: tuple[str, int, int] | None = None   # (url, x, y) of the last click: where a dropdown may have opened
         self._frames: list[Any] = []                    # frames the latest snapshot read; el["frame"] indexes this
 
     # ── lifecycle ──────────────────────────────────────────────────────────────────
@@ -420,6 +593,10 @@ class Browser:
                 self.close()
                 raise BrowserError(f"Could not grant permissions {self.permissions}: {exc}") from exc
         self._watched: set[int] = set()
+        try:                                           # learn which elements take part in drag and drop
+            self._context.add_init_script(_DND_WATCH_JS)
+        except Exception:
+            pass
         self._context.on("page", self._on_new_page)    # follow links that open a new tab
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(self.timeout_ms)
@@ -529,7 +706,8 @@ class Browser:
 
     def snapshot(self) -> Snapshot:
         """Numbered list of what is clickable or typeable in the current viewport (frames and shadow DOM included)."""
-        data = self._eval(_SNAPSHOT_JS, self.max_elements)
+        near = self._click_point if self._click_point and self._click_point[0] == self.page.url else None
+        data = self._eval(_SNAPSHOT_JS, {"max": self.max_elements, "near": list(near[1:])} if near else self.max_elements)
         page = self.page
         items = [dict(i, frame=0, lx=i["cx"], ly=i["cy"]) for i in data["items"]]
         total = data["total"]
@@ -575,7 +753,22 @@ class Browser:
                 extras.append("checked")
             elif el.get("checked") is False:
                 extras.append("unchecked")
-            if el.get("type") and el["type"] not in ("text", "submit", "button", "checkbox", "radio", ""):
+            if el.get("expanded") is True:
+                extras.append("open")
+            elif el.get("expanded") is False:
+                extras.append("closed")
+            if el.get("selected"):
+                extras.append("selected")
+            if el.get("file"):
+                if el.get("accept"):
+                    extras.append(f'accepts {el["accept"]}')
+                if el.get("multiple"):
+                    extras.append("several files")
+            if el.get("drag") and el["role"] != "draggable":
+                extras.append("draggable")
+            if el.get("drop") and el["role"] != "dropzone":
+                extras.append("drop target")
+            if el.get("type") and el["type"] not in ("text", "submit", "button", "checkbox", "radio", "file", ""):
                 extras.append(f'type={el["type"]}')
             if el.get("href"):
                 extras.append(f'→{el["href"]}')
@@ -761,6 +954,7 @@ class Browser:
         if el is None:
             raise BrowserError(f"No element #{ref} in the latest page list; refs change after every page change.")
         self.page.mouse.click(el["cx"], el["cy"])
+        self._click_point = (self.page.url, el["cx"], el["cy"])     # a dropdown opened by this click lists its choices next
         self._settle()
         return f'clicked #{ref} {el["role"]} "{el["text"][:40]}"'
 
@@ -775,7 +969,7 @@ class Browser:
         if el is None:
             raise BrowserError(f"No element #{ref} in the latest page list; refs change after every page change.")
         if not el.get("options"):
-            raise BrowserError(f"#{ref} is not a native dropdown. Click it, then click the option you want.")
+            return self._select_custom(ref, el, option)
         frame = self._frames[el.get("frame", 0)] if self._frames else self.page.main_frame
         res = self._eval_in(frame, _SELECT_JS, [el["lx"], el["ly"], option])
         if not res:
@@ -785,6 +979,87 @@ class Browser:
             raise BrowserError(f'{res["error"]} for "{option}". Options: {opts}')
         self._settle()
         return f'selected "{res["chosen"]}" in #{ref}'
+
+    def _frame_of(self, el: dict[str, Any]) -> Any:
+        return self._frames[el.get("frame", 0)] if self._frames else self.page.main_frame
+
+    def _select_custom(self, ref: int, el: dict[str, Any], option: str) -> str:
+        """Choose from a dropdown built from page elements: open it if it is not open, find the option, click it."""
+        if el["role"] not in ("combobox", "button", "textbox", "listbox"):
+            raise BrowserError(f"#{ref} is not a dropdown. Click it, then click the option you want.")
+        frame = self._frame_of(el)
+        dx, dy = el["cx"] - el["lx"], el["cy"] - el["ly"]        # where this frame sits on the page
+        res = self._eval_in(frame, _POPUP_OPTIONS_JS, [option, [el["lx"], el["ly"]]]) or {}
+        opened = False
+        if "chosen" not in res and not res.get("options") and el.get("expanded") is not True:
+            opened = True
+            self._eval_in(frame, _MARK_VISIBLE_JS, None)            # so the choices can be told from the rest of the page
+            self.page.mouse.click(el["cx"], el["cy"])              # nothing is showing: open it, then look again
+            self.page.wait_for_timeout(350)
+            res = self._eval_in(frame, _POPUP_OPTIONS_JS, [option, [el["lx"], el["ly"]]]) or {}
+        self._eval_in(frame, "() => { window.__sbBefore = null; }", None)
+        if res.get("error"):
+            opts = " | ".join(res.get("options", [])[:12])
+            if opts:
+                where = f" Options: {opts}"
+            elif opened:
+                where = f" I opened #{ref} but no choices appeared: read the page and click the option by its number if it is listed."
+            else:
+                where = f" No options are showing: click #{ref} to open it, or type to filter."
+            raise BrowserError(f'{res["error"]} for "{option}".{where}')
+        if "chosen" not in res:
+            raise BrowserError("the page changed before the option could be chosen; read the new list and try again")
+        self.page.mouse.click(res["cx"] + dx, res["cy"] + dy)
+        self._click_point = None
+        self._settle()
+        return f'selected "{res["chosen"]}" in #{ref}'
+
+    def upload_ref(self, ref: int, path: str) -> str:
+        """Attach a local file to the file input #ref, or to the button that opens a file picker."""
+        el = self._el(ref)
+        if el is None:
+            raise BrowserError(f"No element #{ref} in the latest page list; refs change after every page change.")
+        name = Path(path).name
+        if el.get("file"):
+            frame = self._frame_of(el)
+            try:
+                frame.locator(f'[data-sb-file="{el["fileId"]}"]').first.set_input_files(path, timeout=8000)
+            except Exception as exc:
+                raise BrowserError(f"could not attach {name} to #{ref}: {str(exc).splitlines()[0][:120]}") from None
+        else:
+            try:
+                with self.page.expect_file_chooser(timeout=4000) as chooser:
+                    self.page.mouse.click(el["cx"], el["cy"])
+                chooser.value.set_files(path)
+            except Exception:
+                raise BrowserError(f'#{ref} "{el["text"][:40]}" did not open a file picker. '
+                                   "Use a control with the role file, or the button that says upload or choose file.") from None
+        self.page.wait_for_timeout(300)
+        self._settle()
+        return f'attached "{name}" to #{ref} "{el["text"][:40]}"'
+
+    def has_drag_targets(self) -> bool:
+        """Does the latest page list contain something to drag or drop onto?"""
+        return any(e.get("drag") or e.get("drop") for e in self._elements)
+
+    def drag_ref(self, ref: int, to_ref: int) -> str:
+        """Press on #ref, move to #to_ref and let go (mouse events, so HTML5 and script-driven drag and drop both run)."""
+        a, b = self._el(ref), self._el(to_ref)
+        for r, e in ((ref, a), (to_ref, b)):
+            if e is None:
+                raise BrowserError(f"No element #{r} in the latest page list; refs change after every page change.")
+        if ref == to_ref:
+            raise BrowserError("drag needs two different elements: the one to pick up and the one to drop it on.")
+        m = self.page.mouse
+        m.move(a["cx"], a["cy"])
+        m.down()
+        m.move(a["cx"] + 8, a["cy"] + 8, steps=3)                    # a first small move starts the drag
+        m.move(b["cx"], b["cy"], steps=18)
+        self.page.wait_for_timeout(150)
+        m.up()
+        self.page.wait_for_timeout(200)
+        self._settle()
+        return f'dragged #{ref} "{a["text"][:30]}" onto #{to_ref} "{b["text"][:30]}"'
 
     def find_text(self, text: str, nth: int = 1) -> str:
         """Scroll the nth on-page match of ``text`` into view and say what is around it."""

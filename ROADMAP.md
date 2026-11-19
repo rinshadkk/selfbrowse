@@ -21,10 +21,10 @@ Done from this list: **O1** (harness and results committed) and **L1** (learning
 
 ## A. Capabilities (what the agent can do and see)
 
-- [x] **A1 Dropdown select** (P1) — `select` tool for native `<select>` (custom dropdowns are A17). *Done when:* a fixture form with a select is filled correctly by a scripted run. *Proves it:* new benchmark task "fill a form". *Done: `select` tool, options shown in the page list; tests in `tests/test_browser_tools.py`. Not yet measured on a benchmark task.*
-- [ ] **A2 File upload** (P2) — attach a local file to a file input; guarded by `ConfirmRisky`-style approval. *Done when:* fixture upload page receives the file.
+- [x] **A1 Dropdown select** (P1) — `select` tool for native `<select>`; custom dropdowns are A17 (done). *Done when:* a fixture form with a select is filled correctly by a scripted run. *Done: `select` tool, options shown in the page list; tests in `tests/test_browser_tools.py`.*
+- [x] **A2 File upload** (P2) — `upload(ref, file)` attaches an allowed file to a file input (hidden ones included) or to a button that opens a file picker. *Done: only files passed with `--file` / `files=[...]` can be used, the model sees names not folders, `ConfirmRisky` asks first, the tool is not offered without files; `selfbrowse-mcp --file` adds `browser_upload`. Tests in `tests/test_new_tools.py`. Not yet measured on a benchmark task. A flow cannot replay an upload.*
 - [x] **A3 Tabs and popups** (P1) — list, switch to and close tabs; handle `window.open`. Today the agent silently follows the newest tab. *Done when:* a fixture that opens a link in a new tab can be completed and returned from. *Done: `[tabs: …]` line, `switch_tab`, `close_tab`; closing a popup returns to its opener.*
-- [ ] **A4 Drag and drop** (P3) — `drag(from_ref, to_ref)`.
+- [x] **A4 Drag and drop** (P3) — `drag(ref, to)` with real mouse events (HTML5 and script-driven drag). Draggable elements and drop targets are listed; the tool is offered only on pages that have some. *Limit: drop targets that a framework listens to at the page root are not detected; sliders and canvas drag are not covered; a flow cannot replay a drag. MCP: `browser_drag`. Tests in `tests/test_new_tools.py`.*
 - [ ] **A5 Hover and key chords** (P3) — expose `hover` (already in `Browser`) and modifier keys.
 - [ ] **A6 Downloads** (P2) — detect, save to a safe folder, report the path; require confirmation.
 - [x] **A7 Iframes** (P1) — include elements inside same-origin and cross-origin iframes in the page list and click them. Today only the top document is read. *Done when:* a fixture with a login form inside an iframe is completed. *Done: same-origin and cross-origin frames in the list, click/type/read/find work. Limit: nested frames beyond 8 are skipped; an overlay covering a frame is not detected.*
@@ -37,7 +37,7 @@ Done from this list: **O1** (harness and results committed) and **L1** (learning
 - [ ] **A14 Multi-action turns** (P2) — optionally accept several actions per model reply to cut calls on long forms. *Proves it:* calls per task on form tasks.
 - [ ] **A15 Run JavaScript** (P3) — opt-in only, behind a guardrail.
 - [ ] **A16 Visual click fallback** (P3) — click by coordinates from a screenshot when no element is listed. Depends on A10.
-- [ ] **A17 Combobox and autocomplete widgets** (P2) — type, wait for suggestions, pick one.
+- [x] **A17 Combobox and autocomplete widgets** (P2) — `select` works on custom dropdowns (ARIA, menus, autocomplete suggestions, plain `<div>` lists): opens if nothing is showing, finds the option by text, scrolls to it, clicks it. Comboboxes show `(open)` or `(closed)` and their choices are listed while open. *Limit: choices that need scrolling inside the dropdown are found only once they exist in the page; typed filters are done with `type` first.*
 - [ ] **A18 Date pickers** (P3).
 
 ## R. Agent reliability (the loop itself)

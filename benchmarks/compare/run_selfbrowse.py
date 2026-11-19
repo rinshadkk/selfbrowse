@@ -35,7 +35,7 @@ try:
     if os.environ.get("BENCH_VIDEO_DIR"):
         browser.start()                                    # the recording begins here
         out["video_start"] = time.time()
-    res = BrowseAgent(task, llm=llm, browser=browser, max_steps=max_steps, learn=False, handoff=False,
+    res = BrowseAgent(task, llm=llm, browser=browser, max_steps=max_steps, learn=False, handoff=False, files=[os.environ["BENCH_FILE"]] if os.environ.get("BENCH_FILE") else None,
                       on_step=show if live else None).run()
     if live:
         print(f"\n\033[1manswer:\033[0m {res.output}\n\033[2m[{res.steps} steps]\033[0m", flush=True)

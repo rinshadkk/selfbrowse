@@ -42,7 +42,7 @@ def test_select_errors_list_the_options(site):
             b.select_ref(ref, "Narnia")
         with pytest.raises(Exception, match="more than one option"):
             b.select_ref(ref, "an")                     # Canada, France, Germany, French Guiana
-        with pytest.raises(Exception, match="not a native dropdown"):
+        with pytest.raises(Exception, match="not a dropdown"):
             b.select_ref(ref_of(b.snapshot().text, "Order form"), "x")
 
 

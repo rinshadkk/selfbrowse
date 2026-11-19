@@ -206,3 +206,37 @@ def test_step_mode_reports_dialogs_and_guardrails_veto_risky_accepts(site):
 def test_parse_args_reads_permissions_and_dialogs():
     cfg = parse_args(["--permissions", "notifications, geolocation", "--dialogs", "dismiss"])
     assert cfg.permissions == ["notifications", "geolocation"] and cfg.dialogs == "dismiss"
+
+
+def test_drag_is_listed_and_upload_only_when_files_are_given(served, tmp_path):
+    cv = tmp_path / "cv.txt"
+    cv.write_text("hello")
+
+    async def names(**kw):
+        async with Client(served(**kw)) as c:
+            return {t.name for t in (await c.list_tools()).tools}
+    plain, with_files = run(names()), run(names(files=[str(cv)]))
+    assert "browser_drag" in plain and "browser_upload" not in plain
+    assert "browser_upload" in with_files
+
+
+def test_upload_and_drag_through_the_server(served, site, tmp_path):
+    cv = tmp_path / "cv.txt"
+    cv.write_text("hello")
+    other = tmp_path / "other.txt"
+    other.write_text("x")
+
+    async def go():
+        async with Client(served(files=[str(cv)])) as c:
+            await call(c, "browser_goto", url=site("upload.html"))
+            snap = text_of(await call(c, "browser_snapshot"))
+            ok = text_of(await call(c, "browser_upload", ref=ref_of(snap, "Résumé"), file="cv.txt"))
+            bad = await c.call_tool("browser_upload", {"ref": ref_of(snap, "Résumé"), "file": str(other)})
+            await call(c, "browser_goto", url=site("dnd.html"))
+            snap = text_of(await call(c, "browser_snapshot"))
+            moved = text_of(await call(c, "browser_drag", ref=ref_of(snap, 'draggable "Write tests"'), to=ref_of(snap, 'dropzone "Done"')))
+            return ok, bad, moved
+    ok, bad, moved = run(go())
+    assert 'attached "cv.txt"' in ok
+    assert bad.is_error and "not a file you may upload" in text_of(bad)
+    assert "dragged #" in moved

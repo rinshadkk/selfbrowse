@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Upload</title></head><body>
+<h1>Apply</h1>
+<label for="cv">Résumé</label> <input type="file" id="cv" accept=".pdf,.txt">
+<p id="cv-out">none</p>
+<label class="pick" id="pick-label" style="display:inline-block;border:1px solid #333;padding:8px">
+  Choose photo <input type="file" id="photo" style="display:none" multiple>
+</label>
+<p id="photo-out">none</p>
+<button id="dyn">Upload badge</button>
+<p id="badge-out">none</p>
+<script>
+document.getElementById('cv').addEventListener('change', e => document.getElementById('cv-out').textContent = Array.from(e.target.files).map(f => f.name).join(','));
+document.getElementById('photo').addEventListener('change', e => document.getElementById('photo-out').textContent = Array.from(e.target.files).map(f => f.name).join(','));
+document.getElementById('dyn').addEventListener('click', () => {
+  const i = document.createElement('input'); i.type = 'file';
+  i.addEventListener('change', () => document.getElementById('badge-out').textContent = i.files[0].name);
+  i.click();
+});
+</script></body></html>

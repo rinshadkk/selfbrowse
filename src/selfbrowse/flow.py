@@ -173,6 +173,7 @@ class FlowRecorder:
         self.params: dict[str, dict[str, Any]] = {}
         self.secrets: set[str] = set()
         self.hosts: set[str] = set()
+        self.unsupported: set[str] = set()                         # tools used that a flow cannot replay yet
         if start_url.startswith("http"):
             self._rows.append(({"do": "goto", "url": start_url}, "", start_url))
             self.hosts.add(_host(start_url))
@@ -243,6 +244,9 @@ class FlowRecorder:
                 step["full"] = True
         elif tool == "ask_human":
             step = {"do": "pause", "reason": str(args.get("reason", "a person is needed"))[:300]}
+        elif tool in ("upload", "drag"):                       # not replayable yet: say so instead of saving a flow with a hole
+            self.unsupported.add(tool)
+            return
         else:
             return
         self._rows.append((step, url_before, url_after))

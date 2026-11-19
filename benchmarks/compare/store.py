@@ -18,7 +18,7 @@ PRODUCTS = {
     8: ("Salt Mill", "Kitchen", "21.40", 18),
 }
 CATEGORIES = ["Kitchen", "Home", "Garden"]
-STATE = {"cart": {}, "login": False}
+STATE = {"cart": {}, "login": False, "prefs": {}, "board": {}, "upload": {}}
 LOCK = threading.Lock()
 
 # /list: 4 pages x 10 items; the target SKU is on page 3
@@ -29,6 +29,55 @@ ABOUT = ("<h1>About Demo Store</h1><p>We sell useful things for the home, kitche
          "<p>" + "Our team cares about quality and honest service. " * 6 + "</p>"
          "<p>Demo Store was founded in 1987 in Chicago by two friends.</p>"
          "<p>" + "We ship across the country and offer easy returns. " * 6 + "</p>")
+
+PREFS = """<h1>Preferences</h1>
+<style>ul.pop{list-style:none;margin:0;padding:0;border:1px solid #333;width:200px;position:absolute;background:#fff}
+ul.pop li{padding:6px;cursor:pointer}.hidden{display:none}.menu{position:absolute;border:1px solid #333;background:#fff;width:200px}
+.menu div{padding:6px;cursor:pointer}</style>
+<div style="height:100px"><span>Favourite fruit</span><br>
+ <button id="fruit" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="fl">Select a fruit</button>
+ <ul class="pop hidden" id="fl" role="listbox"><li role="option">Apple</li><li role="option">Banana</li><li role="option">Cherry</li></ul></div>
+<div style="height:100px"><span>T-shirt size</span><br>
+ <button id="size">Choose a size</button>
+ <div class="menu hidden" id="sm"><div>Small</div><div>Medium</div><div>Large</div></div></div>
+<button id="save">Save preferences</button><p id="msg"></p>
+<script>
+const v = {};
+const fruit = document.getElementById('fruit'), fl = document.getElementById('fl');
+fruit.addEventListener('click', () => { const open = fl.classList.toggle('hidden') === false; fruit.setAttribute('aria-expanded', String(open)); });
+fl.addEventListener('click', e => { if (e.target.tagName === 'LI') { v.fruit = e.target.textContent; fruit.textContent = v.fruit; fl.classList.add('hidden'); fruit.setAttribute('aria-expanded', 'false'); } });
+const size = document.getElementById('size'), sm = document.getElementById('sm');
+size.addEventListener('click', () => sm.classList.toggle('hidden'));
+sm.addEventListener('click', e => { if (e.target.parentElement === sm) { v.size = e.target.textContent; size.textContent = v.size; sm.classList.add('hidden'); } });
+document.getElementById('save').addEventListener('click', () => fetch('/api/prefs', {method: 'POST', body: JSON.stringify(v)}).then(() => document.getElementById('msg').textContent = 'Saved'));
+</script>"""
+
+BOARD = """<h1>Task board</h1>
+<style>.col{display:inline-block;vertical-align:top;width:220px;min-height:150px;border:2px dashed #888;margin:10px;padding:8px}
+.card{background:#cde;padding:8px;margin:6px 0;cursor:grab}</style>
+<div class="col" id="todo"><b>To do</b><div class="card" draggable="true" id="c1">Write tests</div><div class="card" draggable="true" id="c2">Ship it</div></div>
+<div class="col" id="done"><b>Done</b></div>
+<script>
+let dragged = null;
+document.querySelectorAll('.card').forEach(c => c.addEventListener('dragstart', e => { dragged = c; e.dataTransfer.setData('text/plain', c.id); }));
+document.querySelectorAll('.col').forEach(col => {
+  col.addEventListener('dragover', e => e.preventDefault());
+  col.addEventListener('drop', e => { e.preventDefault(); if (!dragged) return; col.appendChild(dragged);
+    fetch('/api/move', {method: 'POST', body: JSON.stringify({card: dragged.textContent, column: col.id})}); });
+});
+</script>"""
+
+APPLY = """<h1>Apply</h1><p>Attach your résumé.</p>
+<label style="display:inline-block;border:1px solid #333;padding:8px;cursor:pointer">Choose résumé <input type="file" id="cv" style="display:none"></label>
+<p id="msg">No file chosen</p>
+<script>
+document.getElementById('cv').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const text = await f.text();
+  await fetch('/api/upload', {method: 'POST', body: JSON.stringify({name: f.name, text})});
+  document.getElementById('msg').textContent = 'Uploaded ' + f.name;
+});
+</script>"""
 
 
 def page(title: str, body: str, banner: bool = False) -> bytes:
@@ -65,7 +114,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(json.dumps(STATE).encode(), ctype="application/json")
         if path == "/__reset":
             with LOCK:
-                STATE.update(cart={}, login=False)
+                STATE.update(cart={}, login=False, prefs={}, board={}, upload={})
             return self._send(b"ok", ctype="text/plain")
         if path == "/":
             cats = " ".join(f'<a href="/category/{c.lower()}">{c}</a>' for c in CATEGORIES)
@@ -115,12 +164,19 @@ class Handler(BaseHTTPRequestHandler):
             if n < 4:
                 nav += f' <a href="/list?page={n + 1}">Next</a>'
             return self._send(page("Parts list", f"<h1>Parts list (page {n} of 4)</h1><table><tr><th>SKU</th><th>Name</th></tr>{rows}</table><p>{nav}</p>"))
+        if path == "/prefs":
+            return self._send(page("Preferences", PREFS))
+        if path == "/board":
+            return self._send(page("Board", BOARD))
+        if path == "/apply":
+            return self._send(page("Apply", APPLY))
         self._send(page("Not found", "<h1>Not found</h1>"), 404)
 
     def do_POST(self) -> None:
         u = urlparse(self.path)
         length = int(self.headers.get("Content-Length") or 0)
-        data = parse_qs(self.rfile.read(length).decode()) if length else {}
+        raw = self.rfile.read(length) if length else b""
+        data = parse_qs(raw.decode()) if raw else {}
         if u.path == "/api/cart":
             pid = parse_qs(u.query).get("id", [""])[0]
             with LOCK:
@@ -133,6 +189,19 @@ class Handler(BaseHTTPRequestHandler):
                     STATE["login"] = True
                 return self._send(page("Account", "<h1>Welcome, Alice Anderson</h1><p>You are signed in.</p>"))
             return self._send(page("Login", "<h1>Log in</h1><p>Wrong username or password.</p>"), 401)
+        if u.path in ("/api/prefs", "/api/move", "/api/upload"):
+            try:
+                body = json.loads(raw or b"{}")
+            except ValueError:
+                body = {}
+            with LOCK:
+                if u.path == "/api/prefs":
+                    STATE["prefs"] = body
+                elif u.path == "/api/move":
+                    STATE["board"][body.get("card", "")] = body.get("column", "")
+                else:
+                    STATE["upload"] = body
+            return self._send(b"{}", ctype="application/json")
         self._send(b"{}", 404, "application/json")
 
 
