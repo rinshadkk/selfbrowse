@@ -454,6 +454,7 @@ class Browser:
         executable_path: path to a specific browser binary.
         user_data_dir: keep cookies and logins between runs in this folder.
         viewport: (width, height).
+        args: extra command-line flags for the browser (for example ``["--window-position=-2400,-2400"]``).
         stealth: use Patchright (``pip install selfbrowse[stealth]``) to hide common automation tells.
         record_video_dir: folder to record a video of each page (WebM, at the viewport size). The files are
             finished when the browser closes; :meth:`video_paths` lists them. Shows the page, not the window.
@@ -476,6 +477,7 @@ class Browser:
         user_data_dir: str | Path | None = None,
         viewport: tuple[int, int] = (1280, 800),
         stealth: bool = False,
+        args: "list[str] | None" = None,
         screenshot_quality: int = 60,
         timeout_ms: int = 15000,
         max_elements: int = 120,
@@ -514,6 +516,7 @@ class Browser:
         self.user_data_dir = Path(user_data_dir).expanduser() if user_data_dir else None
         self.viewport = viewport
         self.stealth = stealth
+        self.args = list(args or [])
         self.screenshot_quality = max(10, min(95, screenshot_quality))
         self.timeout_ms = timeout_ms
         self.max_elements = max_elements
@@ -547,6 +550,8 @@ class Browser:
         last: Exception | None = None
         for channel in ([self.channel] if self.channel else [None, "chrome"]):
             kwargs: dict[str, Any] = {"headless": self.headless}
+            if self.args:
+                kwargs["args"] = self.args
             if channel:
                 kwargs["channel"] = channel
             if self.executable_path:
@@ -601,6 +606,7 @@ class Browser:
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(self.timeout_ms)
         self._watch_dialogs(self._page)                # new_page() may already have fired the event above
+        self._unmask_headless(self._page)
         return self
 
     def video_paths(self) -> list[Path]:
@@ -645,6 +651,20 @@ class Browser:
         self._page = page
         page.set_default_timeout(self.timeout_ms)
         self._watch_dialogs(page)
+        self._unmask_headless(page)
+
+    def _unmask_headless(self, page: Any) -> None:
+        """Headless Chrome says "HeadlessChrome" in its user agent, which is the first thing bot checks read.
+        With stealth on, report plain "Chrome" instead (the page's own version, so nothing else changes)."""
+        if not (self.stealth and self.headless):
+            return
+        try:
+            ua = page.evaluate("navigator.userAgent")
+            if "HeadlessChrome" in ua:
+                cdp = self._context.new_cdp_session(page)
+                cdp.send("Emulation.setUserAgentOverride", {"userAgent": ua.replace("HeadlessChrome", "Chrome")})
+        except Exception:
+            pass                                       # best effort: a page that cannot be patched still works
 
     def _watch_dialogs(self, page: Any) -> None:
         """Listen for dialogs on this page, once. A second listener would record every dialog twice."""

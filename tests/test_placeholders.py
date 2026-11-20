@@ -170,3 +170,15 @@ def test_mcp_task_answer_is_never_restored(site, tmp_path, monkeypatch):
         b.goto(site("profile.html"))
         out = BrowserSession(cfg, browser=b).run_task("t", 5)
     assert out["answer"] == "it is <EMAIL_1>"
+
+
+def test_saved_details_are_looked_up_on_demand():
+    from selfbrowse import BrowseAgent
+    agent = BrowseAgent.__new__(BrowseAgent)
+    agent.sensitive = {"BASIC_FIRSTNAME": "Jane", "BASIC_LASTNAME": "Doe", "HOME_CITY": "Springfield"}
+    agent.hints = {"BASIC_FIRSTNAME": "Basic info > FirstName", "BASIC_LASTNAME": "Basic info > LastName", "HOME_CITY": "Home > City"}
+    assert agent._find_saved("first name") == "<secret:BASIC_FIRSTNAME> is Basic info > FirstName"
+    assert "HOME_CITY" in agent._find_saved("City") and "BASIC" not in agent._find_saved("City")
+    assert "No saved detail" in agent._find_saved("passport")
+    note = agent._secrets_note()
+    assert "find_saved_detail" in note and "BASIC_FIRSTNAME" not in note and "Jane" not in note

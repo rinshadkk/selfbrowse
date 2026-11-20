@@ -12,7 +12,7 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
     }
 
 
-def build_tools(*, vision: bool = False, human: bool = False, files: bool = False, drag: bool = False) -> list[dict[str, Any]]:
+def build_tools(*, vision: bool = False, human: bool = False, files: bool = False, drag: bool = False, saved: bool = False) -> list[dict[str, Any]]:
     tools = [
         _tool("goto", "Open a URL.", {"url": {"type": "string"}}, ["url"]),
         _tool("click", "Click element #ref from the latest page list.", {"ref": {"type": "integer"}}, ["ref"]),
@@ -50,6 +50,10 @@ def build_tools(*, vision: bool = False, human: bool = False, files: bool = Fals
     if drag:
         tools.insert(-1, _tool("drag", "Drag element #ref and drop it on element #to.",
                                {"ref": {"type": "integer"}, "to": {"type": "integer"}}, ["ref", "to"]))
+    if saved:
+        tools.insert(-1, _tool("find_saved_detail", "Look up one of the person's saved details (name, email, address, a login) when a form field "
+                               "needs it. Say what you need, for example \"first name\". Returns a placeholder to type with the type tool.",
+                               {"what": {"type": "string"}}, ["what"]))
     if vision:
         tools.insert(-2, _tool("screenshot", "See the page as an image (costly; use only when the list is not enough)."))
     if human:

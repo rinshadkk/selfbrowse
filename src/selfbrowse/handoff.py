@@ -42,7 +42,8 @@ _TEXT = re.compile(
     r"press (&|and) hold|unusual traffic|checking (if the site connection is secure|your browser)|"
     r"prove you(?:'|’)?re (not a robot|human)|i(?:'|’)?m not a robot|complete the (captcha|security check)|"
     r"robot or human|confirm you are (a )?human|verifying you are human|"
-    r"enable javascript and cookies to continue|captcha",
+    r"enable javascript and cookies to continue|"
+    r"(solve|pass|complete) (the |this |a )?captcha|captcha (challenge|verification|check)|select all (images|squares)",
     re.I,
 )
 _MAX_ELEMENTS_FOR_TEXT_MATCH = 30      # a real article that merely mentions CAPTCHAs has many more controls
