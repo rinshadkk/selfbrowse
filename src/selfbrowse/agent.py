@@ -61,6 +61,8 @@ class BrowseAgent:
             a reply that hits the cap is answered with a request to be brief.
         page_text: send up to this many characters of on-screen text with every page list (0 = off).
             Fewer ``read`` calls, more tokens per step.
+        files: local files the model may upload with the ``upload`` tool (paths). Only these can be uploaded;
+            the model sees their names, never their folders. Without this the tool is not offered.
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
             real value only when typing, so secrets never enter the model's context.
         restore_answer: put the real values back into the final answer you get (default True; the model
@@ -85,6 +87,7 @@ class BrowseAgent:
         screenshots: "str | Path | None" = None,
         page_text: int = 0,
         max_output_tokens: int = 2048,
+        files: "list[str | Path] | None" = None,
         sensitive: dict[str, str] | None = None,
         restore_answer: bool = True,
         handoff: "str | bool | Handler" = "auto",
@@ -114,6 +117,11 @@ class BrowseAgent:
         self.screenshots_dir: Path | None = None
         self.page_text = max(0, int(page_text))
         self.max_output_tokens = max(256, int(max_output_tokens))
+        self.files = [Path(f).expanduser().resolve() for f in (files or [])]
+        for f in self.files:
+            if not f.is_file():
+                raise ValueError(f"files: {f} is not a file")
+        self._drag_offered = False
         self.sensitive = dict(sensitive or {})
         self.restore_answer = restore_answer
         self.on_step = on_step
@@ -130,7 +138,7 @@ class BrowseAgent:
         self._handler: Handler | None = None
         self._handoffs = 0
         self._stop: str | None = None
-        self.tools = build_tools(vision=vision)
+        self.tools = build_tools(vision=vision, files=bool(self.files), drag=True)
         user_guards = list(guardrails or [])
         if safe_urls and not any(isinstance(g, SafeUrls) for g in user_guards):
             user_guards.insert(0, SafeUrls())
@@ -151,7 +159,7 @@ class BrowseAgent:
             getattr(g, "check_ready", lambda: None)()
         self.browser.start()
         self._handler = self._resolve_handler()
-        self.tools = build_tools(vision=self.vision, human=self._handler is not None)
+        self.tools = build_tools(vision=self.vision, human=self._handler is not None, files=bool(self.files), drag=True)
         self._system_text = SYSTEM + (HUMAN_RULE if self._handler else "")
         self._handoffs, self._stop = 0, None
         if hasattr(self.browser, "on_dialog"):
@@ -212,7 +220,7 @@ class BrowseAgent:
     def _loop(self) -> RunResult:
         usage = Usage()
         history: list[Step] = []
-        task_msg = f"Task: {self.task}" + self._secrets_note() + (f"\n{self.guards.note()}" if self.guards.note() else "")
+        task_msg = f"Task: {self.task}" + self._secrets_note() + self._files_note() + (f"\n{self.guards.note()}" if self.guards.note() else "")
         messages: list[dict[str, Any]] = [{"role": "user", "content": task_msg}]
         system = [{"text": self._system_text, "cache": True}]
         recent: list[tuple[str, str, str]] = []
@@ -225,7 +233,6 @@ class BrowseAgent:
         scroll_log: list[str] = []                           # scroll directions since the last non-scroll action
         click_log: list[tuple[str, str, str]] = []           # (url, role, label) of recent clicks
         type_log: list[tuple[str, str]] = []                 # (url, text) of recent type actions
-        names = [t["name"] for t in self.tools]
         self._flow = FlowRecorder(self.task, self.browser.url) if self._save_flow else None
         self.flow = self.flow_path = None
 
@@ -248,7 +255,7 @@ class BrowseAgent:
             self._trim_old_pages(messages)
             self._trim_old_reads(messages)
             try:
-                resp = self.llm.complete(system=system, messages=messages, tools=self.tools, max_tokens=self.max_output_tokens)
+                resp = self.llm.complete(system=system, messages=messages, tools=self._tools_now(), max_tokens=self.max_output_tokens)
             except LLMError as exc:
                 error = str(exc)
                 break
@@ -279,7 +286,7 @@ class BrowseAgent:
                     break
                 cut = resp.stop_reason == "max_tokens"
                 self._trace("nudge", text=text[:200], cut_off=cut)
-                messages.append({"role": "user", "content": (_CUT_OFF if cut else _NUDGE).format(tools=", ".join(names))})
+                messages.append({"role": "user", "content": (_CUT_OFF if cut else _NUDGE).format(tools=", ".join(t["name"] for t in self._tools_now()))})
                 continue
             nudges = 0                                       # the limit is for consecutive misses
 
@@ -369,7 +376,9 @@ class BrowseAgent:
 
         if self.knowledge:
             self.knowledge.commit(success, self.task)
-        if success and self._flow is not None and self._save_flow:
+        if success and self._flow is not None and self._save_flow and self._flow.unsupported:
+            self._trace("flow_not_saved", reason=f"the run used {', '.join(sorted(self._flow.unsupported))}, which a flow cannot replay yet")
+        elif success and self._flow is not None and self._save_flow:
             try:
                 self.flow = self._flow.build()
                 self.flow_path = save_flow(self.flow, self._save_flow)
@@ -585,7 +594,7 @@ class BrowseAgent:
         if name == "goto":
             raw = str(a.get("url", ""))
             act.target_url = raw if "://" in raw or raw.startswith(("about:", "data:", "javascript:")) else "https://" + raw
-        elif name in ("click", "type", "hover", "select"):
+        elif name in ("click", "type", "hover", "select", "upload", "drag"):
             try:
                 d = self.browser.describe_ref(int(a.get("ref", 0)))
             except (TypeError, ValueError):
@@ -659,6 +668,27 @@ class BrowseAgent:
                 pass
         return f"Blocked by guardrail {g.name}: {d.reason}. Went back to the previous page."
 
+    def _tools_now(self) -> list[dict[str, Any]]:
+        """The tools to show the model now. ``drag`` is only worth its tokens on a page that has something to drag;
+        once it has been offered it stays, so earlier drag calls in the conversation still make sense."""
+        if not self._drag_offered and getattr(self.browser, "has_drag_targets", lambda: False)():
+            self._drag_offered = True
+        return [x for x in self.tools if x["name"] != "drag" or self._drag_offered]
+
+    def _files_note(self) -> str:
+        if not self.files:
+            return ""
+        return "\nFiles you may upload (use the name exactly): " + ", ".join(f.name for f in self.files)
+
+    def _resolve_file(self, wanted: str) -> Path | None:
+        """Only a file the person allowed, found by its name or its full path. None if it is not one of them."""
+        wanted = wanted.strip()
+        exact = [f for f in self.files if wanted in (f.name, str(f))]
+        if len(exact) == 1:
+            return exact[0]
+        part = [f for f in self.files if wanted and wanted.lower() in f.name.lower()]
+        return part[0] if len(part) == 1 else None
+
     def _secrets_note(self) -> str:
         """Tell the model which secret names exist (never the values)."""
         if not self.sensitive:
@@ -698,6 +728,14 @@ class BrowseAgent:
                 return f'typed "{shown[:60]}"' + (" and pressed Enter" if a.get("submit") else ""), True
             if name == "select":
                 return b.select_ref(int(a["ref"]), str(a["option"])), True
+            if name == "upload":
+                path = self._resolve_file(str(a["file"]))
+                if path is None:
+                    names = ", ".join(f.name for f in self.files) or "none"
+                    return f'Error: "{a["file"]}" is not a file you may upload. Allowed: {names}.', False
+                return b.upload_ref(int(a["ref"]), str(path)), True
+            if name == "drag":
+                return b.drag_ref(int(a["ref"]), int(a["to"])), True
             if name == "find":
                 wanted, _ = self.guards.restore(str(a["text"]), b.url)
                 return self.guards.page(b.find_text(wanted, int(a.get("nth", 1))), b.url), True

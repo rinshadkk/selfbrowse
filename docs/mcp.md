@@ -10,7 +10,7 @@ playwright install chromium
 It offers two kinds of tools:
 
 - **`browse(task)`** (task mode). Selfbrowse runs its own model loop and returns only the answer, so the assistant never reads the pages. This is where most of the token saving is. It needs `--model`, for example `ollama:qwen3.6` (free, local) or `anthropic:claude-haiku-4-5`.
-- **`browser_snapshot`, `browser_click`, `browser_type`, `browser_select`, `browser_goto`, `browser_read`, `browser_find`, `browser_scroll`, `browser_press`, `browser_back`, `browser_switch_tab`, `browser_close_tab`** (step mode). The assistant drives the browser and reads Selfbrowse's short numbered list instead of a screenshot. No model is needed on the server. We have not measured how this compares with other browser tools.
+- **`browser_snapshot`, `browser_click`, `browser_type`, `browser_select`, `browser_goto`, `browser_read`, `browser_find`, `browser_scroll`, `browser_press`, `browser_back`, `browser_switch_tab`, `browser_close_tab`, `browser_drag`** (step mode), plus `browser_upload` when the server is started with `--file PATH` (repeatable; only those files can be attached). The assistant drives the browser and reads Selfbrowse's short numbered list instead of a screenshot. No model is needed on the server. We have not measured how this compares with other browser tools.
 
 **VS Code** (Copilot agent mode): add to `.vscode/mcp.json`:
 

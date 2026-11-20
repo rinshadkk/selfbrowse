@@ -14,6 +14,8 @@ hand-off: when a CAPTCHA or login needs a person, the tool result says so and th
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import argparse
 import asyncio
 import os
@@ -62,6 +64,7 @@ class ServerConfig:
     page_text: int = 0
     modes: tuple[str, ...] = ("task", "step")
     secrets: dict[str, str] = field(default_factory=dict)
+    files: list[str] = field(default_factory=list)          # local files browser_upload may attach (none: no such tool)
     restore: bool = True
     presidio: bool = False
     presidio_entities: list[str] = field(default_factory=list)
@@ -163,7 +166,7 @@ class BrowserSession:
             act.target_url = raw if "://" in raw or raw.startswith(("about:", "data:", "javascript:")) else "https://" + raw
             if (hit := self.guards.url(act.target_url)):
                 return f"Blocked by guardrail {hit[0].name}: {hit[1].reason}. Choose another approach."
-        elif tool in ("click", "type", "select"):
+        elif tool in ("click", "type", "select", "upload", "drag"):
             try:
                 d = b.describe_ref(int(args.get("ref", 0)))
             except (TypeError, ValueError):
@@ -219,7 +222,7 @@ class BrowserSession:
         agent = BrowseAgent(
             task, llm=c.llm or c.model, browser=self.browser, max_steps=max_steps, learn=c.learn,
             sensitive=c.secrets, handoff=False, guardrails=c.guards(with_budget=True)[1:],
-            page_text=c.page_text, home=c.home, restore_answer=False)   # the answer goes to the caller's model
+            files=c.files, page_text=c.page_text, home=c.home, restore_answer=False)   # the answer goes to the caller's model
         res = agent.run()
         u = res.usage
         return {"success": res.success, "answer": res.output, "error": res.error, "steps": res.steps,
@@ -296,9 +299,25 @@ def create_server(cfg: ServerConfig | None = None, *, browser: Any = None) -> An
 
         @mcp.tool()
         async def browser_select(ref: int, option: str) -> str:
-            """Choose an option in a native dropdown (a combobox with "options:") by its text or value."""
+            """Choose an option in a dropdown (a combobox, native or custom) by its text. A custom one is opened for you."""
             return await session.run(session.act, "select", {"ref": ref, "option": option},
                                      lambda b: b.select_ref(ref, option))
+
+        @mcp.tool()
+        async def browser_drag(ref: int, to: int) -> str:
+            """Drag element #ref and drop it on element #to (mouse events, so HTML5 and script-driven drag and drop run)."""
+            return await session.run(session.act, "drag", {"ref": ref, "to": to}, lambda b: b.drag_ref(ref, to))
+
+        if cfg.files:
+            allowed = {Path(f).expanduser().resolve() for f in cfg.files}
+            names = ", ".join(sorted(f.name for f in allowed))
+
+            @mcp.tool(description=f"Attach one of the allowed files to file input #ref (or to the button that opens a file picker). Allowed: {names}.")
+            async def browser_upload(ref: int, file: str) -> str:
+                match = [f for f in allowed if file in (f.name, str(f))]
+                if len(match) != 1:
+                    raise ToolError(f'"{file}" is not a file you may upload. Allowed: {names}.')
+                return await session.run(session.act, "upload", {"ref": ref, "file": match[0].name}, lambda b: b.upload_ref(ref, str(match[0])))
 
         @mcp.tool()
         async def browser_press(key: str) -> str:
@@ -366,6 +385,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     p.add_argument("--dialogs", choices=["auto", "accept", "dismiss"], default="auto",
                    help="JavaScript alert/confirm/prompt handling (auto: accept alerts, decline choices)")
     p.add_argument("--no-learn", action="store_true", help="`browse` does not read or write site knowledge")
+    p.add_argument("--file", action="append", default=[], metavar="PATH", help="a local file the agent may upload (repeatable); without it there is no upload tool")
     g = p.add_argument_group("guardrails")
     g.add_argument("--allow-domain", action="append", default=[], metavar="DOMAIN", help="only visit these sites (repeatable)")
     g.add_argument("--block-domain", action="append", default=[], metavar="DOMAIN", help="never visit these sites (repeatable)")
@@ -395,7 +415,7 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
         allow_domains=a.allow_domain, block_domains=a.block_domain, block_risky=a.block_risky,
         redact_pii=a.redact_pii, watch_injection=a.watch_injection, presidio=a.redact_presidio, restore=not a.no_restore,
         presidio_entities=[x.strip() for x in a.presidio_entities.split(",") if x.strip()], presidio_model=a.presidio_model, max_tokens=a.max_tokens, max_seconds=a.max_seconds,
-        max_steps=a.max_steps, learn=not a.no_learn, page_text=a.page_text, modes=modes, secrets=secrets,
+        max_steps=a.max_steps, learn=not a.no_learn, page_text=a.page_text, modes=modes, secrets=secrets, files=list(a.file),
         permissions=[x.strip() for x in a.permissions.split(",") if x.strip()], dialogs=a.dialogs,
         home=os.environ.get("SELFBROWSE_HOME"))
 

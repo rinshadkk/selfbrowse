@@ -62,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and confirm risky actions")
     r.add_argument("--max-tokens", type=int, metavar="N", help="stop the run past N total tokens")
     r.add_argument("--max-seconds", type=float, metavar="S", help="stop the run past S seconds")
+    p.add_argument("--file", action="append", default=[], metavar="PATH",
+                   help="a local file the agent may upload (repeatable). Without it the upload tool is not offered")
     p.add_argument("--secret", action="append", default=[], metavar="NAME",
                    help="make a secret available as <secret:NAME>; value comes from $SELFBROWSE_SECRET_NAME, "
                         "or is asked for without echo (repeatable)")
@@ -155,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                           **remote)
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, save_flow=args.save_flow, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
-                      on_step=show, guardrails=guards, sensitive=secrets, trace=args.trace, show_prompts=args.show_prompts,
+                      on_step=show, guardrails=guards, sensitive=secrets, files=args.file, trace=args.trace, show_prompts=args.show_prompts,
                       trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
         started = time.perf_counter()
         try:

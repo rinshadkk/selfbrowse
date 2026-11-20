@@ -2,13 +2,15 @@
 
 ## What the agent can do
 
-`goto`, `click`, `type`, `select` (native dropdowns), `press`, `scroll`, `back`, `wait`, `read` (text on screen), `find` (jump to a word on a long page), `switch_tab`, `close_tab`, `remember`, `ask_human` and `done`.
+`goto`, `click`, `type`, `select` (dropdowns, native or custom), `press`, `scroll`, `back`, `wait`, `read` (text on screen), `find` (jump to a word on a long page), `switch_tab`, `close_tab`, `remember`, `ask_human` and `done`. Two more appear only when they can be used: `upload` (when you pass files) and `drag` (on a page that has something to drag).
 
-- **Dropdowns:** a native `<select>` is listed with its current value and options, and `select` picks one by its text or value.
+- **Dropdowns:** a native `<select>` is listed with its current value and options, and `select` picks one by its text or value. `select` also works on custom dropdowns built from page elements (ARIA comboboxes and listboxes, menus, autocomplete suggestions, or plain `<div>` lists): it opens the dropdown if nothing is showing, finds the option by its text, scrolls to it and clicks it, in one call. A combobox is shown as `(open)` or `(closed)`, and while it is open its choices are in the list as `option` lines. To use an autocomplete, `type` first, then `select` the suggestion. Limits: it matches visible text only, and a dropdown that is already open is read as it stands, so choices that only appear after more scrolling inside the dropdown are not found.
+- **File upload:** `upload` attaches a file to a file input (shown as `file "Résumé" (accepts .pdf)`, even when the real input is hidden behind a styled button) or to a button that opens a file picker. The model can only use files you list: `--file PATH` on the command line (repeatable), `files=[...]` in Python, `--file` on `selfbrowse-mcp`. It sees their names, never their folders, and anything else is refused. Without any files the tool is not offered. With `--confirm-risky` a person approves each upload first. A saved flow cannot replay an upload yet, so a run that uploaded is not saved as a flow.
+- **Drag and drop:** `drag(ref, to)` presses on one listed element, moves to another and lets go, using real mouse events, so HTML5 drag and drop and script-driven drag both run. Draggable elements (`draggable="true"`, or a page that listens for `dragstart`) are listed as `draggable`, and drop targets (a page that listens for `drop` or `dragover`) as `drop target` or `dropzone`. Limits: libraries that listen only on the page root hide their drop targets, so list the target by clicking its label or text instead; sliders and canvas-based drag are not covered.
 - **Frames and web components:** controls inside iframes (same-origin and cross-origin) and open shadow roots appear in the same numbered list and are clicked the same way.
-- **Tabs:** when a link or popup opens a new tab the agent follows it, and the page list starts with `[tabs: 1 "Shop" · 2 "Details" (current)]` so the model knows. Not supported yet: closed shadow roots, drag and drop, file uploads, custom (non-`<select>`) dropdowns beyond clicking them. See [ROADMAP.md](https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md).
+- **Tabs:** when a link or popup opens a new tab the agent follows it, and the page list starts with `[tabs: 1 "Shop" · 2 "Details" (current)]` so the model knows. Not supported yet: closed shadow roots. See [ROADMAP.md](https://github.com/rinshadkk/selfbrowse/blob/main/ROADMAP.md).
 
-Each tool schema is sent on every model call, so tools are kept few and short (about 790 tokens for all of them on a typical step).
+Each tool schema is sent on every model call, so tools are kept few and short (about 890 tokens for the standard set on a typical step; `upload` and `drag` add about 140 together when they are offered).
 
 ## How learning works
 
