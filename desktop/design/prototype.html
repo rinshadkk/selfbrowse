@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Selfbrowse desktop prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#F2F4F7; --surface:#FFFFFF; --ink:#121B2E; --muted:#566074; --line:#DCE1E8; --line-2:#EAEEF3;
+  --sent:#F5C84B; --sent-soft:#FFF3C9; --local:#0B7A75; --local-soft:#D8F0EE; --bar:#121B2E; --accent:#1F4FD8; --accent-ink:#fff;
+  --danger:#B3261E; --radius:10px;
+  --ui:"Schibsted Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --paper:#0D1322; --surface:#151C2E; --ink:#E8ECF4; --muted:#98A2B8; --line:#2A3350; --line-2:#202942;
+  --sent:#F5C84B; --sent-soft:#3B3417; --local:#4CC3BC; --local-soft:#12322F; --bar:#04060C; --accent:#7AA2FF; --accent-ink:#0D1322; --danger:#FF8A80;}}
+:root[data-theme=dark]{
+  --paper:#0D1322; --surface:#151C2E; --ink:#E8ECF4; --muted:#98A2B8; --line:#2A3350; --line-2:#202942;
+  --sent:#F5C84B; --sent-soft:#3B3417; --local:#4CC3BC; --local-soft:#12322F; --bar:#04060C; --accent:#7AA2FF; --accent-ink:#0D1322; --danger:#FF8A80;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 var(--ui);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:grid;grid-template-columns:84px 1fr;height:100vh;min-width:1100px}
+
+/* rail */
+.rail{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:stretch;padding:14px 8px;gap:4px}
+.logo{font-weight:700;font-size:13px;letter-spacing:.01em;text-align:center;padding:2px 0 14px}
+.logo b{display:block;width:30px;height:30px;margin:0 auto 6px;border-radius:9px;background:var(--ink);color:var(--paper);display:grid;place-items:center;font-size:15px}
+.rail button{border:0;background:none;border-radius:9px;padding:9px 0 7px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--muted);font-weight:500}
+.rail button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.rail button:hover{background:var(--paper)}
+.rail button[aria-current=page]{color:var(--ink);background:var(--paper);font-weight:600}
+.rail .grow{flex:1}
+
+/* screens */
+.screen{display:none;height:100vh;min-width:0}
+.screen.on{display:grid}
+h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.005em}
+.muted{color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600;border:1px solid transparent;white-space:nowrap}
+.chip.local{background:var(--local-soft);color:var(--local)}
+.chip.sent{background:var(--sent-soft);color:var(--ink);border-color:color-mix(in srgb,var(--sent) 60%,transparent)}
+.chip.ink{background:var(--bar);color:var(--paper)}
+.btn{white-space:nowrap;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:600}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.quiet{border-color:transparent;background:none}
+
+/* ---------- RUN ---------- */
+#run{grid-template-rows:auto 1fr auto;grid-template-columns:1fr}
+.promptbar{display:grid;grid-template-columns:1fr auto;gap:12px;padding:16px 20px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
+.promptbar .field{border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;background:var(--paper);font-size:15px}
+.promptbar .opts{grid-column:1/-1;display:flex;gap:18px;align-items:center;color:var(--muted);font-size:13px;flex-wrap:wrap}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.switch input{appearance:none;width:34px;height:20px;border-radius:999px;background:var(--line);position:relative;margin:0;cursor:pointer;transition:background .15s}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.switch input:checked{background:var(--local)}
+.switch input:checked::after{transform:translateX(14px)}
+.switch.review input:checked{background:var(--accent)}
+.runbody{display:grid;grid-template-columns:292px minmax(380px,1fr) 470px;min-height:0}
+.col{min-height:0;overflow:auto}
+.timeline{border-right:1px solid var(--line);padding:14px 10px 20px;background:var(--surface)}
+.timeline h3,.pane-h{font-size:12px;color:var(--muted);font-weight:600;padding:2px 10px 8px}
+.step{display:grid;grid-template-columns:22px 1fr;gap:8px;width:100%;text-align:left;border:1px solid transparent;background:none;border-radius:9px;padding:9px 10px}
+.step:hover{background:var(--paper)}
+.step[aria-pressed=true]{background:var(--sent-soft);border-color:color-mix(in srgb,var(--sent) 70%,transparent)}
+.step .n{width:22px;height:22px;border-radius:50%;background:var(--line-2);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--muted)}
+.step[aria-pressed=true] .n{background:var(--sent);color:#121B2E}
+.step .t{font-weight:600}
+.step .u{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.step .m{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap}
+.step .m .chip{font-size:11px;padding:0 7px}
+
+.stage{padding:16px 20px 24px;display:flex;flex-direction:column;gap:14px}
+.browser{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.browser .bar{display:flex;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--paper)}
+.dots{display:flex;gap:5px}.dots i{width:9px;height:9px;border-radius:50%;background:var(--line)}
+.url{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:3px 10px;font-size:12px;color:var(--muted)}
+.pagebody{padding:20px 22px;display:grid;gap:12px}
+.pagebody h4{margin:0;font-size:16px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.f{border:1px solid var(--line);border-radius:8px;padding:6px 10px;position:relative;min-height:46px}
+.f.wide{grid-column:1/-1}
+.f small{display:block;color:var(--muted);font-size:11px}
+.f .v{font-weight:550}
+.f .lock{position:absolute;right:8px;top:8px}
+.f.filling{outline:2px solid var(--local);outline-offset:1px;background:var(--local-soft)}
+.pay{display:flex;justify-content:space-between;align-items:center;border:1px dashed var(--line);border-radius:8px;padding:8px 10px;color:var(--muted)}
+.answerbox{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.answerbox p{margin:6px 0 0}
+.review-banner{display:none;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 9%,var(--surface));border-radius:12px;padding:12px 14px;gap:12px;align-items:center;justify-content:space-between}
+.review-banner.on{display:flex}
+
+/* inspector */
+.inspector{border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.insp-h{padding:14px 16px 0}
+.outbound{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.outbound .tag{background:var(--sent);color:#121B2E;font-weight:700;font-size:12px;padding:2px 9px;border-radius:5px}
+.insp-h .sub{color:var(--muted);font-size:13px;margin:6px 0 10px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:0 10px}
+.tabs button{border:0;background:none;padding:9px 10px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:6px;align-items:center}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
+.tabs .count{font-size:11px;background:var(--line-2);border-radius:999px;padding:0 7px}
+.tabpane{display:none;flex:1;overflow:auto;padding:14px 16px 20px}
+.tabpane.on{display:block}
+.tools{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap}
+.legend{display:flex;gap:10px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.payload{font:12.5px/1.6 var(--mono);display:grid;gap:10px}
+.blk{border-left:3px solid var(--line);padding:2px 0 2px 12px;white-space:pre-wrap;word-break:break-word}
+.blk>b{display:block;font:600 11px var(--ui);color:var(--muted);margin-bottom:2px}
+.blk.sys{border-color:var(--line)}
+.blk.task{border-color:var(--ink)}
+.blk.page{border-color:var(--sent);background:linear-gradient(90deg,var(--sent-soft),transparent 70%)}
+.blk.reply{border-color:var(--accent)}
+.ph{display:inline-block;background:var(--local-soft);color:var(--local);border-radius:4px;padding:0 5px;font-weight:500;position:relative;cursor:help}
+.ph s{display:none;opacity:.8;margin-left:6px;color:var(--muted);text-decoration-thickness:1.5px}
+.reveal .ph s{display:inline}
+.rx{display:inline-block;background:var(--bar);color:transparent;border-radius:3px;padding:0 5px;cursor:help;user-select:none;min-width:3.2em}
+.rx em,.rx i{font-style:normal}
+.rx em{display:none}
+.reveal .rx i{display:none}
+.reveal .rx em{display:inline}
+.reveal .rx{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--ink) 18%,transparent) 0 4px,transparent 4px 8px);color:var(--ink);outline:1px solid var(--ink)}
+[data-tip]{position:relative}
+[data-tip]:hover::before{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:0;background:var(--ink);color:var(--paper);font:500 12px var(--ui);padding:5px 9px;border-radius:6px;white-space:nowrap;z-index:5;max-width:320px}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;color:var(--muted);text-align:left;font-weight:600;padding:0 8px 6px 0}
+td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top}
+.kept td:first-child{font-weight:600}
+.meter{display:grid;gap:12px}
+.bigrow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat b{display:block;font-size:22px;letter-spacing:-.01em}
+.stat span{font-size:12px;color:var(--muted)}
+.stack{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--line-2)}
+.stack i{display:block;height:100%}
+.callrow{display:grid;grid-template-columns:54px 1fr 64px;gap:10px;align-items:center;font-size:13px}
+.callrow .stack{height:8px}
+
+/* ledger */
+.ledger{display:flex;gap:22px;align-items:center;padding:10px 20px;background:var(--ink);color:var(--paper);font-size:13px;flex-wrap:wrap}
+.ledger b{font-weight:700}
+.ledger .sep{flex:1}
+.ledger .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px}
+.ledger a{color:var(--sent);font-weight:600;text-decoration:none;cursor:pointer}
+
+/* ---------- VAULT ---------- */
+#vault{grid-template-columns:260px 1fr}
+.side{border-right:1px solid var(--line);background:var(--surface);padding:18px 12px;overflow:auto}
+.side h2{padding:0 10px 12px;font-size:17px}
+.listbtn{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:9px;font-weight:600}
+.listbtn small{display:block;font-weight:400;color:var(--muted)}
+.listbtn[aria-current=true]{background:var(--paper)}
+.main{padding:24px 28px 40px;overflow:auto;max-width:980px}
+.main .lead{color:var(--muted);max-width:62ch;margin:6px 0 20px}
+.how{display:grid;grid-template-columns:1fr 36px 1fr;gap:0;align-items:center;margin-bottom:22px}
+.how .box{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface)}
+.how .box small{color:var(--muted);display:block;margin-bottom:4px;font-weight:600}
+.how .arrow{text-align:center;color:var(--muted);font-size:18px}
+.how code{font:500 13px var(--mono)}
+.fieldrow{display:grid;grid-template-columns:150px 1fr 280px;gap:14px;align-items:center;padding:12px 0;border-top:1px solid var(--line-2)}
+.fieldrow:first-of-type{border-top:0}
+.fieldrow input{width:100%;border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:8px;padding:8px 10px;font:inherit}
+.fieldrow .nm{font-weight:600}
+.fieldrow .nm small{display:block;font:400 12px var(--mono);color:var(--local)}
+.seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface)}
+.seg button{flex:1;white-space:nowrap;border:0;background:none;padding:6px 4px;font-size:12px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+.seg button[aria-pressed=true].local{background:var(--local);color:#fff}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 18px}
+.rowhead{display:flex;justify-content:space-between;align-items:center;margin:20px 0 6px}
+
+/* ---------- FLOWS ---------- */
+#flows{grid-template-columns:1fr}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px;margin-top:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:10px;align-content:start}
+.card h3{font-size:16px}
+.card .meta{display:flex;gap:6px;flex-wrap:wrap}
+.card .acts{display:flex;gap:8px;margin-top:2px}
+.card.new{border-style:dashed;place-items:center;text-align:center;color:var(--muted);min-height:170px}
+.sheetwrap{position:fixed;inset:0;background:rgba(10,16,30,.45);display:none;justify-content:flex-end;z-index:20}
+.sheetwrap.on{display:flex}
+.sheet{width:560px;max-width:100%;background:var(--surface);height:100%;overflow:auto;padding:22px 24px 30px;box-shadow:-12px 0 40px rgba(0,0,0,.25)}
+.sheet h2{font-size:19px}
+.check{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line-2)}
+.check .ic{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700}
+.ic.yes{background:var(--local-soft);color:var(--local)}
+.ic.no{background:var(--bar);color:var(--paper)}
+.codebox{font:12px/1.55 var(--mono);background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:10px 12px;white-space:pre-wrap;margin-top:8px}
+.sharerow{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+.foot{color:var(--muted);font-size:12px;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail" aria-label="Main">
+    <div class="logo"><b>S</b>Selfbrowse</div>
+    <button data-go="run" aria-current="page"><svg viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>Run</button>
+    <button data-go="flows"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="18" r="2"/><path d="M7 6h5a4 4 0 014 4v0M7 18h5a4 4 0 004-4v0"/></svg>Flows</button>
+    <button data-go="vault"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>My info</button>
+    <button data-go="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>History</button>
+    <div class="grow"></div>
+    <button data-go="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>Settings</button>
+  </nav>
+
+  <!-- ================= RUN ================= -->
+  <section class="screen on" id="run" aria-label="Run">
+    <div class="promptbar">
+      <div class="field">Reorder my usual Dove shampoo from Walgreens and ship it to my home address</div>
+      <div><button class="btn primary" id="runbtn">Run again</button></div>
+      <div class="opts">
+        <span>Model <b style="color:var(--ink)">Claude Sonnet 5.5</b> · Anthropic</span>
+        <label class="switch"><input type="checkbox" checked id="redactToggle"> Keep my info private</label>
+        <label class="switch review"><input type="checkbox" id="reviewToggle"> Let me approve each model call</label>
+        <label class="switch"><input type="checkbox" checked> Show the browser</label>
+      </div>
+    </div>
+
+    <div class="runbody">
+      <div class="col timeline" aria-label="Steps">
+        <h3>Steps</h3>
+        <div id="steps"></div>
+      </div>
+
+      <div class="col stage">
+        <div class="review-banner" id="banner">
+          <div><b>Waiting for your OK.</b> The next model call is shown on the right. Nothing has left this computer yet.</div>
+          <div style="display:flex;gap:8px"><button class="btn">Skip</button><button class="btn primary" id="sendBtn">Send this call</button></div>
+        </div>
+        <div class="browser">
+          <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">walgreens.com/checkout/shipping</div><span class="chip local">Filled on this computer</span></div>
+          <div class="pagebody">
+            <h4>Shipping address</h4>
+            <div class="form">
+              <div class="f filling"><small>Full name</small><span class="v">Ava Moreno</span><span class="lock chip local">local</span></div>
+              <div class="f filling"><small>Phone</small><span class="v">(312) 555-0148</span><span class="lock chip local">local</span></div>
+              <div class="f filling wide"><small>Street address</small><span class="v">418 Larch Street, Apt 3</span><span class="lock chip local">local</span></div>
+              <div class="f filling"><small>City</small><span class="v">Chicago</span><span class="lock chip local">local</span></div>
+              <div class="f filling"><small>ZIP</small><span class="v">60614</span><span class="lock chip local">local</span></div>
+            </div>
+            <div class="pay"><span>Payment: saved card</span><span class="chip ink">hidden from the model</span></div>
+          </div>
+        </div>
+        <div class="answerbox">
+          <b>Where this stands</b>
+          <p class="muted" style="margin:4px 0 0">Step 5 of 6. The model chose the fields to fill. The values themselves were typed by Selfbrowse, so it only ever saw the placeholders on the right.</p>
+        </div>
+      </div>
+
+      <aside class="inspector" aria-label="What was sent to the model">
+        <div class="insp-h">
+          <div class="outbound"><span class="tag" id="callTag">OUTBOUND · CALL 5</span><span class="muted" id="callMeta">3,812 tokens · 2.1 s</span></div>
+          <div class="sub" id="callSub">Exactly what left this computer for this step.</div>
+        </div>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="sent">Sent to model</button>
+          <button role="tab" aria-selected="false" data-tab="kept">Kept private <span class="count" id="keptCount">6</span></button>
+          <button role="tab" aria-selected="false" data-tab="usage">Usage</button>
+        </div>
+
+        <div class="tabpane on" id="tab-sent">
+          <div class="tools">
+            <div class="legend">
+              <span><span class="ph">{{name}}</span> placeholder</span>
+              <span><span class="rx">xxxx</span> removed</span>
+            </div>
+            <label class="switch" data-tip="Shows the real values next to each placeholder. Only visible to you, never sent."><input type="checkbox" id="revealToggle"> Show originals</label>
+          </div>
+          <div class="payload" id="payload"></div>
+        </div>
+
+        <div class="tabpane" id="tab-kept">
+          <p class="muted" style="margin-top:0">Values on this page that matched your saved info or a privacy rule. The model got the replacement, not the original.</p>
+          <table class="kept"><thead><tr><th>What</th><th>Model saw</th><th>Why</th></tr></thead><tbody id="keptRows"></tbody></table>
+        </div>
+
+        <div class="tabpane" id="tab-usage">
+          <div class="meter">
+            <div class="bigrow">
+              <div class="stat"><b id="uIn">15,708</b><span>tokens sent</span></div>
+              <div class="stat"><b id="uOut">571</b><span>tokens received</span></div>
+              <div class="stat"><b id="uCost">$0.017</b><span>estimated cost</span></div>
+            </div>
+            <div>
+              <div class="stack" aria-label="Where the sent tokens went"><i style="width:30%;background:var(--ink)"></i><i style="width:70%;background:var(--sent)"></i></div>
+              <div class="legend" style="margin-top:6px"><span><span class="chip ink">4,758</span> new</span><span><span class="chip sent">10,950</span> reused from cache, billed at about a tenth</span></div>
+            </div>
+            <div id="callRows" style="display:grid;gap:8px"></div>
+            <p class="foot" style="margin:2px 0 0">Costs use the published rate for the model and are estimates. Your provider's bill is the record.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="ledger" role="status">
+      <span><span class="dot" style="background:var(--sent)"></span><b>5 calls</b> to Anthropic</span>
+      <span><b>15,708</b> in · <b>571</b> out</span>
+      <span>≈ <b>$0.017</b></span>
+      <span><span class="dot" style="background:var(--local)"></span><b>7 values</b> kept on this device</span>
+      <span class="sep"></span>
+      <a data-go="history">Open the full record</a>
+    </div>
+  </section>
+
+  <!-- ================= MY INFO ================= -->
+  <section class="screen" id="vault" aria-label="My info">
+    <div class="side">
+      <h2>My info</h2>
+      <button class="listbtn" aria-current="true">Shipping address<small>5 fields · used in 3 flows</small></button>
+      <button class="listbtn">Contact<small>2 fields · used in 2 flows</small></button>
+      <button class="listbtn">Insurance card<small>4 fields · used in 1 flow</small></button>
+      <button class="listbtn">Payment<small>Never stored. Asked each time.</small></button>
+      <button class="btn" style="margin:14px 10px 0">New form</button>
+    </div>
+    <div class="main">
+      <h1>Shipping address</h1>
+      <p class="lead">Fill this in once. Flows use it to complete forms for you. By default the model never sees these values, only the name of the field.</p>
+
+      <div class="how" aria-label="How a value is used">
+        <div class="box"><small>What the model sees</small><code>Type {{street}} into “Street address”</code></div>
+        <div class="arrow">→</div>
+        <div class="box"><small>What Selfbrowse types, on this computer</small><code>418 Larch Street, Apt 3</code></div>
+      </div>
+
+      <div class="panel" id="fields"></div>
+      <p class="foot">Stored in your computer's keychain. Never uploaded, and never included when you share a flow.</p>
+    </div>
+  </section>
+
+  <!-- ================= FLOWS ================= -->
+  <section class="screen" id="flows" aria-label="Flows">
+    <div class="main" style="max-width:none">
+      <div style="display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap">
+        <div><h1>Flows</h1><p class="lead" style="margin-bottom:0">A flow is a run you saved. Replaying one skips the model, so it costs no tokens.</p></div>
+        <div style="display:flex;gap:8px"><button class="btn">Import a flow</button><button class="btn primary">Record a new flow</button></div>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <h3>Reorder Dove shampoo</h3>
+          <div class="muted">Walgreens · 6 steps · saved 2 days ago</div>
+          <div class="meta"><span class="chip local">Uses: Shipping address</span><span class="chip sent">0 tokens to replay</span></div>
+          <div class="acts"><button class="btn primary">Run</button><button class="btn share-open">Share…</button><button class="btn quiet">Edit</button></div>
+        </div>
+        <div class="card">
+          <h3>Compare shampoo prices</h3>
+          <div class="muted">Walgreens, CVS · 11 steps · saved last week</div>
+          <div class="meta"><span class="chip sent">0 tokens to replay</span><span class="chip">No personal info</span></div>
+          <div class="acts"><button class="btn primary">Run</button><button class="btn share-open">Share…</button><button class="btn quiet">Edit</button></div>
+        </div>
+        <div class="card">
+          <h3>Refill a prescription</h3>
+          <div class="muted">Walgreens · 8 steps · saved 3 weeks ago</div>
+          <div class="meta"><span class="chip local">Uses: Contact</span><span class="chip local">Uses: Insurance card</span></div>
+          <div class="acts"><button class="btn primary">Run</button><button class="btn share-open">Share…</button><button class="btn quiet">Edit</button></div>
+        </div>
+        <div class="card new"><div><b style="color:var(--ink)">Turn any run into a flow</b><div>After a run succeeds, choose “Save as flow”.</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="history"><div class="main"><h1>History</h1><p class="lead">Every run, with the exact record of what was sent. Not designed in this prototype.</p></div></section>
+  <section class="screen" id="settings"><div class="main"><h1>Settings</h1><p class="lead">Model and keys, privacy rules, browser. Not designed in this prototype.</p></div></section>
+</div>
+
+<!-- share sheet -->
+<div class="sheetwrap" id="sheetwrap" aria-hidden="true">
+  <div class="sheet" role="dialog" aria-label="Share a flow">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+      <div><h2>Share “Reorder Dove shampoo”</h2><p class="muted" style="margin:4px 0 14px">Checked just now. Here is everything that goes in the file.</p></div>
+      <button class="btn quiet" id="closeSheet" aria-label="Close">Close</button>
+    </div>
+    <div class="check"><span class="ic yes">✓</span><div><b>The 6 steps</b><div class="muted">Open walgreens.com, search, open the product, add to cart, check out, fill the shipping form.</div></div></div>
+    <div class="check"><span class="ic yes">✓</span><div><b>Notes Selfbrowse learned about the site</b><div class="muted">For example, where the search box is. No page content.</div></div></div>
+    <div class="check"><span class="ic yes">✓</span><div><b>5 placeholders instead of your info</b><div class="muted">Whoever opens it will see a form asking them to fill in their own details.</div>
+      <div class="codebox">{{full_name}}  {{phone}}  {{street}}  {{city}}  {{zip}}</div></div></div>
+    <div class="check"><span class="ic no">×</span><div><b>Not included</b><div class="muted">Your values, cookies, saved logins, your card, and the history of this run.</div></div></div>
+    <div class="check"><span class="ic yes">✓</span><div><b>Scan found 2 stray personal values, now replaced</b><div class="muted">We searched every step for your saved info, emails, phone numbers and card numbers. These two were typed in directly, so they became placeholders:</div>
+      <div class="codebox">step 6   type  “(312) 555-0148”   →   {{phone}}
+step 6   type  “60614”            →   {{zip}}</div></div></div>
+    <div class="check" style="border-bottom:1px solid var(--line-2)"><span class="ic yes">?</span><div><b>What the person receiving it needs</b><div class="muted">A “Shipping address” form in My info. They can match their own fields when they import it.</div></div></div>
+    <div class="sharerow"><button class="btn primary">Save as file</button><button class="btn">Copy link</button><button class="btn">Publish to the library</button></div>
+    <p class="foot">Publishing makes it public. You'll get one more look at this list first.</p>
+  </div>
+</div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+// nav
+function go(id){$$('.screen').forEach(s=>s.classList.toggle('on',s.id===id));$$('.rail button[data-go]').forEach(b=>b.toggleAttribute('aria-current',b.dataset.go===id)&&b.setAttribute('aria-current','page'));$$('.rail button[data-go]').forEach(b=>{if(b.dataset.go!==id)b.removeAttribute('aria-current')})}
+document.addEventListener('click',e=>{const g=e.target.closest('[data-go]');if(g)go(g.dataset.go)});
+
+// sample data
+const PH=(k,was)=>`<span class="ph" data-tip="Placeholder for ${was}, which stays on this computer">{{${k}}}<s>${was}</s></span>`;
+const BAR=(label,was)=>`<span class="rx" data-tip="Removed: ${label}"><i>${'x'.repeat(Math.max(4,Math.min(12,was.length)))}</i><em>${was}</em></span>`;
+const calls=[
+ {n:1,tool:'Open walgreens.com',url:'walgreens.com',inT:2140,cache:0,out:96,ms:1.4,
+  page:()=>`[1] link "Walgreens"\n[2] searchbox "Search products" (focused)\n[3] link "Pharmacy"\n[4] link "Photo"\n[5] button "Sign in"`,reply:'goto https://www.walgreens.com',kept:[]},
+ {n:2,tool:'Search "dove shampoo"',url:'walgreens.com/search',inT:2904,cache:1900,out:88,ms:1.6,
+  page:()=>`[2] searchbox "Search products" (focused)\n[6] button "Search"\n[7] link "Trending: vitamins"`,reply:'type ref=2 "dove shampoo" + Enter',kept:[]},
+ {n:3,tool:'Open the product',url:'walgreens.com/store/c/dove-shampoo',inT:3210,cache:2650,out:71,ms:1.5,
+  page:()=>`[11] link "Dove Nutritive Solutions Shampoo, 12 fl oz"  $5.99\n[12] link "Dove Daily Moisture, 25.4 fl oz"  $8.49\n[13] button "Add to cart" (Dove Nutritive...)`,reply:'click ref=11',kept:[]},
+ {n:4,tool:'Add to cart',url:'walgreens.com/cart',inT:3642,cache:3100,out:102,ms:1.9,
+  page:()=>`[1] link "Walgreens"\n[5] link "Hi, ${BAR('email address','ava.moreno@mail.com')}"  \n[20] button "Add to cart"\n[21] button "Checkout"`,
+  reply:'click ref=21',kept:[{what:'Email in the page header',saw:'(removed)',why:'Looks like an email address'}],redacted:1},
+ {n:5,tool:'Fill the shipping form',url:'walgreens.com/checkout/shipping',inT:3812,cache:3300,out:214,ms:2.1,
+  page:()=>`[30] textbox "Full name"   value: ${PH('full_name','Ava Moreno')}\n[31] textbox "Phone"   value: ${PH('phone','(312) 555-0148')}\n[32] textbox "Street address"   value: ${PH('street','418 Larch Street, Apt 3')}\n[33] textbox "City"   value: ${PH('city','Chicago')}\n[34] textbox "ZIP"   value: ${PH('zip','60614')}\n[35] radio "Saved card: ${BAR('card number','Visa ending 4421')}" (selected)\n[36] button "Continue to payment"`,
+  reply:'click ref=36',
+  kept:[{what:'Full name',saw:'{{full_name}}',why:'Matches My info › Shipping address'},{what:'Phone',saw:'{{phone}}',why:'Matches My info › Shipping address'},{what:'Street address',saw:'{{street}}',why:'Matches My info › Shipping address'},{what:'City',saw:'{{city}}',why:'Matches My info › Shipping address'},{what:'ZIP',saw:'{{zip}}',why:'Matches My info › Shipping address'},{what:'Saved card',saw:'(removed)',why:'Looks like a card number'}],redacted:1}
+];
+const steps=$('#steps');
+calls.forEach((c,i)=>{
+  const b=document.createElement('button');b.className='step';b.setAttribute('aria-pressed',i===4);b.dataset.i=i;
+  const k=c.kept.length;
+  b.innerHTML=`<span class="n">${c.n}</span><span><div class="t">${c.tool}</div><div class="u">${c.url}</div><div class="m"><span class="chip sent">${(c.inT+c.out).toLocaleString()} tokens</span>${k?`<span class="chip local">${k} kept private</span>`:''}</span></div></span>`;
+  b.onclick=()=>select(i);steps.append(b);
+});
+const b6=document.createElement('div');b6.className='step';b6.style.opacity=.55;b6.innerHTML=`<span class="n">6</span><span><div class="t">Review the order</div><div class="u">Not run yet</div></span>`;steps.append(b6);
+
+function select(i){
+  $$('.step[data-i]').forEach(s=>s.setAttribute('aria-pressed',+s.dataset.i===i));
+  const c=calls[i];
+  $('#callTag').textContent='OUTBOUND · CALL '+c.n;
+  $('#callMeta').textContent=`${c.inT.toLocaleString()} in · ${c.out} out · ${c.ms} s`;
+  $('#callSub').textContent=c.kept.length?`Sent for “${c.tool}”. ${c.kept.length} value${c.kept.length>1?'s':''} did not leave this computer.`:`Sent for “${c.tool}”. Nothing private was on this page.`;
+  $('#keptCount').textContent=c.kept.length;
+  $('#payload').innerHTML=
+   `<div class="blk sys"><b>Instructions (same every call)</b>You control a web browser. Use the numbered list of page elements to choose one action at a time. Fill forms using {{placeholders}}; never ask for the real value. …</div>`+
+   `<div class="blk task"><b>Your task</b>Reorder my usual Dove shampoo from Walgreens and ship it to my home address</div>`+
+   `<div class="blk page"><b>Page as the model sees it · ${c.url}</b>${c.page()}</div>`+
+   `<div class="blk reply"><b>Model's reply</b>${c.reply}</div>`;
+  $('#keptRows').innerHTML=c.kept.length?c.kept.map(k=>`<tr><td>${k.what}</td><td>${k.saw.startsWith('{{')?`<span class="ph">${k.saw}</span>`:`<span class="chip ink">removed</span>`}</td><td class="muted">${k.why}</td></tr>`).join(''):`<tr><td colspan="3" class="muted">Nothing on this page needed hiding.</td></tr>`;
+}
+select(4);
+
+// usage rows
+const maxT=Math.max(...calls.map(c=>c.inT));
+$('#callRows').innerHTML=calls.map(c=>`<div class="callrow"><span class="muted">Call ${c.n}</span><div class="stack"><i style="width:${(c.inT-c.cache)/maxT*100}%;background:var(--ink)"></i><i style="width:${c.cache/maxT*100}%;background:var(--sent)"></i></div><span style="text-align:right">${c.inT.toLocaleString()}</span></div>`).join('');
+
+// tabs
+$$('.tabs button').forEach(t=>t.onclick=()=>{$$('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===t));$$('.tabpane').forEach(p=>p.classList.toggle('on',p.id==='tab-'+t.dataset.tab))});
+$('#revealToggle').onchange=e=>$('#payload').classList.toggle('reveal',e.target.checked);
+$('#reviewToggle').onchange=e=>$('#banner').classList.toggle('on',e.target.checked);
+$('#sendBtn').onclick=()=>{$('#reviewToggle').checked=false;$('#banner').classList.remove('on')};
+
+// vault fields
+const fields=[['Full name','full_name','Ava Moreno','local'],['Phone','phone','(312) 555-0148','local'],['Street address','street','418 Larch Street, Apt 3','local'],['City','city','Chicago','local'],['ZIP','zip','60614','ask']];
+$('#fields').innerHTML=fields.map(([n,k,v,p])=>`<div class="fieldrow"><div class="nm">${n}<small>{{${k}}}</small></div><input value="${v}" aria-label="${n}"><div class="seg" role="group" aria-label="Who may see ${n}">${[['local','Only me'],['ask','Ask first'],['share','Model may see']].map(([id,l])=>`<button class="${id}" aria-pressed="${id===p}">${l}</button>`).join('')}</div></div>`).join('');
+$$('.seg').forEach(s=>s.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;$$('button',s).forEach(x=>x.setAttribute('aria-pressed',x===b))}));
+
+// share sheet
+$$('.share-open').forEach(b=>b.onclick=()=>{$('#sheetwrap').classList.add('on');$('#sheetwrap').setAttribute('aria-hidden','false')});
+const closeSheet=()=>{$('#sheetwrap').classList.remove('on');$('#sheetwrap').setAttribute('aria-hidden','true')};
+$('#closeSheet').onclick=closeSheet;$('#sheetwrap').addEventListener('click',e=>{if(e.target.id==='sheetwrap')closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+if(location.hash){const h=location.hash.slice(1);if(document.getElementById(h))go(h)}
+</script>
+</body>
+</html>
