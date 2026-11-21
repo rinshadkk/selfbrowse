@@ -78,7 +78,13 @@ function renderTimeline() {
       h('span', { class: 'n' }, String(i + 1)),
       h('span', {}, h('div', { class: 't' }, title), it.step && it.step.url ? h('div', { class: 'u' }, it.step.url) : null, h('div', { class: 'm' }, chips)));
   });
-  $('steps').replaceChildren(...list);
+  const withMarks = [];
+  list.forEach((el, i) => {
+    if (R.turnMarks && R.turnMarks[i] != null) withMarks.push(h('div', { class: 'turnmark' }, h('b', {}, 'Follow-up'), h('span', {}, R.turnMarks[i])));
+    withMarks.push(el);
+  });
+  if (R.turnMarks && R.turnMarks[list.length] != null) withMarks.push(h('div', { class: 'turnmark' }, h('b', {}, 'Follow-up'), h('span', {}, R.turnMarks[list.length])));
+  $('steps').replaceChildren(...withMarks);
   if (R.follow) $('steps').lastElementChild?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -258,6 +264,9 @@ const setState = (st) => { $('run').dataset.state = st; };
 function setRunning(on) {
   R.running = on;
   if (on) setState('running');
+  $('follow').disabled = on;
+  $('follow').placeholder = on ? 'Working… you can follow up when it finishes' : 'Follow up on this run…';
+  $('followForm').classList.toggle('busy', on);
   $('control').disabled = !on;
   if (!on) setControl(false, false);
   renderBanner();
@@ -355,6 +364,9 @@ function onEvent(e) {
     Object.assign(R.table, e.new);
     R.items.push({ call: { idx: e.idx, ids: e.ids, holding: e.holding, mode: e.mode, reason: e.reason || [], masked: 0, usage: null, reply: null, ms: 0, tools: e.tools }, step: null });
     if (R.follow) R.selected = R.items.length - 1;
+  } else if (e.type === 'turn') {
+    R.turnMarks = R.turnMarks || {};
+    R.turnMarks[R.items.length] = e.prompt;
   } else if (e.type === 'call_masked') {
     Object.assign(R.table, e.new);
     const c = calls().find((x) => x.idx === e.idx);
@@ -401,7 +413,7 @@ function finish(e) {
   $('saveFlow').hidden = !R.canSaveFlow;
   $('copyAnswer').hidden = !e.output;
   $('runAgain').hidden = false;
-  $('followForm').hidden = !!R.flowName || !!(e.error === 'Stopped by you.');
+  $('followForm').hidden = !!R.flowName;
   const stat = (v, l) => h('div', {}, h('span', {}, l), h('b', {}, v));
   $('resultStats').replaceChildren(stat(String(e.steps || 0), 'Steps'), stat(R.durationText, 'Time'),
     stat(fmt(e.tokens || 0), 'Tokens'), stat(R.flowName && !e.model_calls ? 'None' : String(e.model_calls != null ? e.model_calls : calls().length), 'Model calls'));
@@ -414,9 +426,9 @@ function finish(e) {
 
 async function beginRun(id, flowName, flowModel, title) {
   Object.assign(R, { id, items: [], table: {}, selected: -1, follow: true, flowName: flowName || null, flowModel: !!flowModel, doneEvent: null, canSaveFlow: false,
-    title: flowName ? `Flow: ${flowName}` : String(title || '').split('\n')[0].slice(0, 160), task: title || '', startedAt: Date.now(), durationText: '' });
+    title: flowName ? `Flow: ${flowName}` : String(title || '').split('\n')[0].slice(0, 160), task: title || '', startedAt: Date.now(), durationText: '', eventCount: 0, turnMarks: {} });
   $('reviewHead').value = $('review').value;
-  $('followForm').hidden = true; $('resultStats').hidden = true; $('live').classList.remove('shown'); $('showBrowser').textContent = 'Show browser';
+  $('followForm').hidden = !!flowName; $('resultStats').hidden = true; $('live').classList.remove('shown'); $('showBrowser').textContent = 'Show browser';
   if (R.stream) R.stream.abort();
   if (R.frames) R.frames.abort();
   $('afterRun').hidden = true;
@@ -428,6 +440,13 @@ async function beginRun(id, flowName, flowModel, title) {
   setRunning(true);
   go('run');
   render();
+  openStreams(id, 0);
+}
+
+// Read the live view and the events of a run. A follow-up reads on from where the last stream ended.
+function openStreams(id, after) {
+  if (R.stream) R.stream.abort();
+  if (R.frames) R.frames.abort();
   R.stream = new AbortController();
   R.frames = new AbortController();
   readSSE(`/runs/${id}/frames`, (batch) => {
@@ -435,10 +454,29 @@ async function beginRun(id, flowName, flowModel, title) {
     R.frameSize = { w: last.w, h: last.h };
     $('frame').src = `data:image/jpeg;base64,${last.jpeg}`;
   }, R.frames.signal).catch(() => {});
-  readSSE(`/runs/${id}/events`, (batch) => {
-    for (const e of batch) { onEvent(e); if (e.type === 'done') return 'stop'; }
+  readSSE(`/runs/${id}/events?after=${after}`, (batch) => {
+    for (const e of batch) { R.eventCount += 1; onEvent(e); if (e.type === 'done') return 'stop'; }
   }, R.stream.signal).then(() => { if (R.running) { finish({ error: 'The backend closed the connection before the run finished.', steps: 0, tokens: 0 }); render(); } })
     .catch(() => { if (R.running) { finish({ error: 'Lost connection to the backend.', steps: 0, tokens: 0 }); render(); } });
+}
+
+// A follow-up carries on in the same run and browser. If that browser has gone, it starts a new run with the context instead.
+async function continueRun(text) {
+  if (R.running || !R.id) return;
+  try {
+    await post(`/runs/${R.id}/followup`, { prompt: text });
+  } catch (err) {
+    toast('That browser was closed, so this started a new run with the earlier result as context.');
+    startRun(`${R.task}\n\nWhat you found last time:\n${String(R.rawAnswer || '').slice(0, 3000) || '(nothing recorded)'}\n\nNow: ${text}`, text);
+    return;
+  }
+  Object.assign(R, { doneEvent: null, canSaveFlow: false, startedAt: Date.now(), durationText: '' });
+  $('resultStats').hidden = true; $('afterRun').hidden = true; $('handoff').hidden = true;
+  $('live').hidden = false; $('live').classList.remove('shown'); $('showBrowser').textContent = 'Show browser';
+  setStatus('Working…', 'Following up in the same browser.');
+  setRunning(true);
+  render();
+  openStreams(R.id, R.eventCount);
 }
 
 // ---- browser options: profile, installed Chrome, stealth ----
@@ -558,6 +596,7 @@ function copyText(text) {
 }
 function newRun() {
   if (R.running) return;
+  if (R.id && !R.flowName) post(`/runs/${R.id}/close`).catch(() => {});      // let go of the browser kept for follow-ups
   if (R.stream) R.stream.abort();
   if (R.frames) R.frames.abort();
   R.doneEvent = null;
@@ -583,10 +622,8 @@ $('followForm').addEventListener('submit', (ev) => {
   ev.preventDefault();
   const text = $('follow').value.trim();
   if (!text || R.running) return;
-  const prev = String(R.rawAnswer || '').trim();      // never the version with your values swapped in
-  const task = `${R.task}\n\nWhat you found last time:\n${prev.slice(0, 3000) || '(nothing recorded)'}\n\nNow: ${text}`;
   $('follow').value = '';
-  startRun(task, text);
+  continueRun(text);
 });
 // the Run icon, or Cmd+N, starts a fresh run once one has finished
 document.querySelector('.rail').addEventListener('click', (e) => {

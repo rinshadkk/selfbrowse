@@ -11,6 +11,7 @@ import importlib.util
 import asyncio
 import json
 import os
+import queue
 import re
 import secrets
 import subprocess
@@ -45,6 +46,20 @@ import record
 
 
 @dataclass
+class Session:
+    """What outlives one turn of a run: the browser, the model's record, the vault and what was said. A follow-up
+    continues in this same browser and run instead of starting a new one."""
+    req: Any
+    browser: Any
+    llm: Any
+    vault: Any = None
+    turns: list[dict[str, str]] = field(default_factory=list)       # {"task", "answer"} for each finished turn
+    idle_since: float | None = None
+    cmds: "queue.Queue[Any]" = field(default_factory=queue.Queue)   # follow-ups (a string) or None (close), for the run's own thread
+    ended: threading.Event = field(default_factory=threading.Event) # set when that thread has closed the browser and finished
+
+
+@dataclass
 class Run:
     id: str
     prompt: str
@@ -54,6 +69,7 @@ class Run:
     flow_path: Path | None = None
     started: float = field(default_factory=time.time)
     meta: dict[str, Any] = field(default_factory=dict)      # for the history: kind, model, flow name, whether to keep it
+    session: Session | None = None
 
     @property
     def stop(self) -> threading.Event:
@@ -296,7 +312,66 @@ class HoldsValues(Guardrail):
 
 
 def _work(run: Run, req: RunRequest) -> None:
-    holder: dict[str, Any] = {}
+    """The first turn of a run: open the browser and the model's record, then do the task."""
+    try:
+        browser = make_browser(req, req.headed)
+        run.live.mode = req.review_mode if req.review_mode != "off" else ("always" if req.review else "off")
+        llm = MirrorLLM(build_llm(req), run.live, lambda: browser,
+                        on_pause=lambda paused: run.emit({"type": "paused", "paused": paused}),
+                        emit=run.emit, secrets=req.sensitive, presidio=req.presidio)
+        tmp = data_dir() / "tmp"
+        tmp.mkdir(exist_ok=True)
+        run.flow_path = tmp / f"{run.id}.json"
+        run.session = Session(req=req, browser=browser, llm=llm)
+    except Exception as exc:                           # a bad key, a missing model, a browser that will not start
+        run.emit({"type": "done", "success": False, "output": "", "steps": 0, "tokens": 0,
+                  "error": f"{type(exc).__name__}: {exc}"[:500]})
+        remember(run)
+        run.finished = True
+        _RUN_LOCK.release()
+        return
+    s = run.session
+    try:
+        _execute(run, req.prompt, first=True)
+        # The browser stays open for a follow-up. Playwright belongs to the thread that started it, so every later turn
+        # (and closing the browser) happens here, in this same thread.
+        while True:
+            try:
+                cmd = s.cmds.get(timeout=1)
+            except queue.Empty:
+                if s.idle_since is not None and time.time() - s.idle_since > IDLE_SECONDS:
+                    break
+                continue
+            if cmd is None:
+                break
+            _execute(run, _followup_task(run, s, cmd), first=False)
+    finally:
+        run.session = None
+        try:
+            s.browser.close()
+        except Exception:
+            pass
+        s.ended.set()
+
+
+def _followup_task(run: Run, s: Session, prompt: str) -> str:
+    try:
+        url = s.browser.url
+    except Exception:
+        url = "(unknown)"
+    first = s.turns[0] if s.turns else {"task": run.prompt, "answer": ""}
+    last = s.turns[-1] if s.turns else first
+    return (f"This continues an earlier task in the same browser.\nEarlier task: {first['task'][:1500]}\n"
+            f"Your last answer: {last['answer'][:3000] or '(none)'}\nThe browser is on {url}.\n\n"
+            f"The person now says: {prompt}")
+
+
+def _execute(run: Run, task: str, *, first: bool) -> None:
+    """One turn: the first task, or a follow-up in the same browser. Releases the run lock when it ends."""
+    s = run.session
+    assert s is not None
+    req = s.req
+    s.idle_since = None
 
     def on_step(step: Any) -> None:
         run.emit({"type": "step", "number": step.number, "tool": step.tool, "input": step.input,
@@ -308,28 +383,34 @@ def _work(run: Run, req: RunRequest) -> None:
         """The agent needs the person (bot check, login, approval): hand over the live view and wait."""
         run.live.handoff, run.live.control = None, True
         run.emit({"type": "handoff", "kind": request.kind, "reason": request.reason, "url": request.url})
-        run.live.wait_while(holder["browser"], lambda: run.live.handoff is None)
+        run.live.wait_while(s.browser, lambda: run.live.handoff is None)
         run.live.control = False
         run.emit({"type": "control", "on": False})
         return bool(run.live.handoff)
 
+    answer = ""
     try:
-        holder["browser"] = make_browser(req, req.headed)
-        run.live.mode = req.review_mode if req.review_mode != "off" else ("always" if req.review else "off")
-        llm = MirrorLLM(build_llm(req), run.live, lambda: holder["browser"],
-                        on_pause=lambda paused: run.emit({"type": "paused", "paused": paused}),
-                        emit=run.emit, secrets=req.sensitive, presidio=req.presidio)
-        tmp = data_dir() / "tmp"
-        tmp.mkdir(exist_ok=True)
-        run.flow_path = tmp / f"{run.id}.json"
-        agent = BrowseAgent(req.prompt, llm=llm, browser=holder["browser"], max_steps=req.max_steps,
-                            on_step=on_step, handoff=hand_off, sensitive=req.sensitive, sensitive_hints=req.labels or None, save_flow=run.flow_path,
+        if not first:
+            run.live.stop.clear()
+        agent = BrowseAgent(task, llm=s.llm, browser=s.browser, max_steps=req.max_steps,
+                            on_step=on_step, handoff=hand_off, sensitive=req.sensitive, sensitive_hints=req.labels or None,
+                            save_flow=run.flow_path if first else None,        # a follow-up starts mid-way: not a replayable flow
                             guardrails=[HoldsValues()] if run.live.mode != "off" else None)
-        llm.get_vault = lambda: agent.guards.vault
+        v = agent.guards.vault
+        if v is not None:                                # one vault for the whole run, so <EMAIL_1> means the same later
+            if s.vault is None:
+                s.vault = v
+            else:
+                agent.guards.vault = s.vault
+                for g in agent.guards.items:
+                    if getattr(g, "reversible", False):
+                        g.vault = s.vault
+        s.llm.get_vault = lambda: s.vault
         r = agent.run()
+        answer = r.output or ""
         run.emit({"type": "done", "success": r.success, "output": r.output, "steps": r.steps,
                   "tokens": r.usage.total_input + r.usage.output_tokens, "error": r.error,
-                  "can_save_flow": bool(r.success and run.flow_path.exists())})
+                  "can_save_flow": bool(first and r.success and run.flow_path and run.flow_path.exists())})
     except Stopped:
         run.emit({"type": "done", "success": False, "output": "", "steps": len(run.events), "tokens": 0,
                   "error": "Stopped by you."})
@@ -337,9 +418,68 @@ def _work(run: Run, req: RunRequest) -> None:
         run.emit({"type": "done", "success": False, "output": "", "steps": 0, "tokens": 0,
                   "error": f"{type(exc).__name__}: {exc}"[:500]})
     finally:
+        s.turns.append({"task": task, "answer": answer})
+        s.idle_since = time.time()
         remember(run)
         run.finished = True
         _RUN_LOCK.release()
+
+
+def close_session(run: Run) -> None:
+    """Ask the run's own thread to close its browser, and wait for it, so the profile is free when this returns."""
+    s = run.session
+    if s is not None and not s.ended.is_set():
+        s.cmds.put(None)
+        s.ended.wait(20)
+    run.session = None
+
+
+def close_idle_sessions(max_age: float | None = None) -> int:
+    """Close the browsers of runs that are not doing anything (all of them, or only those idle for ``max_age`` seconds)."""
+    n = 0
+    for run in list(RUNS.values()):
+        s = run.session
+        if s is not None and run.finished and (max_age is None or (s.idle_since and time.time() - s.idle_since > max_age)):
+            close_session(run)
+            n += 1
+    return n
+
+
+IDLE_SECONDS = 600          # an answered run keeps its browser this long for a follow-up
+
+
+class FollowUp(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/runs/{run_id}/followup", dependencies=[Depends(_auth)])
+def follow_up(run_id: str, req: FollowUp) -> dict[str, Any]:
+    """Carry on in the same run: same browser, on the page it ended on, with what was said before."""
+    run = _get_run(run_id)
+    s = run.session
+    if s is None or not run.finished or s.ended.is_set():
+        raise HTTPException(status_code=409, detail="This run can no longer take a follow-up (it is still working, or its browser was closed).")
+    if not _RUN_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A run is already in progress. Stop it or wait for it to finish.")
+    start = len(run.events)
+    run.finished = False
+    run.emit({"type": "turn", "n": len(s.turns) + 1, "prompt": req.prompt})
+    s.cmds.put(req.prompt)
+    return {"after": start}
+
+
+@app.post("/runs/{run_id}/close", dependencies=[Depends(_auth)])
+def close_run(run_id: str) -> dict[str, bool]:
+    run = _get_run(run_id)
+    if run.session is not None and run.finished:
+        close_session(run)
+    return {"closed": run.session is None}
+
+
+@app.post("/sessions/close", dependencies=[Depends(_auth)])
+def close_all_sessions() -> dict[str, int]:
+    """Before the app quits: close every browser a finished run is keeping for a follow-up."""
+    return {"closed": close_idle_sessions()}
 
 
 @app.get("/history", dependencies=[Depends(_auth)])
@@ -432,6 +572,7 @@ def clear_browser_data() -> dict[str, bool]:
     """Forget every login and cookie the agent's browser has kept. Only when no run is using the profile."""
     if not _RUN_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="A run is in progress. Stop it first.")
+    close_idle_sessions()                              # its browser holds the profile open
     try:
         p = profile_dir().resolve()
         if p.exists() and p.parent == data_dir().resolve():     # only ever the one folder we made
@@ -449,9 +590,11 @@ def start_run(req: RunRequest) -> dict[str, str]:
     check_presidio(req)
     if not _RUN_LOCK.acquire(blocking=False):          # one run at a time: each one drives a real browser
         raise HTTPException(status_code=409, detail="A run is already in progress. Stop it or wait for it to finish.")
+    close_idle_sessions()                              # an answered run's browser may still hold the profile
     run = Run(id=uuid.uuid4().hex[:12], prompt=req.prompt.split(SHARED_MARK)[0].split(SAVED_MARK)[0].strip())
     run.meta = {"kind": "run", "model": _model_label(req), "keep": req.history}
     for old in [r for r in RUNS.values() if r.finished][:-MAX_RUNS_KEPT]:
+        close_session(old)
         RUNS.pop(old.id, None)
     RUNS[run.id] = run
     threading.Thread(target=_work, args=(run, req), daemon=True).start()
@@ -891,6 +1034,7 @@ def run_saved_flow(flow_id: str, req: FlowRun) -> dict[str, str]:
         check_presidio(req)
     if not _RUN_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="A run is already in progress. Stop it or wait for it to finish.")
+    close_idle_sessions()
     run = Run(id=uuid.uuid4().hex[:12], prompt=flow.get("description", flow.get("name", "")))
     run.meta = {"kind": "flow", "flow": flow.get("name", flow_id), "keep": req.history,
                 "model": _model_label(req) if (req.summarize or req.failover) else ""}
@@ -920,13 +1064,13 @@ async def frames(run_id: str) -> StreamingResponse:
 
 
 @app.get("/runs/{run_id}/events", dependencies=[Depends(_auth)])
-async def events(run_id: str) -> StreamingResponse:
+async def events(run_id: str, after: int = 0) -> StreamingResponse:
     run = RUNS.get(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="no such run")
 
     async def stream():
-        sent = 0
+        sent = max(0, after)                           # a follow-up reads on from where the last stream ended
         while True:
             while sent < len(run.events):
                 yield f"data: {json.dumps(run.events[sent])}\n\n"

@@ -150,5 +150,13 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { quitting = true; });
+let closingSessions = false;
+app.on('before-quit', async (event) => {
+  quitting = true;
+  if (closingSessions || !baseUrl) return;
+  event.preventDefault();                       // close the browsers kept for follow-ups first, so no Chrome is left behind
+  closingSessions = true;
+  try { await fetch(`${baseUrl}/sessions/close`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, signal: AbortSignal.timeout(4000) }); } catch (_) { /* quit anyway */ }
+  app.quit();
+});
 app.on('quit', () => { if (backend) backend.kill(); });

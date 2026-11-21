@@ -41,6 +41,7 @@ def client(monkeypatch, tmp_path):
             server._RUN_LOCK.release()
             break
         time.sleep(0.1)
+    server.close_idle_sessions()                       # an answered run keeps its browser open; do not leak it past the test
 
 
 def _events(client, run_id):
@@ -831,3 +832,76 @@ def test_the_model_is_told_to_write_placeholders_in_its_answer(client, monkeypat
     client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
     _events(client, run)
     assert "write its placeholder exactly" in spy.sent[0]
+
+
+# ── a follow-up carries on in the same run ───────────────────────────────────────────────────
+def test_a_follow_up_continues_in_the_same_run_and_browser(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "First answer"}), ("done", {"success": True, "answer": "Second answer"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, prompt="find the lamp price")
+    assert _events(client, run)[-1]["output"] == "First answer"
+    browser = server.RUNS[run].session.browser
+    r = client.post(f"/runs/{run}/followup", headers=H, json={"prompt": "and the desk price?"})
+    assert r.status_code == 200
+    events = _events(client, run)
+    kinds = [e["type"] for e in events]
+    assert kinds.count("done") == 2 and "turn" in kinds and events[-1]["output"] == "Second answer", events[-1].get("error")
+    assert server.RUNS[run].session.browser is browser                       # the same browser, not a new one
+    assert len(client.get("/history", headers=H).json()) == 1                # one run in History, not two
+    second = spy.sent[1]
+    assert "find the lamp price" in second and "First answer" in second and "and the desk price?" in second
+
+
+def test_a_follow_up_needs_a_finished_run_with_its_browser(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    _events(client, run)
+    time.sleep(0.2)
+    assert client.post(f"/runs/{run}/close", headers=H).json() == {"closed": True}
+    r = client.post(f"/runs/{run}/followup", headers=H, json={"prompt": "more"})
+    assert r.status_code == 409 and "follow-up" in r.json()["detail"]
+    assert client.post("/runs/nosuchrun/followup", headers=H, json={"prompt": "x"}).status_code == 404
+
+
+def test_starting_a_new_run_closes_the_old_ones_browser(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"}), ("done", {"success": True, "answer": "ok"})]))
+    first = _start(client)
+    _events(client, first)
+    time.sleep(0.2)
+    assert server.RUNS[first].session is not None
+    second = _start(client)
+    _events(client, second)
+    assert server.RUNS[first].session is None
+    assert server.close_idle_sessions(max_age=0) in (0, 1)
+
+
+def test_idle_browsers_are_closed_after_a_while(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    _events(client, run)
+    time.sleep(0.2)
+    assert server.close_idle_sessions(max_age=3600) == 0 and server.RUNS[run].session is not None
+    server.RUNS[run].session.idle_since -= 7200
+    assert server.close_idle_sessions(max_age=3600) == 1 and server.RUNS[run].session is None
+
+
+def test_a_masked_value_means_the_same_thing_in_the_follow_up(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "Wrote to <EMAIL_1>"}), ("done", {"success": True, "answer": "Again to <EMAIL_1>"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    assert _events(client, run)[-1]["output"] == "Wrote to jane@example.com"
+    client.post(f"/runs/{run}/followup", headers=H, json={"prompt": "send it again"})
+    done = _events(client, run)[-1]
+    assert done["output"] == "Again to jane@example.com"                     # the same token, restored again
+    assert "jane@example.com" not in spy.sent[1] and "<EMAIL_1>" in spy.sent[1]
+
+
+def test_events_can_be_read_from_an_offset(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    full = _events(client, run)
+    text = client.get(f"/runs/{run}/events?after={len(full) - 1}", headers=H).text
+    tail = [json.loads(l[6:]) for l in text.splitlines() if l.startswith("data: ")]
+    assert [e["type"] for e in tail] == ["done"]
