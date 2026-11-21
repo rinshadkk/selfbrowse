@@ -581,7 +581,20 @@ class BrowseAgent:
         spec = next((t for t in self.tools if t["name"] == name), None)
         if spec is None:
             return args, f"Error: unknown tool {name!r}. Tools: {', '.join(t['name'] for t in self.tools)}."
-        return normalize_args(spec, args)
+        out, error = normalize_args(spec, args)
+        if error is None and name == "type" and self.sensitive:
+            out["text"] = self._as_secret_ref(str(out.get("text", "")))
+        return out, error
+
+    def _as_secret_ref(self, text: str) -> str:
+        """A model that has been told a secret's name sometimes types the name itself (``WEBSITE_LOGIN_PASSWORD``,
+        ``secret:WEBSITE_LOGIN_PASSWORD``) instead of the ``<secret:NAME>`` placeholder, which would put the name in
+        the field. When the whole text is exactly one known name, treat it as that placeholder."""
+        t = text.strip()
+        m = re.fullmatch(r"[<{\[]*\s*(?:secret\s*:\s*)?([A-Za-z0-9_\-]+)\s*[>}\]]*", t)
+        if m and m.group(1) in self.sensitive and (m.group(1) == t or t.lower().startswith(("<secret", "{secret", "secret", "[secret"))):
+            return f"<secret:{m.group(1)}>"
+        return text
 
     def _repair(self, content: list[dict[str, Any]], n: int) -> list[dict[str, Any]]:
         """If the model wrote a tool call as text, turn it into a real one."""

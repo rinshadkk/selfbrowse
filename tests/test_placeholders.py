@@ -182,3 +182,15 @@ def test_saved_details_are_looked_up_on_demand():
     assert "No saved detail" in agent._find_saved("passport")
     note = agent._secrets_note()
     assert "find_saved_detail" in note and "BASIC_FIRSTNAME" not in note and "Jane" not in note
+
+
+def test_a_bare_secret_name_is_typed_as_the_secret_not_as_text():
+    from selfbrowse import BrowseAgent
+    a = BrowseAgent.__new__(BrowseAgent)
+    a.sensitive = {"WEBSITE_LOGIN_PASSWORD": "hunter2"}
+    a.tools = __import__("selfbrowse.tools", fromlist=["build_tools"]).build_tools()
+    for typed in ("WEBSITE_LOGIN_PASSWORD", "secret:WEBSITE_LOGIN_PASSWORD", "<secret: WEBSITE_LOGIN_PASSWORD >", " {secret:WEBSITE_LOGIN_PASSWORD} "):
+        args, err = a._validate("type", {"ref": 1, "text": typed})
+        assert err is None and args["text"] == "<secret:WEBSITE_LOGIN_PASSWORD>", typed
+    for other in ("hello", "WEBSITE_LOGIN_PASSWORD2", "my WEBSITE_LOGIN_PASSWORD", "OTHER_NAME"):
+        assert a._validate("type", {"ref": 1, "text": other})[0]["text"] == other
