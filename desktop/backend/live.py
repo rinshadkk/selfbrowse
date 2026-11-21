@@ -53,6 +53,7 @@ class LiveView:
         self.mode = "off"                          # review before sending: "off", "flagged" (only when something looks
                                                    # personal) or "always" (every model call)
         self.decision: Any = None                  # the answer to the call being held: "send", "redact" or "stop"
+        self.replace: list[str] | None = None      # with "redact": which flagged texts to replace (None: all of them)
         self.inputs: collections.deque[Input] = collections.deque(maxlen=MAX_QUEUED_INPUTS)
         self.frame: dict[str, Any] | None = None   # only the latest frame is kept
         self.seq = 0
@@ -146,6 +147,10 @@ class LiveView:
     def wait_while(self, browser: Any, condition: Callable[[], bool]) -> None:
         while condition():
             self.tick(browser)
+
+
+ANSWER_HINT = ("When you report one of these values in your answer, write its placeholder exactly (for example <PERSON_1>). "
+               "It is replaced with the real value in the answer the person reads, so you can answer fully.")
 
 
 def _mask_text(text: str, tokens: dict[str, str]) -> str:
@@ -248,27 +253,29 @@ class MirrorLLM:
         self._emit({"type": "call", "idx": idx, "holding": hold, "mode": mode if hold else "off",
                     "reason": shown if hold else [], **payload})
         if hold:                                    # nothing leaves this computer until the person says so
-            live.decision = None
+            live.decision, live.replace = None, None
             live.wait_while(browser, lambda: live.mode != "off" and live.decision is None)
             answer = _decision(live.decision) if live.decision is not None else "send"   # review switched off: send
             if answer == "stop":
                 raise Stopped()
+            chosen = [f for f in shown if live.replace is None or f["match"] in live.replace] if answer == "redact" else []
             if mode == "flagged":
-                for f in new:
-                    self._decided[key(f)] = answer
+                for f in new:                       # what you left alone is not asked about again either
+                    self._decided[key(f)] = "redact" if f in chosen else "send"
             if answer == "redact":
-                to_mask = to_mask + [f for f in shown if f not in to_mask]
+                to_mask = to_mask + [f for f in chosen if f not in to_mask]
             self._emit({"type": "call_sent", "idx": idx})
         if to_mask:                                 # what is sent is the masked request, so that is what is recorded
             kwargs = dict(kwargs)
             tokens = self._tokens(to_mask, payload)
-            note = "" if any(t.startswith("<secret:") for t in tokens.values()) and len(tokens) == 1 else PLACEHOLDER_NOTE
+            note = "" if any(t.startswith("<secret:") for t in tokens.values()) and len(tokens) == 1 else PLACEHOLDER_NOTE + " " + ANSWER_HINT
             msgs = [{**m, "content": _mask_content(m.get("content"), tokens)} if m.get("role") == "user" else m
                     for m in kwargs.get("messages", [])]
             first = next((i for i, m in enumerate(msgs) if m.get("role") == "user"), None)
             if note and first is not None and self.get_vault() is not None and isinstance(msgs[first].get("content"), str) \
-                    and "placeholders like" not in msgs[first]["content"]:
-                msgs[first] = {**msgs[first], "content": msgs[first]["content"] + "\n" + note}   # tell the model how to use them
+                    and ANSWER_HINT not in msgs[first]["content"]:
+                have = "placeholders like" in msgs[first]["content"]            # the library's note may already be there
+                msgs[first] = {**msgs[first], "content": msgs[first]["content"] + "\n" + (ANSWER_HINT if have else note)}
             kwargs["messages"] = msgs
             masked = record.build(kwargs, self._table, self._secrets, False)
             self._emit({"type": "call_masked", "idx": idx, "ids": masked["ids"], "new": masked["new"], "count": len(to_mask)})

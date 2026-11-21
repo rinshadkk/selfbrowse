@@ -518,6 +518,7 @@ class ReviewRequest(BaseModel):
 class CallAnswer(BaseModel):
     send: bool
     mask: bool = False                                  # send, with what looks personal replaced
+    replace: list[str] | None = Field(default=None, max_length=200)   # with mask: which flagged texts (None: all)
 
 
 class SaveFlow(BaseModel):
@@ -538,7 +539,9 @@ def set_review(run_id: str, req: ReviewRequest) -> dict[str, Any]:
 def answer_call(run_id: str, req: CallAnswer) -> dict[str, Any]:
     """Send the held model call (as it is, or with what looks personal replaced), or refuse it (which stops the run)."""
     decision = ("redact" if req.mask else "send") if req.send else "stop"
-    _get_run(run_id).live.decision = decision
+    live = _get_run(run_id).live
+    live.replace = [r[:500] for r in req.replace] if req.replace is not None else None
+    live.decision = decision
     return {"send": req.send, "mask": req.mask and req.send}
 
 

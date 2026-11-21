@@ -809,3 +809,25 @@ def test_every_call_mode_holds_even_a_clean_request_and_can_be_switched_off(clie
     assert held["holding"] is True and held["mode"] == "always"
     client.post(f"/runs/{run}/review", headers=H, json={"mode": "off"})      # switching it off releases the held call
     assert _events(client, run)[-1]["success"] is True and len(spy.sent) == 2
+
+
+def test_you_can_replace_only_some_of_what_was_flagged(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="write to jane@example.com or call (312) 555-0187")
+    held = _wait_for(client, run, lambda e: e["type"] == "call")
+    assert {f["match"] for f in held["reason"]} == {"jane@example.com", "(312) 555-0187"}
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True, "replace": ["jane@example.com"]})
+    _events(client, run)
+    assert "jane@example.com" not in spy.sent[0] and "<EMAIL_1>" in spy.sent[0]
+    assert "(312) 555-0187" in spy.sent[0]                                  # left alone, as you chose
+
+
+def test_the_model_is_told_to_write_placeholders_in_its_answer(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="write to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    _events(client, run)
+    assert "write its placeholder exactly" in spy.sent[0]

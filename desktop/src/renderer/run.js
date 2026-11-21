@@ -196,6 +196,11 @@ function renderLedger() {
   $('lFlags').textContent = `${flagged} item${flagged === 1 ? '' : 's'}`;
 }
 
+function syncMaskButton() {
+  const n = R.replace ? R.replace.size : 0;
+  $('maskCall').textContent = n ? `Send with ${n} replaced` : 'Nothing ticked to replace';
+  $('maskCall').disabled = n === 0;
+}
 function renderBanner() {
   const it = R.items[R.items.length - 1];
   const c = it && it.call;
@@ -208,9 +213,23 @@ function renderBanner() {
   $('bannerText').textContent = flagged
     ? 'It is shown on the right with the parts highlighted. Nothing has left this computer yet.'
     : 'The next model call is shown on the right. Nothing has left this computer yet.';
-  $('bannerFlags').replaceChildren(...flags.slice(0, 6).map((f) => h('span', { class: 'flag' }, f.match.length > 40 ? `${f.match.slice(0, 39)}\u2026` : f.match)),
-    ...(flags.length > 6 ? [h('span', { class: 'muted' }, ` and ${flags.length - 6} more`)] : []));
+  // each flagged item is a choice: ticked ones are replaced, the others go as they are (a form label such as "Suff."
+  // can be taken for a name, so you decide)
+  R.replace = new Set(flags.map((f) => f.match));
+  $('bannerFlags').replaceChildren(...flags.slice(0, 12).map((f) => {
+    const short = f.match.length > 40 ? `${f.match.slice(0, 39)}\u2026` : f.match;
+    const b = h('button', { class: 'flagchip', type: 'button', 'aria-pressed': 'true', title: `${f.name}. Click to replace it or leave it.` }, h('i', { 'aria-hidden': 'true' }, '\u2713'), short);
+    b.addEventListener('click', () => {
+      const on = b.getAttribute('aria-pressed') !== 'true';
+      b.setAttribute('aria-pressed', String(on));
+      b.firstChild.textContent = on ? '\u2713' : '';
+      if (on) R.replace.add(f.match); else R.replace.delete(f.match);
+      syncMaskButton();
+    });
+    return b;
+  }), ...(flags.length > 12 ? [h('span', { class: 'muted' }, ` and ${flags.length - 12} more`)] : []));
   $('maskCall').hidden = flags.length === 0;
+  syncMaskButton();
   $('sendCall').textContent = flagged ? 'Send as is' : 'Send this call';
 }
 function render() { renderTimeline(); renderInspector(); renderUsage(); renderLedger(); renderBanner(); renderHead(); }
@@ -327,7 +346,7 @@ $('handoffNo').addEventListener('click', () => answerHandoff(false));
 
 // ---- approval of a held call ----
 $('sendCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true }).catch((e) => toast(e.message)); });
-$('maskCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true, mask: true }).catch((e) => toast(e.message)); });
+$('maskCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true, mask: true, replace: [...(R.replace || [])] }).catch((e) => toast(e.message)); });
 $('refuseCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: false }).catch((e) => toast(e.message)); });
 
 // ---- events from the run ----

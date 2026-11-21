@@ -367,3 +367,7 @@ summary.pill::-webkit-details-marker{display:none}
 .pop select{width:100%}
 .flaglist{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .pop label.field+.foot{margin-left:0}
+.flagchip{display:inline-flex;align-items:center;gap:5px;border:1px solid color-mix(in srgb,var(--sent) 70%,transparent);background:var(--sent-soft);color:var(--ink);border-radius:6px;padding:1px 8px 1px 6px;font:12.5px var(--mono);cursor:pointer}
+.flagchip i{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--muted);display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;line-height:1}
+.flagchip[aria-pressed=true] i{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.flagchip[aria-pressed=false]{background:var(--surface);color:var(--muted);text-decoration:line-through}
