@@ -181,8 +181,9 @@ function renderLedger() {
   const cs = calls(), done = cs.filter((c) => c.usage);
   const inAll = done.reduce((a, c) => a + c.usage.input + c.usage.cache_read + c.usage.cache_write, 0);
   const out = done.reduce((a, c) => a + c.usage.output, 0);
-  $('lCalls').textContent = R.flowName ? 'No model used' : `${cs.length} call${cs.length === 1 ? '' : 's'}`;
-  $('lProvider').textContent = R.flowName ? '' : `to ${sourceLabel(models.selected.source)}`;
+  const noModel = R.flowName && cs.length === 0 && !R.flowModel;
+  $('lCalls').textContent = noModel ? 'No model used' : `${cs.length} call${cs.length === 1 ? '' : 's'}`;
+  $('lProvider').textContent = noModel ? '' : `to ${sourceLabel(models.selected.source)}`;
   $('lIn').textContent = fmt(inAll);
   $('lOut').textContent = fmt(out);
   const cost = estimate(inAll, out);
@@ -222,8 +223,10 @@ function setStatus(title, text, { error = false, answer = '' } = {}) {
 }
 function setRunning(on) {
   R.running = on;
-  $('go').disabled = on;
-  $('stop').hidden = !on;
+  const go = $('go');                                        // one button: Run, and while running, Stop
+  go.classList.toggle('stopping', on);
+  go.setAttribute('aria-label', on ? 'Stop' : 'Run');
+  go.title = on ? 'Stop the run' : 'Run (Cmd+Enter)';
   $('control').disabled = !on;
   if (!on) setControl(false, false);
   renderBanner();
@@ -332,13 +335,14 @@ function finish(e) {
   $('handoff').hidden = true;
   R.canSaveFlow = !!e.can_save_flow;
   $('afterRun').hidden = !R.canSaveFlow;
-  const used = R.flowName ? 'no model used' : `${fmt(e.tokens)} tokens`;
+  const used = e.model_calls ? `${fmt(e.tokens)} tokens in ${e.model_calls} model call${e.model_calls === 1 ? '' : 's'}` : R.flowName ? 'no model used' : `${fmt(e.tokens)} tokens`;
+  const extra = [e.repaired ? `A model finished the task after step ${e.repaired_at} failed.` : '', e.summarized ? 'The model wrote the summary.' : '', e.warning || ''].filter(Boolean).join(' ');
   if (e.error && !e.output) setStatus(e.error === 'Stopped by you.' ? 'Stopped' : 'The run could not finish', e.error, { error: e.error !== 'Stopped by you.' });
-  else setStatus(e.success ? 'Done' : 'Finished without a confirmed answer', `${e.steps} steps, ${used}.`, { answer: e.output });
+  else setStatus(e.success ? 'Done' : 'Finished without a confirmed answer', `${e.steps} steps, ${used}.${extra ? ` ${extra}` : ''}`, { answer: e.output });
 }
 
-async function beginRun(id, flowName) {
-  Object.assign(R, { id, items: [], table: {}, selected: -1, follow: true, flowName: flowName || null, doneEvent: null, canSaveFlow: false });
+async function beginRun(id, flowName, flowModel) {
+  Object.assign(R, { id, items: [], table: {}, selected: -1, follow: true, flowName: flowName || null, flowModel: !!flowModel, doneEvent: null, canSaveFlow: false });
   if (R.stream) R.stream.abort();
   if (R.frames) R.frames.abort();
   $('afterRun').hidden = true;
@@ -346,7 +350,7 @@ async function beginRun(id, flowName) {
   $('live').hidden = false;
   $('frame').removeAttribute('src');
   $('liveUrl').textContent = 'Starting the browser…';
-  setStatus(flowName ? `Replaying “${flowName}”` : 'Starting…', flowName ? 'No model is used, so this costs no tokens.' : 'Opening a browser and sending the first request.');
+  setStatus(flowName ? `Replaying “${flowName}”` : 'Starting…', flowName ? (flowModel ? 'Replaying without a model. One is used only for the summary, or if a step fails.' : 'No model is used, so this costs no tokens.') : 'Opening a browser and sending the first request.');
   setRunning(true);
   go('run');
   render();
@@ -397,6 +401,7 @@ document.addEventListener('click', (e) => { if (!e.target.closest('#browserOpts'
 // ---- starting, stopping, saving ----
 $('form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
+  if (R.running) { stopRun(); return; }
   const prompt = $('prompt').value.trim();
   if (!prompt) { setStatus('Type a task first', 'Describe what the browser should do.', { error: true }); return; }
   const useInfo = $('useInfo').checked && !$('useInfo').disabled;
@@ -412,11 +417,11 @@ $('form').addEventListener('submit', async (ev) => {
     setStatus('Could not start', err.message, { error: true });
   }
 });
-$('prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('form').requestSubmit(); });
-$('stop').addEventListener('click', () => {
+$('prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !R.running) $('form').requestSubmit(); });
+function stopRun() {
   setStatus('Stopping…', 'Stopping now.');
   post(`/runs/${R.id}/stop`).catch(() => {});
-});
+}
 $('saveFlow').addEventListener('click', async () => {
   let draft;
   try { draft = await call('GET', `/runs/${R.id}/flow`); } catch (err) { toast(err.message); return; }

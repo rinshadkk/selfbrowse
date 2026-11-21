@@ -135,7 +135,7 @@ document.querySelector('.rail').addEventListener('click', (e) => {
 let sheetOpener = null;
 function openSheet(...content) {
   sheetOpener = document.activeElement;
-  $('sheet').replaceChildren(...content);
+  $('sheet').replaceChildren(...content.filter((c) => c != null && c !== false));
   $('sheetwrap').hidden = false;
   const first = $('sheet').querySelector('input,button');
   if (first) first.focus();

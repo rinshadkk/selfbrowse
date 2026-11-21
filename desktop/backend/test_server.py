@@ -35,7 +35,12 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("SELFBROWSE_HOME", str(tmp_path))
     monkeypatch.setenv("SB_DESKTOP_DATA", str(tmp_path / "desktop"))
     server.RUNS.clear()
-    return TestClient(server.app, base_url="http://127.0.0.1")
+    yield TestClient(server.app, base_url="http://127.0.0.1")
+    for _ in range(100):                               # a run from this test may still be shutting its browser down
+        if server._RUN_LOCK.acquire(blocking=False):
+            server._RUN_LOCK.release()
+            break
+        time.sleep(0.1)
 
 
 def _events(client, run_id):
@@ -673,3 +678,48 @@ def test_saved_details_reach_the_model_only_when_it_asks(client, monkeypatch, pa
     assert "HOME_CITY" not in first_msgs and "Home › City" not in first_msgs and "Springfield" not in first_msgs
     later = seen[-1][0]
     assert "<secret:HOME_CITY> is Home › City" in later and "HOME_PHONE" not in later and "Springfield" not in later
+
+
+# ── a flow replay with optional model help ───────────────────────────────────────────────────
+def _save_flow_with_read(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("goto", {"url": page_url}), ("read", {}), ("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    _events(client, run)
+    return client.post(f"/runs/{run}/save-flow", headers=H, json={"name": "Read it"}).json()["id"]
+
+
+def test_replay_uses_no_model_unless_asked(client, monkeypatch, page_url):
+    fid = _save_flow_with_read(client, monkeypatch, page_url)
+    called = []
+    monkeypatch.setattr(server, "build_llm", lambda req: called.append(1))
+    done = _events(client, client.post(f"/flows/{fid}/run", headers=H, json={}).json()["id"])[-1]
+    assert done["success"] and done["tokens"] == 0 and done["model_calls"] == 0 and not called
+
+
+def test_replay_can_summarize_with_a_model_and_hides_personal_data(client, monkeypatch, page_url):
+    fid = _save_flow_with_read(client, monkeypatch, page_url)
+    seen = []
+
+    class Summarizer:
+        model = "scripted"
+
+        def complete(self, *, system, messages, tools, max_tokens=2048):
+            seen.append(json.dumps(messages, ensure_ascii=False))
+            return LLMResponse(content=[{"type": "tool_use", "id": "1", "name": "answer", "input": {"answer": "A short summary."}}],
+                               stop_reason="tool_use", usage=Usage(input_tokens=30, output_tokens=7, calls=1))
+    monkeypatch.setattr(server, "build_llm", lambda req: Summarizer())
+    r = client.post(f"/flows/{fid}/run", headers=H, json={
+        "summarize": True, "model": "scripted", "ask": "Summarize this for jane@example.com, from Springfield",
+        "sensitive": {"HOME_CITY": "Springfield"}})
+    assert r.status_code == 200, r.text
+    done = _events(client, r.json()["id"])[-1]
+    assert done["success"] and done["output"] == "A short summary." and done["summarized"] is True
+    assert done["model_calls"] == 1 and done["tokens"] == 37
+    assert seen and "jane@example.com" not in seen[0] and "Springfield" not in seen[0]
+    assert "[removed: email address]" in seen[0] and "[removed: HOME_CITY]" in seen[0]
+
+
+def test_replay_with_a_model_option_needs_a_model(client, monkeypatch, page_url):
+    fid = _save_flow_with_read(client, monkeypatch, page_url)
+    r = client.post(f"/flows/{fid}/run", headers=H, json={"failover": True})
+    assert r.status_code == 400 and "model" in r.json()["detail"].lower()

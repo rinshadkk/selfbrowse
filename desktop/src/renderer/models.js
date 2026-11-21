@@ -11,14 +11,16 @@ const PROVIDERS = [
   { id: 'ollama', name: 'Ollama (this computer)', env: null, models: ['qwen2.5:14b'] },
   { id: 'lmstudio', name: 'LM Studio (this computer)', env: null, models: [] },
 ];
-const DEFAULT_MODELS = { selected: { source: 'anthropic', model: 'claude-haiku-5-5' }, keys: {}, custom: [] };
+const DEFAULT_MODELS = { selected: { source: 'anthropic', model: 'claude-haiku-5-5' }, keys: {}, custom: [], last: {} };
 let models = structuredClone(DEFAULT_MODELS);
 
 async function loadModels() {
   try {
     const saved = await window.selfbrowse.loadModels();
-    if (saved && saved.selected && Array.isArray(saved.custom)) models = { ...DEFAULT_MODELS, ...saved, keys: saved.keys || {} };
+    if (saved && saved.selected && Array.isArray(saved.custom)) models = { ...DEFAULT_MODELS, ...saved, keys: saved.keys || {}, last: saved.last || {} };
   } catch (err) { toast(`Model settings could not be opened: ${err.message}`); }
+  const cur = models.selected.source.startsWith('custom:') ? sourceOf(models.selected.source) : null;
+  if (cur && !cur.model) cur.model = models.selected.model;        // saved before each source remembered its model
   renderModelBtn();
 }
 async function persistModels() {
@@ -28,11 +30,13 @@ async function persistModels() {
 const sourceOf = (id) => id.startsWith('custom:')
   ? models.custom.find((c) => `custom:${c.id}` === id)
   : PROVIDERS.find((p) => p.id === id);
+// The model last used with each source, so switching back to a source brings its model name back.
+const lastModel = (id) => (id.startsWith('custom:') ? (sourceOf(id) || {}).model : models.last[id]) || '';
 function sourceLabel(id) { const s = sourceOf(id); return s ? s.name : 'Unknown source'; }
 
 function renderModelBtn() {
   const { source, model } = models.selected;
-  $('modelBtn').textContent = `${sourceLabel(source)} · ${model || 'choose a model'}`;
+  $('modelBtn').textContent = `${sourceLabel(source)} · ${model || 'choose a model'} ▾`;
   if (typeof renderLedger === 'function') renderLedger();
 }
 
@@ -47,8 +51,8 @@ function modelRequest() {
   return { model: `${source}:${model}`, api_key: models.keys[source] || '' };
 }
 
-function openModelSheet() {
-  let source = models.selected.source;
+function openModelSheet(start) {
+  let source = typeof start === 'string' ? start : models.selected.source;
   const draft = { name: '', baseUrl: '', json: false, api: 'openai' };
   const body = h('div');
   const field = (label, input, note) => h('label', { class: 'field' }, label, input, note ? h('span', { class: 'foot' }, note) : null);
@@ -77,7 +81,7 @@ function openModelSheet() {
       rows.push(field('Name', name), field('API type', apiSel, 'Pick the one your server speaks. If http://…/v1/models answers with type, display_name and has_more, it is Anthropic style.'), field('Base URL', url, 'Any server that speaks the OpenAI chat API: vLLM, LiteLLM, a company gateway, a cloud endpoint. Page text and screenshots are sent to this address.'));
     }
     model = h('input', { list: 'modelList', spellcheck: 'false', autocomplete: 'off', placeholder: custom ? 'The model name on that server' : 'Model name',
-      value: models.selected.source === source ? models.selected.model : (prov && prov.models[0]) || '' });
+      value: models.selected.source === source ? models.selected.model : lastModel(source) || (prov && prov.models[0]) || '' });
     if (prov && prov.models.length) datalist = h('datalist', { id: 'modelList' }, prov.models.map((m) => h('option', { value: m })));
     rows.push(field('Model', model), datalist);
     if (!prov || prov.env) {
@@ -112,14 +116,17 @@ function openModelSheet() {
         if (!n) return toast('Give the source a name.');
         if (!/^https?:\/\/\S+$/.test(u)) return toast('The base URL must start with http:// or https://');
         if (existing) {
-          Object.assign(existing, { name: n, baseUrl: u, json: json.checked, api: apiSel.value });
+          Object.assign(existing, { name: n, baseUrl: u, json: json.checked, api: apiSel.value, model: m });
           if (key.value) existing.key = key.value.trim();
         } else {
-          const c = { id: Math.random().toString(36).slice(2, 10), name: n, baseUrl: u, json: json.checked, api: apiSel.value, key: key.value.trim() };
+          const c = { id: Math.random().toString(36).slice(2, 10), name: n, baseUrl: u, json: json.checked, api: apiSel.value, model: m, key: key.value.trim() };
           models.custom.push(c);
           id = `custom:${c.id}`;
         }
-      } else if (key && key.value.trim()) models.keys[source] = key.value.trim();
+      } else {
+        if (key && key.value.trim()) models.keys[source] = key.value.trim();
+        models.last[source] = m;
+      }
       models.selected = { source: id, model: m };
       persistModels(); renderModelBtn(); closeSheet();
     } }, 'Use this model'));
@@ -129,4 +136,35 @@ function openModelSheet() {
   openSheet(h('div', { class: 'head' }, h('div', {}, h('h2', { id: 'sheetTitle' }, 'Model'),
     h('p', { class: 'muted' }, 'Choose who answers for the browser agent. Pick a provider, or add your own server.'))), body);
 }
-$('modelBtn').addEventListener('click', openModelSheet);
+
+// ---- quick switch: the models you have used, one click each ----
+function savedModels() {
+  const rows = [{ source: models.selected.source, model: models.selected.model }];
+  for (const p of PROVIDERS) if (models.last[p.id]) rows.push({ source: p.id, model: models.last[p.id] });
+  for (const c of models.custom) if (c.model) rows.push({ source: `custom:${c.id}`, model: c.model });
+  const seen = new Set();
+  return rows.filter((r) => sourceOf(r.source) && !seen.has(`${r.source}|${r.model}`) && seen.add(`${r.source}|${r.model}`));
+}
+function closeModelMenu() { $('modelMenu').hidden = true; $('modelBtn').setAttribute('aria-expanded', 'false'); }
+function drawModelMenu() {
+  const cur = models.selected;
+  const rows = savedModels().map((r) => {
+    const on = r.source === cur.source && r.model === cur.model;
+    return h('div', { class: `mrow${on ? ' on' : ''}`, role: 'none' },
+      h('button', { class: 'mpick', type: 'button', role: 'menuitemradio', 'aria-checked': String(on),
+        onclick: () => { models.selected = { source: r.source, model: r.model }; persistModels(); renderModelBtn(); closeModelMenu(); } },
+        h('span', { class: 'mtick', 'aria-hidden': 'true' }, on ? '✓' : ''), h('span', { class: 'mname' }, sourceLabel(r.source)), h('span', { class: 'mmodel' }, r.model)),
+      h('button', { class: 'medit', type: 'button', 'aria-label': `Edit ${sourceLabel(r.source)}`, title: 'Edit', onclick: () => { closeModelMenu(); openModelSheet(r.source); } }, 'Edit'));
+  });
+  $('modelMenu').replaceChildren(...rows, h('div', { class: 'msep' }),
+    h('button', { class: 'mact', type: 'button', role: 'menuitem', onclick: () => { closeModelMenu(); openModelSheet('custom:new'); } }, '+ Add a custom source'),
+    h('button', { class: 'mact', type: 'button', role: 'menuitem', onclick: () => { closeModelMenu(); openModelSheet(); } }, 'Choose another provider or model…'));
+}
+$('modelBtn').addEventListener('click', () => {
+  if (!$('modelMenu').hidden) { closeModelMenu(); return; }
+  drawModelMenu();
+  $('modelMenu').hidden = false;
+  $('modelBtn').setAttribute('aria-expanded', 'true');
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('.menuwrap')) closeModelMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelMenu(); });

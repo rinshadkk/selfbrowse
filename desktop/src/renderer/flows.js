@@ -36,6 +36,7 @@ function renderFlows() {
 }
 
 // ---- replay ----
+const loadFlowOpts = () => { try { return { summarize: false, failover: false, ...JSON.parse(localStorage.getItem('sb.flowmodel') || '{}') }; } catch (_) { return { summarize: false, failover: false }; } };
 function runFlow(f) {
   const have = localValues();
   const missing = f.secrets.filter((s) => !(s in have));
@@ -44,25 +45,48 @@ function runFlow(f) {
     return { name, p, input, el: h('label', { class: 'field' }, p.label + (p.required ? ' (required)' : ''), input) };
   });
   const msg = h('p', { class: 'note' }, '');
+  const saved = loadFlowOpts();
+  const sumBox = h('input', { type: 'checkbox' }), failBox = h('input', { type: 'checkbox' });
+  sumBox.checked = saved.summarize; failBox.checked = saved.failover;
+  const ask = h('input', { type: 'text', maxlength: '500', placeholder: 'Optional: what should the model answer? Default is the flow’s description.', 'aria-label': 'Question for the model' });
+  const modelNote = h('p', { class: 'foot' });
+  const optsBox = h('div', { class: 'modelopts' });
+  const sync = () => {
+    const on = sumBox.checked || failBox.checked;
+    ask.hidden = !on; modelNote.hidden = !on;
+    modelNote.textContent = `Uses ${sourceLabel(models.selected.source)} · ${models.selected.model}. The text the flow reads from the page goes to it. My info values and anything that looks personal are replaced first. Change the model from the Model menu on the Run screen.`;
+    try { localStorage.setItem('sb.flowmodel', JSON.stringify({ summarize: sumBox.checked, failover: failBox.checked })); } catch (_) { /* fine */ }
+  };
+  sumBox.addEventListener('change', sync); failBox.addEventListener('change', sync);
+  optsBox.append(h('h3', {}, 'Model help (optional)'),
+    h('p', { class: 'muted' }, 'A replay uses no model. You can let one help in two cases.'),
+    h('label', { class: 'switch' }, sumBox, 'Summarize the result at the end'),
+    h('label', { class: 'switch' }, failBox, 'If a step fails, let the model finish the task'), ask, modelNote);
+  sync();
   const start = async () => {
     const params = {};
     for (const x of inputs) {
       if (x.input.value) params[x.name] = x.input.value;
       else if (x.p.required) { msg.textContent = `Fill in “${x.p.label}” first.`; return; }
     }
+    const useModel = sumBox.checked || failBox.checked;
+    let model = {};
+    if (useModel) {
+      try { model = { summarize: sumBox.checked, failover: failBox.checked, ask: ask.value.trim(), ...modelRequest(), presidio: $('presidio').checked, review: $('review').checked }; }
+      catch (err) { msg.textContent = err.message; return; }
+    }
     try {
-      const { id } = await post(`/flows/${f.id}/run`, { params, sensitive: have, headed: false, history: keepHistory(), ...browserOptions() });
+      const { id } = await post(`/flows/${f.id}/run`, { params, sensitive: have, headed: false, history: keepHistory(), ...model, ...browserOptions() });
       closeSheet();
-      beginRun(id, f.name);
+      beginRun(id, f.name, useModel);
     } catch (err) { msg.textContent = err.message; }
   };
-  if (!missing.length && !inputs.length) { start(); return; }
   const go_ = h('button', { class: 'btn primary', type: 'button', onclick: start }, 'Run flow');
   if (missing.length) go_.disabled = true;
-  openSheet(h('div', { class: 'head' }, h('div', {}, h('h2', { id: 'sheetTitle' }, `Run “${f.name}”`), h('p', { class: 'muted' }, 'Replays the saved steps. No model is used.'))),
+  openSheet(h('div', { class: 'head' }, h('div', {}, h('h2', { id: 'sheetTitle' }, `Run “${f.name}”`), h('p', { class: 'muted' }, 'Replays the saved steps in the browser.'))),
     missing.length ? h('div', { class: 'warnbox' }, h('b', {}, 'This flow needs info you have not saved yet.'),
       h('p', { class: 'note' }, `Add ${missing.map((m) => `“${m}”`).join(', ')} in My info, set to “Only me”. The field names must match.`)) : null,
-    ...inputs.map((x) => x.el), msg,
+    ...inputs.map((x) => x.el), optsBox, msg,
     h('div', { class: 'sharerow' }, go_, h('button', { class: 'btn', type: 'button', onclick: closeSheet }, 'Cancel')));
 }
 

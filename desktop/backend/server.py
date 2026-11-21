@@ -770,6 +770,46 @@ class FlowRun(BrowserOptions):
     sensitive: dict[str, str] = Field(default_factory=dict)
     headed: bool = False
     history: bool = True
+    # Optional model help. Off by default: a replay uses no model.
+    summarize: bool = False              # after the last step, one call turns what the flow read into an answer
+    failover: bool = False               # if a step cannot find its element, a model finishes the task from that page
+    ask: str = Field(default="", max_length=500)       # the question or task for the model (default: the flow's description)
+    model: str = Field(default="", max_length=100, pattern=r"^[A-Za-z0-9_.:/@+-]*$")
+    custom: CustomSource | None = None
+    api_key: str = Field(default="", max_length=500)
+    presidio: bool = False
+    review: bool = False                 # hold each model call until the person approves it
+
+
+class MaskedLLM:
+    """Hides personal data from everything that goes out, so a summary or a repair never carries it. Wraps the
+    model; the record of calls sits inside it and so shows exactly what was sent."""
+
+    def __init__(self, inner: Any, req: Any) -> None:
+        self._inner, self._req = inner, req
+        self.model = getattr(inner, "model", "?")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def _text(self, text: str) -> str:
+        return _mask(text, self._req, [])
+
+    def _blocks(self, content: Any) -> Any:
+        if isinstance(content, str):
+            return self._text(content)
+        out = []
+        for b in content or []:
+            if isinstance(b, dict) and b.get("type") == "text":
+                b = {**b, "text": self._text(str(b.get("text", "")))}
+            elif isinstance(b, dict) and b.get("type") == "tool_result":
+                b = {**b, "content": self._blocks(b.get("content"))}
+            out.append(b)
+        return out
+
+    def complete(self, **kw: Any) -> Any:
+        kw["messages"] = [{**m, "content": self._blocks(m.get("content"))} for m in kw.get("messages", [])]
+        return self._inner.complete(**kw)
 
 
 def _work_flow(run: Run, flow: dict[str, Any], req: FlowRun) -> None:
@@ -794,11 +834,20 @@ def _work_flow(run: Run, flow: dict[str, Any], req: FlowRun) -> None:
     try:
         holder["browser"] = make_browser(req, req.headed)
         holder["browser"].start()
+        llm = None
+        if req.summarize or req.failover:
+            run.live.review = req.review
+            llm = MaskedLLM(MirrorLLM(build_llm(req), run.live, lambda: holder["browser"],
+                                      on_pause=lambda paused: run.emit({"type": "paused", "paused": paused}),
+                                      emit=run.emit, secrets=req.sensitive, presidio=req.presidio), req)
         runner = FlowRunner(flow, holder["browser"], params=req.params, secrets=req.sensitive,
-                            handler=hand_off, on_step=on_step)
+                            handler=hand_off, on_step=on_step, llm=llm, answer_with_model=req.summarize,
+                            repair_with_model=req.failover, task=req.ask.strip() or None)
         r = runner.run()
-        run.emit({"type": "done", "success": r.success, "output": r.output, "steps": r.steps_run, "tokens": 0,
-                  "error": r.error, "can_save_flow": False})
+        run.emit({"type": "done", "success": r.success, "output": r.output, "steps": r.steps_run, "tokens": r.tokens,
+                  "error": r.error, "can_save_flow": False, "model_calls": r.model_calls,
+                  "summarized": r.answered_by_model, "repaired": r.repaired_by_model, "repaired_at": r.repaired_at,
+                  "warning": r.warning})
     except Stopped:
         run.emit({"type": "done", "success": False, "output": "", "steps": 0, "tokens": 0, "error": "Stopped by you."})
     except Exception as exc:
@@ -818,10 +867,15 @@ def _work_flow(run: Run, flow: dict[str, Any], req: FlowRun) -> None:
 def run_saved_flow(flow_id: str, req: FlowRun) -> dict[str, str]:
     flow = load_flow(_flow_file(flow_id))
     check_browser_options(req)
+    if req.summarize or req.failover:
+        if not req.model.strip():
+            raise HTTPException(status_code=400, detail="Choose a model first.")
+        check_presidio(req)
     if not _RUN_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="A run is already in progress. Stop it or wait for it to finish.")
     run = Run(id=uuid.uuid4().hex[:12], prompt=flow.get("description", flow.get("name", "")))
-    run.meta = {"kind": "flow", "flow": flow.get("name", flow_id), "model": "", "keep": req.history}
+    run.meta = {"kind": "flow", "flow": flow.get("name", flow_id), "keep": req.history,
+                "model": _model_label(req) if (req.summarize or req.failover) else ""}
     RUNS[run.id] = run
     threading.Thread(target=_work_flow, args=(run, flow, req), daemon=True).start()
     return {"id": run.id}

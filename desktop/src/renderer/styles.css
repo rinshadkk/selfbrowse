@@ -60,9 +60,18 @@ input[type=text],input[type=password],input:not([type]),select,textarea{border:1
 
 /* ---------- run ---------- */
 #run{grid-template-rows:auto 1fr auto}
-.promptbar{display:grid;grid-template-columns:1fr auto;gap:10px 12px;padding:14px 20px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
+.promptbar{display:grid;gap:10px 12px;padding:14px 20px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
 .promptbar textarea{resize:none;border-radius:var(--radius);padding:10px 14px;font-size:15px;background:var(--paper)}
-.promptbar .actions{display:flex;gap:8px;align-items:start}
+.composer{grid-column:1/-1;position:relative}
+.composer textarea{display:block;width:100%;padding-right:64px}
+.send{position:absolute;right:10px;top:50%;margin-top:-19px;width:38px;height:38px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;background:var(--accent);color:var(--accent-ink);box-shadow:0 1px 3px rgba(0,0,0,.25);transition:background .15s,transform .1s}
+.send:hover{background:var(--accent);filter:brightness(1.1)}
+.send svg{width:20px;height:20px;fill:currentColor;grid-area:1/1}
+.send .i-run{margin-left:2px}
+.send .i-stop{display:none}
+.send.stopping{background:var(--ink);color:var(--paper)}
+.send.stopping .i-run{display:none}
+.send.stopping .i-stop{display:block}
 .promptbar .opts{grid-column:1/-1;display:flex;gap:20px;align-items:center;color:var(--muted);font-size:13px;flex-wrap:wrap}
 .opts #modelBtn{font:12.5px var(--mono);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sheet select{width:100%;padding:6px 10px;font:inherit;color:inherit}
@@ -267,3 +276,21 @@ td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top;o
 .locked{display:flex;gap:8px;align-items:center;border:1px solid var(--local);background:var(--local-soft);color:var(--ink);border-radius:9px;padding:4px 8px 4px 10px;font-size:12px;font-weight:600}
 .locked .btn{margin-left:auto}
 .lockicon{width:12px;height:12px;border:2px solid var(--local);border-radius:3px;flex:none}
+
+/* ---------- model quick switch ---------- */
+.menuwrap{position:relative;display:inline-flex;align-items:center;gap:8px}
+.menu{position:absolute;top:calc(100% + 6px);left:0;z-index:10;min-width:340px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.mrow{display:flex;align-items:center;gap:4px;border-radius:8px}
+.mrow:hover,.mrow.on{background:var(--paper)}
+.mpick{flex:1;display:grid;grid-template-columns:16px auto 1fr;gap:8px;align-items:baseline;text-align:left;border:0;background:none;padding:8px 8px;font:inherit;color:inherit}
+.mtick{color:var(--local);font-weight:700}
+.mname{font-weight:600}
+.mmodel{font:12px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.medit{border:0;background:none;color:var(--muted);font:inherit;font-size:12px;padding:6px 8px;border-radius:6px}
+.medit:hover{color:var(--ink);text-decoration:underline}
+.msep{height:1px;background:var(--line);margin:6px 4px}
+.mact{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:8px;font:inherit;color:var(--accent);font-weight:600}
+.mact:hover{background:var(--paper)}
+.modelopts{display:grid;gap:8px;border-top:1px solid var(--line);margin-top:14px;padding-top:4px}
+.modelopts h3{margin:12px 0 0}.modelopts p{margin:0}
+.modelopts input[type=text]{width:100%}

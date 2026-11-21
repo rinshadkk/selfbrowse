@@ -25,13 +25,15 @@
   <!-- ================= RUN ================= -->
   <section class="screen on" id="run" aria-label="Run">
     <form class="promptbar" id="form">
-      <textarea id="prompt" rows="2" aria-label="What should the browser do?" placeholder="What should the browser do? For example: find the cheapest nonstop flight from Chicago to Kochi next month"></textarea>
-      <div class="actions">
-        <button class="btn primary" id="go" type="submit">Run</button>
-        <button class="btn" id="stop" type="button" hidden>Stop</button>
+      <div class="composer">
+        <textarea id="prompt" rows="2" aria-label="What should the browser do?" placeholder="What should the browser do? For example: find the cheapest nonstop flight from Chicago to Kochi next month"></textarea>
+        <button class="send" id="go" type="submit" aria-label="Run" title="Run (Cmd+Enter)">
+          <svg class="i-run" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 001.5.86l10.4-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z"/></svg>
+          <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>
+        </button>
       </div>
       <div class="opts">
-        <label class="inline">Model <button class="btn small" id="modelBtn" type="button" aria-haspopup="dialog">Anthropic</button></label>
+        <div class="inline menuwrap">Model <button class="btn small" id="modelBtn" type="button" aria-haspopup="menu" aria-expanded="false">Anthropic ▾</button><div class="menu" id="modelMenu" role="menu" hidden></div></div>
         <label class="switch" id="useInfoLabel"><input type="checkbox" id="useInfo" checked> Use My info</label>
         <label class="switch" id="presidioLabel" title="Uses Microsoft Presidio, on this computer, to flag names and ID numbers in what is sent"><input type="checkbox" id="presidio"> Detect more personal data</label>
         <button class="btn small" id="presidioInstall" type="button" hidden>Install</button><span class="foot" id="presidioNote"></span>
@@ -166,7 +168,7 @@
   <section class="screen" id="flows" aria-label="Flows">
     <div class="main wide">
       <h1>Flows</h1>
-      <p class="lead">A flow is a run you saved. Replaying one skips the model, so it costs no tokens.</p>
+      <p class="lead">A flow is a run you saved. Replaying one skips the model, so it costs no tokens, unless you ask a model to summarize the result or step in if a step fails.</p>
       <div class="cards" id="cards"></div>
     </div>
   </section>
