@@ -178,7 +178,10 @@ class Vault:
     def __bool__(self) -> bool:                 # an empty vault is still a vault
         return True
 
-    def mint(self, kind: str, value: str, url: str = "") -> str:
+    def mint(self, kind: str, value: str, url: str = "", *, anywhere: bool = False) -> str:
+        """Make (or find) the token for ``value`` and return it as ``<KIND_n>``. The token can be typed back on the
+        site of ``url``. ``anywhere=True`` is for a value the person supplied themselves (it is in their task, not
+        on a page): it may be typed on any site, because no site chose it."""
         kind = re.sub(r"[^A-Z0-9]", "", kind.upper()) or "VALUE"
         key = (kind, value)
         if key not in self._token_of:
@@ -187,7 +190,7 @@ class Vault:
             self._token_of[key], self._by_token[name] = name, value
             self._pattern = None
         name = self._token_of[key]
-        self._hosts.setdefault(name, set()).add(_host(url))
+        self._hosts.setdefault(name, set()).add("*" if anywhere else _host(url))
         return f"<{name}>"
 
     def remask(self, text: str, url: str = "") -> str:
@@ -211,7 +214,8 @@ class Vault:
 
         def sub(m: re.Match) -> str:
             name = m.group(1)
-            if url is not None and _host(url) not in self._hosts.get(name, ()):
+            hosts = self._hosts.get(name, ())
+            if url is not None and "*" not in hosts and _host(url) not in hosts:
                 refused.append(name)
                 return m.group(0)
             return self._by_token[name]
