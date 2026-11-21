@@ -25,3 +25,9 @@ benchmarks/compare/results/*/videos/
 benchmarks/compare/results/*.log
 benchmarks/compare/results/*.done
 .venv-fb/
+
+# Desktop app
+desktop/node_modules/
+desktop/dist/
+desktop/backend/.venv/
+desktop/backend/build/

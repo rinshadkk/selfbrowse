@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Selfbrowse</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <nav class="rail" aria-label="Main">
+    <div class="logo">
+      <svg viewBox="0 0 64 64" role="img" aria-label="Selfbrowse"><rect class="mk-win" x="11" y="13" width="49" height="45" rx="9" stroke-width="4"/>
+        <path class="mk-ink" d="M11 22 V22 a9 9 0 0 1 9 -9 h31 a9 9 0 0 1 9 9 v1 H11 Z"/>
+        <rect class="mk-ink" x="21" y="31" width="30" height="4" rx="2"/><rect class="mk-ink" x="21" y="40" width="24" height="4" rx="2"/><rect class="mk-ink" x="21" y="49" width="15" height="4" rx="2"/>
+        <rect class="mk-tag" x="3" y="5" width="22" height="20" rx="5" stroke-width="3.5"/>
+        <path class="mk-one" d="M12.2 10.6 L15.6 9 H17.4 V20.5 H14.4 V12.6 L12.2 13.6 Z"/></svg>Selfbrowse</div>
+    <button data-go="run" aria-current="page"><svg viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>Run</button>
+    <button data-go="flows"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="18" r="2"/><path d="M7 6h5a4 4 0 014 4v0M7 18h5a4 4 0 004-4v0"/></svg>Flows</button>
+    <button data-go="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>History</button>
+    <button data-go="vault"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>My info</button>
+  </nav>
+
+  <!-- ================= RUN ================= -->
+  <section class="screen on" id="run" aria-label="Run">
+    <form class="promptbar" id="form">
+      <div class="composer">
+        <textarea id="prompt" rows="2" aria-label="What should the browser do?" placeholder="What should the browser do? For example: find the cheapest nonstop flight from Chicago to Kochi next month"></textarea>
+        <button class="send" id="go" type="submit" aria-label="Run" title="Run (Cmd+Enter)">
+          <svg class="i-run" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 001.5.86l10.4-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z"/></svg>
+          <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>
+        </button>
+      </div>
+      <div class="opts">
+        <div class="inline menuwrap">Model <button class="btn small" id="modelBtn" type="button" aria-haspopup="menu" aria-expanded="false">Anthropic ▾</button><div class="menu" id="modelMenu" role="menu" hidden></div></div>
+        <label class="switch" id="useInfoLabel"><input type="checkbox" id="useInfo" checked> Use My info</label>
+        <label class="switch" id="presidioLabel" title="Uses Microsoft Presidio, on this computer, to flag names and ID numbers in what is sent"><input type="checkbox" id="presidio"> Detect more personal data</label>
+        <button class="btn small" id="presidioInstall" type="button" hidden>Install</button><span class="foot" id="presidioNote"></span>
+        <label class="switch review"><input type="checkbox" id="review"> Let me approve each model call</label>
+        <details class="popover" id="browserOpts">
+          <summary>Browser</summary>
+          <div class="pop">
+            <label class="switch"><input type="checkbox" id="optProfile" checked> Remember logins and cookies</label>
+            <p class="foot">Keeps a browser profile on this computer, so sites see a returning visitor and you sign in once. Stored unencrypted in Chrome’s own format.</p>
+            <label class="switch"><input type="checkbox" id="optChrome" checked> Use my installed Chrome</label>
+            <p class="foot" id="chromeNote">A real Chrome looks less like automation than the bundled browser.</p>
+            <label class="switch"><input type="checkbox" id="optStealth"> Stealth mode</label>
+            <p class="foot" id="stealthNote">Hides common automation tells. Needs an extra package.</p>
+            <div class="btns"><button class="btn small danger" id="clearData" type="button">Clear browser data</button><span class="foot" id="profileSize"></span></div>
+          </div>
+        </details>
+      </div>
+    </form>
+
+    <div class="runbody">
+      <div class="col timeline" aria-label="Steps">
+        <h3>Steps</h3>
+        <div id="steps"></div>
+        <p class="empty" id="stepsEmpty">Steps appear here as the browser works. Select one to see exactly what was sent to the model for it.</p>
+      </div>
+
+      <div class="col stage">
+        <div class="review-banner" id="banner" hidden role="alert">
+          <div><b>Waiting for your OK.</b> The next model call is shown on the right. Nothing has left this computer yet.</div>
+          <div class="btns"><button class="btn" id="refuseCall" type="button">Stop the run</button><button class="btn primary" id="sendCall" type="button">Send this call</button></div>
+        </div>
+        <div class="browser" id="live" hidden>
+          <div class="bar">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="url" id="liveUrl">Browser</div>
+            <span class="chip local" id="liveChip">Live</span>
+            <button class="btn small" id="control" type="button">Take control</button>
+          </div>
+          <div id="handoff" hidden role="alert">
+            <p id="handoffReason"></p>
+            <div class="btns"><button class="btn primary" id="handoffGo" type="button">I'm done, continue</button><button class="btn" id="handoffNo" type="button">Give up</button></div>
+          </div>
+          <img id="frame" alt="The browser the agent is using" tabindex="0" draggable="false">
+        </div>
+        <div class="answerbox" id="status">
+          <b id="statusTitle">Ready</b>
+          <p class="muted" id="statusText">Describe a task above and press Run. You will see the browser here, and everything sent to the model on the right.</p>
+          <div class="answer" id="answerText" hidden></div>
+          <div class="btns" id="afterRun" hidden><button class="btn" id="saveFlow" type="button">Save as flow</button></div>
+        </div>
+      </div>
+
+      <aside class="inspector" aria-label="What was sent to the model">
+        <div class="insp-h">
+          <div class="outbound"><span class="tag" id="callTag">Outbound</span><span class="muted" id="callMeta"></span></div>
+          <div class="sub" id="callSub">Nothing has been sent yet.</div>
+        </div>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="sent">Sent to model</button>
+          <button role="tab" aria-selected="false" data-tab="kept">Kept private <span class="count" id="keptCount">0</span></button>
+          <button role="tab" aria-selected="false" data-tab="usage">Usage</button>
+        </div>
+        <div class="tabpane on" id="tab-sent">
+          <div class="tools">
+            <div class="legend">
+              <span><span class="ph">&lt;secret:NAME&gt;</span> stays here</span>
+              <span><span class="flag">text</span> looks personal</span>
+            </div>
+            <label class="switch" title="Shows the real value next to each placeholder. Only visible to you, never sent."><input type="checkbox" id="reveal"> Show originals</label>
+          </div>
+          <div class="payload" id="payload"></div>
+        </div>
+        <div class="tabpane" id="tab-kept">
+          <div id="keptBody"></div>
+        </div>
+        <div class="tabpane" id="tab-usage">
+          <div class="meter">
+            <div class="bigrow">
+              <div class="stat"><b id="uIn">0</b><span>tokens sent</span></div>
+              <div class="stat"><b id="uOut">0</b><span>tokens received</span></div>
+              <div class="stat"><b id="uCost">–</b><span>estimated cost</span></div>
+            </div>
+            <div>
+              <div class="stack" id="uStack" aria-hidden="true"></div>
+              <div class="legend legend-gap" id="uLegend"></div>
+            </div>
+            <div id="callRows" class="callrows"></div>
+            <div class="prices">
+              <span class="muted">Price per million tokens</span>
+              <label class="inline">In $ <input id="priceIn" inputmode="decimal" size="5" aria-label="Input price per million tokens in dollars"></label>
+              <label class="inline">Out $ <input id="priceOut" inputmode="decimal" size="5" aria-label="Output price per million tokens in dollars"></label>
+            </div>
+            <p class="foot" id="priceNote">Enter your model's prices to see a cost. Prices change and differ by model, so none are built in. Cached tokens are counted at the full input price, so this can be higher than your bill.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="ledger" role="status" id="ledger">
+      <span><span class="dot sent"></span><b id="lCalls">0 calls</b> <span id="lProvider"></span></span>
+      <span><b id="lIn">0</b> in · <b id="lOut">0</b> out</span>
+      <span id="lCost"></span>
+      <span><span class="dot local"></span><b id="lKept">0 values</b> kept on this device</span>
+      <span id="lFlagWrap" hidden><span class="dot warn"></span><b id="lFlags">0</b> looked personal and were sent</span>
+    </div>
+  </section>
+
+  <!-- ================= HISTORY ================= -->
+  <section class="screen" id="history" aria-label="History">
+    <div class="side">
+      <h2>History</h2>
+      <label class="switch keep"><input type="checkbox" id="keepHistory" checked> Keep a history of runs</label>
+      <div id="histList"></div>
+      <button class="btn newform danger" id="histClear" type="button">Clear history</button>
+      <p class="side-note">Kept on this computer: the task, the steps, the answer and the token counts. Pages and what was sent to the model are not kept.</p>
+    </div>
+    <div class="main" id="histMain"></div>
+  </section>
+
+  <!-- ================= MY INFO ================= -->
+  <section class="screen" id="vault" aria-label="My info">
+    <div class="side">
+      <h2>My info</h2>
+      <div id="formList"></div>
+      <button class="btn newform" id="newForm" type="button">New form</button>
+      <p class="side-note">Card numbers are never stored here. Selfbrowse asks you each time.</p>
+    </div>
+    <div class="main" id="vaultMain"></div>
+  </section>
+
+  <!-- ================= FLOWS ================= -->
+  <section class="screen" id="flows" aria-label="Flows">
+    <div class="main wide">
+      <h1>Flows</h1>
+      <p class="lead">A flow is a run you saved. Replaying one skips the model, so it costs no tokens, unless you ask a model to summarize the result or step in if a step fails.</p>
+      <div class="cards" id="cards"></div>
+    </div>
+  </section>
+</div>
+
+<!-- dialogs: share, replay, save -->
+<div class="sheetwrap" id="sheetwrap" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" id="sheet"></div>
+</div>
+<div id="toast" role="status" hidden></div>
+
+<script src="common.js"></script>
+<script src="models.js"></script>
+<script src="flowedit.js"></script>
+<script src="run.js"></script>
+<script src="history.js"></script>
+<script src="myinfo.js"></script>
+<script src="flows.js"></script>
+</body>
+</html>
