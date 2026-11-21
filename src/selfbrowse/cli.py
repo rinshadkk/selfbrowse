@@ -59,6 +59,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--no-restore", action="store_true",
                    help="with --redact-pii/--redact-presidio: mask for good as [email]. By default the model sees "
                         "<EMAIL_1>, the real value is typed back on the same site, and your answer shows the real values")
+    r.add_argument("--review-payload", nargs="?", const="when-flagged", choices=["always", "when-flagged"], metavar="MODE",
+                   help="stop and show the exact request before each model call. 'when-flagged' (the default if no mode is "
+                        "given) stops only when something looks personal; 'always' stops every time. You send, send with the "
+                        "flagged text masked, or stop. With no terminal the run stops")
     r.add_argument("--watch-injection", action="store_true", help="warn on instruction-like page text and confirm risky actions")
     r.add_argument("--max-tokens", type=int, metavar="N", help="stop the run past N total tokens")
     r.add_argument("--max-seconds", type=float, metavar="S", help="stop the run past S seconds")
@@ -158,7 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         agent = BrowseAgent(" ".join(args.task), llm=args.model, browser=browser, max_steps=args.max_steps,
                       learn=not args.no_learn, save_flow=args.save_flow, handoff=False if args.no_handoff else "auto", vision=args.vision, screenshots=args.screenshots, page_text=args.page_text, max_output_tokens=args.max_output_tokens, home=home,
                       on_step=show, guardrails=guards, sensitive=secrets, files=args.file, trace=args.trace, show_prompts=args.show_prompts,
-                      trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content)
+                      trace_content=not args.trace_hashes, otel=args.otel, otel_content=args.otel_content,
+                      review_payload=(args.review_payload or "").replace("-", "_") or None)
         started = time.perf_counter()
         try:
             result = agent.run()

@@ -69,6 +69,11 @@ class BrowseAgent:
             model is not shown the list of secrets. It is told that saved details exist and may ask for one with the
             ``find_saved_detail`` tool, which returns only the matching placeholders. Without it, every secret name is
             listed in the task.
+        review_payload: stop and review the exact request before each model call. ``"always"``: every call stops.
+            ``"when_flagged"`` (or ``True``): only when something looks personal (emails, phones, SSNs, cards, your
+            ``sensitive`` values, and names too if Presidio is installed). Off by default. See :mod:`selfbrowse.review`.
+        on_review: ``callable(PayloadReview) -> "send" | "redact" | "stop"`` that decides. Default: ask in the
+            terminal (and stop when there is no terminal). ``True`` also means send; ``False`` or anything else stops.
         restore_answer: put the real values back into the final answer you get (default True; the model
             never sees them, and the recorded steps stay masked). Pass False if you forward the answer to
             another model or a log.
@@ -94,6 +99,8 @@ class BrowseAgent:
         files: "list[str | Path] | None" = None,
         sensitive: dict[str, str] | None = None,
         sensitive_hints: dict[str, str] | None = None,
+        review_payload: "str | bool | None" = None,
+        on_review: "Callable[[Any], Any] | None" = None,
         restore_answer: bool = True,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
@@ -128,6 +135,12 @@ class BrowseAgent:
                 raise ValueError(f"files: {f} is not a file")
         self._drag_offered = False
         self.sensitive = dict(sensitive or {})
+        if review_payload is True:
+            review_payload = "when_flagged"
+        if review_payload and review_payload not in ("always", "when_flagged"):
+            raise ValueError('review_payload must be "always", "when_flagged", True or off')
+        self._review_mode = review_payload or None
+        self._on_review = on_review
         self.hints = {k: str(v)[:120] for k, v in (sensitive_hints or {}).items() if k in self.sensitive}
         self.restore_answer = restore_answer
         self.on_step = on_step
@@ -199,6 +212,13 @@ class BrowseAgent:
         return self.tracer.path if self.tracer else None
 
     def _setup_trace(self) -> None:
+        self._setup_tracing_llm()
+        if self._review_mode:                              # the gate sits last, so it sees exactly what would be sent
+            from selfbrowse.review import ReviewLLM
+            self.llm = ReviewLLM(self.llm, mode=self._review_mode, on_review=self._on_review, secrets=self.sensitive,
+                                 trace=self._trace)
+
+    def _setup_tracing_llm(self) -> None:
         opt = self._trace_opt
         want = bool(opt) or self._show_prompts or self._otel or self._on_llm_request
         self.llm, self.tracer = self._raw_llm, None
