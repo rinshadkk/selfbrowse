@@ -388,6 +388,7 @@ function onEvent(e) {
 
 function finish(e) {
   R.doneEvent = e;
+  R.rawAnswer = e.output || '';                       // as the model wrote it: this is what a follow-up may send
   setRunning(false);
   $('liveChip').textContent = 'Finished';
   $('liveChip').className = 'chip plain';
@@ -408,7 +409,7 @@ function finish(e) {
   const used = e.model_calls ? `${fmt(e.tokens)} tokens in ${e.model_calls} model call${e.model_calls === 1 ? '' : 's'}` : R.flowName ? 'no model used' : `${fmt(e.tokens)} tokens`;
   const extra = [e.repaired ? `A model finished the task after step ${e.repaired_at} failed.` : '', e.summarized ? 'The model wrote the summary.' : '', e.warning || ''].filter(Boolean).join(' ');
   if (e.error && !e.output) setStatus(e.error === 'Stopped by you.' ? 'Stopped' : 'The run could not finish', e.error, { error: e.error !== 'Stopped by you.' });
-  else setStatus(e.success ? 'Done' : 'Finished without a confirmed answer', `${e.steps} steps, ${used}.${extra ? ` ${extra}` : ''}`, { answer: e.output });
+  else setStatus(e.success ? 'Done' : 'Finished without a confirmed answer', `${e.steps} steps, ${used}.${extra ? ` ${extra}` : ''}`, { answer: restoreSecrets(e.output) });
 }
 
 async function beginRun(id, flowName, flowModel, title) {
@@ -582,7 +583,7 @@ $('followForm').addEventListener('submit', (ev) => {
   ev.preventDefault();
   const text = $('follow').value.trim();
   if (!text || R.running) return;
-  const prev = $('answerText').textContent.trim();
+  const prev = String(R.rawAnswer || '').trim();      // never the version with your values swapped in
   const task = `${R.task}\n\nWhat you found last time:\n${prev.slice(0, 3000) || '(nothing recorded)'}\n\nNow: ${text}`;
   $('follow').value = '';
   startRun(task, text);
@@ -630,3 +631,11 @@ async function refreshSuggestions() {
 
 function onBoot() { refreshSuggestions(); loadModels(); pollPresidio(); refreshUseInfo(); render(); if (typeof renderVault === 'function') renderVault(); }
 boot();
+
+// ---- show My info values in the answer: your choice, remembered ----
+try { $('showSecrets').checked = localStorage.getItem('sb.showsecrets') !== 'off'; } catch (_) { /* default on */ }
+$('showSecrets').addEventListener('change', (e) => {
+  try { localStorage.setItem('sb.showsecrets', e.target.checked ? 'on' : 'off'); } catch (_) { /* fine */ }
+  if (R.doneEvent && R.rawAnswer) { $('answerText').textContent = restoreSecrets(R.rawAnswer); }
+  if (typeof showHistory === 'function' && H && H.selected && $('history').classList.contains('on')) showHistory(H.selected);
+});

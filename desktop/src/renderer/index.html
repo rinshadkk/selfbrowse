@@ -50,6 +50,8 @@
               <div class="pop">
                 <label class="switch" id="presidioLabel" title="Uses Microsoft Presidio, on this computer, to flag names and ID numbers in what is sent"><input type="checkbox" id="presidio"> Detect more personal data</label>
                 <div class="btns"><button class="btn small" id="presidioInstall" type="button" hidden>Install</button><span class="foot" id="presidioNote"></span></div>
+                <label class="switch" id="showSecretsLabel" title="The model writes a placeholder when it reports one of your saved values. This swaps in the real value on screen only."><input type="checkbox" id="showSecrets" checked> Show My info values in the answer</label>
+                <p class="foot">The model only ever sees a placeholder. This swaps the real value in on your screen, never for passwords or other protected fields.</p>
                 <label class="field" for="review">Review before sending
                   <select id="review">
                     <option value="off">Off</option>
