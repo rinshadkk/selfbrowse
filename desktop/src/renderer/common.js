@@ -123,6 +123,7 @@ function go(id) {
     if (b.dataset.go === id) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   if (id === 'flows' && typeof loadFlows === 'function') loadFlows();
+  if (id === 'run' && typeof refreshSuggestions === 'function') refreshSuggestions();
   if (id === 'history' && typeof loadHistory === 'function') loadHistory();
   if (id === 'vault' && typeof renderVault === 'function') renderVault();
 }

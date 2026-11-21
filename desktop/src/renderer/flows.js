@@ -78,6 +78,7 @@ function runFlow(f) {
     try {
       const { id } = await post(`/flows/${f.id}/run`, { params, sensitive: have, headed: false, history: keepHistory(), ...model, ...browserOptions() });
       closeSheet();
+      R.lastFlow = f;
       beginRun(id, f.name, useModel);
     } catch (err) { msg.textContent = err.message; }
   };
