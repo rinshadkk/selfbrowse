@@ -48,8 +48,8 @@ input[type=text],input[type=password],input:not([type]),select,textarea{border:1
 /* rail */
 .rail{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:14px 8px;gap:4px}
 .logo{font-weight:700;font-size:13px;text-align:center;padding:2px 0 14px}
-.logo svg{display:block;width:34px;height:34px;margin:0 auto 6px}
-.mk-win{fill:var(--surface);stroke:var(--ink)}.mk-ink{fill:var(--ink)}.mk-tag{fill:#F5D547;stroke:var(--surface)}.mk-one{fill:#17202B}
+.logo svg{display:block;width:46px;height:46px;margin:0 auto 4px}
+.mk-win{fill:var(--surface);stroke:var(--ink)}.mk-ink{fill:var(--ink)}.mk-tag{fill:#F5D547;stroke:var(--surface)}.mk-key{fill:#17202B}
 .rail button{border:0;background:none;border-radius:9px;padding:9px 0 7px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--muted);font-weight:500}
 .rail button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rail button:hover{background:var(--paper)}
