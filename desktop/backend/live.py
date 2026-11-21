@@ -18,6 +18,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field
 
 import record
+from selfbrowse.guardrails import PLACEHOLDER_NOTE
 
 QUALITY = 60                # JPEG quality of the mirrored frames
 MAX_SIDE = 1280
@@ -147,21 +148,21 @@ class LiveView:
             self.tick(browser)
 
 
-def _mask_text(text: str, flags: list[dict[str, str]]) -> str:
-    for f in sorted(flags, key=lambda f: -len(f["match"])):
-        text = text.replace(f["match"], f"[removed: {f['name']}]")
+def _mask_text(text: str, tokens: dict[str, str]) -> str:
+    for match in sorted(tokens, key=len, reverse=True):          # longest first, so a part of a value never survives
+        text = text.replace(match, tokens[match])
     return text
 
 
-def _mask_content(content: Any, flags: list[dict[str, str]]) -> Any:
+def _mask_content(content: Any, tokens: dict[str, str]) -> Any:
     if isinstance(content, str):
-        return _mask_text(content, flags)
+        return _mask_text(content, tokens)
     out = []
     for b in content or []:
         if isinstance(b, dict) and b.get("type") == "text":
-            b = {**b, "text": _mask_text(str(b.get("text", "")), flags)}
+            b = {**b, "text": _mask_text(str(b.get("text", "")), tokens)}
         elif isinstance(b, dict) and b.get("type") == "tool_result":
-            b = {**b, "content": _mask_content(b.get("content"), flags)}
+            b = {**b, "content": _mask_content(b.get("content"), tokens)}
         out.append(b)
     return out
 
@@ -187,11 +188,34 @@ class MirrorLLM:
         self._secrets = secrets or {}
         self._table: dict[str, dict[str, Any]] = {}
         self._decided: dict[tuple[str, str], str] = {}      # (kind, text) -> "send" | "redact", kept for the run
+        self.get_vault: Callable[[], Any] = lambda: None    # the agent's own vault, so a masked value can be put back
         self._n = 0
         self.model = getattr(inner, "model", "?")
 
     def __getattr__(self, name: str) -> Any:        # anything else the agent asks of the model
         return getattr(self._inner, name)
+
+    def _tokens(self, to_mask: list[dict[str, str]], payload: dict[str, Any]) -> dict[str, str]:
+        """What to put in place of each flagged text. Reversible whenever the agent has a vault: the library's own
+        placeholders (<EMAIL_1>) are typed back for the model on the right site and restored in the answer. One of the
+        person's saved values becomes its <secret:NAME>. Without a vault it is a one-way [removed: ...]."""
+        vault = self.get_vault()
+        task = self._table.get(payload["ids"][1], {}).get("text", "") if len(payload["ids"]) > 1 else ""
+        try:
+            url = self._get_browser().url
+        except Exception:
+            url = ""
+        out: dict[str, str] = {}
+        for f in to_mask:
+            if f["kind"] == "value":
+                out[f["match"]] = f"<secret:{f['name']}>"
+            elif vault is None:
+                out[f["match"]] = f"[removed: {f['name']}]"
+            else:
+                kind = f["name"] if f["kind"] == "pii" else f["kind"]
+                given = f["match"] in task                       # written by the person in the task, not seen on a page
+                out[f["match"]] = vault.mint(kind, f["match"], "" if given else url, anywhere=given)
+        return out
 
     def _flags(self, payload: dict[str, Any]) -> list[dict[str, str]]:
         seen, out = set(), []
@@ -237,8 +261,15 @@ class MirrorLLM:
             self._emit({"type": "call_sent", "idx": idx})
         if to_mask:                                 # what is sent is the masked request, so that is what is recorded
             kwargs = dict(kwargs)
-            kwargs["messages"] = [{**m, "content": _mask_content(m.get("content"), to_mask)} if m.get("role") == "user" else m
-                                  for m in kwargs.get("messages", [])]
+            tokens = self._tokens(to_mask, payload)
+            note = "" if any(t.startswith("<secret:") for t in tokens.values()) and len(tokens) == 1 else PLACEHOLDER_NOTE
+            msgs = [{**m, "content": _mask_content(m.get("content"), tokens)} if m.get("role") == "user" else m
+                    for m in kwargs.get("messages", [])]
+            first = next((i for i, m in enumerate(msgs) if m.get("role") == "user"), None)
+            if note and first is not None and self.get_vault() is not None and isinstance(msgs[first].get("content"), str) \
+                    and "placeholders like" not in msgs[first]["content"]:
+                msgs[first] = {**msgs[first], "content": msgs[first]["content"] + "\n" + note}   # tell the model how to use them
+            kwargs["messages"] = msgs
             masked = record.build(kwargs, self._table, self._secrets, False)
             self._emit({"type": "call_masked", "idx": idx, "ids": masked["ids"], "new": masked["new"], "count": len(to_mask)})
         box: dict[str, Any] = {}

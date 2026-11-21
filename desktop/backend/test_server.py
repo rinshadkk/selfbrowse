@@ -767,9 +767,29 @@ def test_send_masked_replaces_the_flagged_text_and_remembers_the_choice(client, 
     events = _events(client, run)
     calls = [e for e in events if e["type"] == "call"]
     assert events[-1]["success"] is True and len(calls) == 2
-    assert all("jane@example.com" not in m and "[removed: email address]" in m for m in spy.sent)
+    assert all("jane@example.com" not in m and "<EMAIL_1>" in m for m in spy.sent)
+    assert "placeholders like" in spy.sent[0]                             # the model is told how to use them
     assert calls[1]["holding"] is False                                   # the same text is not asked about again
     assert any(e["type"] == "call_masked" for e in events)
+
+
+def test_a_masked_value_is_put_back_in_the_answer_you_read(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "I wrote to <EMAIL_1> as asked."})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    done = _events(client, run)[-1]
+    assert "jane@example.com" not in spy.sent[0]                          # the model never saw it
+    assert done["output"] == "I wrote to jane@example.com as asked."      # you do
+
+
+def test_without_a_vault_masking_is_one_way_and_a_saved_value_becomes_its_placeholder():
+    from live import LiveView, MirrorLLM
+    m = MirrorLLM(Script([]), LiveView(), lambda: None)                  # no agent, so no vault
+    tokens = m._tokens([{"kind": "email", "name": "email address", "match": "a@b.co"},
+                        {"kind": "value", "name": "HOME_CITY", "match": "Springfield"}], {"ids": []})
+    assert tokens == {"a@b.co": "[removed: email address]", "Springfield": "<secret:HOME_CITY>"}
 
 
 def test_refusing_a_flagged_request_stops_the_run_and_sends_nothing(client, monkeypatch, page_url):

@@ -37,6 +37,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from live import Input, LiveView, MirrorLLM, Stopped
 from selfbrowse import Browser, BrowseAgent
 from selfbrowse.llm import make_llm
+from selfbrowse.guardrails import Guardrail
 from selfbrowse.handoff import HandoffRequest
 from selfbrowse.flow import FlowError, FlowRunner, describe_step, load_flow, save_flow, validate_flow
 
@@ -288,6 +289,12 @@ app.add_middleware(CORSMiddleware, allow_origins=["null"], allow_methods=["GET",
                    allow_headers=["Authorization", "Content-Type"])
 
 
+class HoldsValues(Guardrail):
+    """Changes nothing on a page. Its presence gives the agent a vault, so a value masked at review time becomes a
+    placeholder like <EMAIL_1> that is typed back for the model on the right site and restored in the answer."""
+    reversible = True
+
+
 def _work(run: Run, req: RunRequest) -> None:
     holder: dict[str, Any] = {}
 
@@ -316,7 +323,9 @@ def _work(run: Run, req: RunRequest) -> None:
         tmp.mkdir(exist_ok=True)
         run.flow_path = tmp / f"{run.id}.json"
         agent = BrowseAgent(req.prompt, llm=llm, browser=holder["browser"], max_steps=req.max_steps,
-                            on_step=on_step, handoff=hand_off, sensitive=req.sensitive, sensitive_hints=req.labels or None, save_flow=run.flow_path)
+                            on_step=on_step, handoff=hand_off, sensitive=req.sensitive, sensitive_hints=req.labels or None, save_flow=run.flow_path,
+                            guardrails=[HoldsValues()] if run.live.mode != "off" else None)
+        llm.get_vault = lambda: agent.guards.vault
         r = agent.run()
         run.emit({"type": "done", "success": r.success, "output": r.output, "steps": r.steps,
                   "tokens": r.usage.total_input + r.usage.output_tokens, "error": r.error,
