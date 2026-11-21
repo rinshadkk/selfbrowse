@@ -85,7 +85,8 @@ class RunRequest(BrowserOptions):
     api_key: str = Field(default="", max_length=500)   # overrides the provider's environment variable
     history: bool = True                 # keep a summary of this run under History
     presidio: bool = False               # also look for personal data with Microsoft Presidio
-    review: bool = False                 # hold each model call until the person approves it
+    review: bool = False                 # hold each model call until the person approves it (same as review_mode always)
+    review_mode: Literal["off", "flagged", "always"] = "off"    # off, only when something looks personal, or every call
     sensitive: dict[str, str] = Field(default_factory=dict)      # values from My info; typed locally, never sent
     labels: dict[str, str] = Field(default_factory=dict)         # what each is, "Form > Field"; given to the model only on request
 
@@ -307,7 +308,7 @@ def _work(run: Run, req: RunRequest) -> None:
 
     try:
         holder["browser"] = make_browser(req, req.headed)
-        run.live.review = req.review
+        run.live.mode = req.review_mode if req.review_mode != "off" else ("always" if req.review else "off")
         llm = MirrorLLM(build_llm(req), run.live, lambda: holder["browser"],
                         on_pause=lambda paused: run.emit({"type": "paused", "paused": paused}),
                         emit=run.emit, secrets=req.sensitive, presidio=req.presidio)
@@ -501,11 +502,13 @@ def answer_handoff(run_id: str, req: HandoffAnswer) -> dict[str, bool]:
 
 
 class ReviewRequest(BaseModel):
-    on: bool
+    on: bool | None = None                              # the older switch: on means every call
+    mode: Literal["off", "flagged", "always"] | None = None
 
 
 class CallAnswer(BaseModel):
     send: bool
+    mask: bool = False                                  # send, with what looks personal replaced
 
 
 class SaveFlow(BaseModel):
@@ -515,17 +518,19 @@ class SaveFlow(BaseModel):
 
 
 @app.post("/runs/{run_id}/review", dependencies=[Depends(_auth)])
-def set_review(run_id: str, req: ReviewRequest) -> dict[str, bool]:
-    """Turn "approve each model call" on or off while a run is going."""
-    _get_run(run_id).live.review = req.on
-    return {"on": req.on}
+def set_review(run_id: str, req: ReviewRequest) -> dict[str, Any]:
+    """Change the review before sending while a run is going: off, only when something looks personal, or every call."""
+    live = _get_run(run_id).live
+    live.mode = req.mode if req.mode is not None else ("always" if req.on else "off")
+    return {"mode": live.mode, "on": live.mode != "off"}
 
 
 @app.post("/runs/{run_id}/call", dependencies=[Depends(_auth)])
-def answer_call(run_id: str, req: CallAnswer) -> dict[str, bool]:
-    """Send the held model call, or refuse it (which stops the run)."""
-    _get_run(run_id).live.decision = req.send
-    return {"send": req.send}
+def answer_call(run_id: str, req: CallAnswer) -> dict[str, Any]:
+    """Send the held model call (as it is, or with what looks personal replaced), or refuse it (which stops the run)."""
+    decision = ("redact" if req.mask else "send") if req.send else "stop"
+    _get_run(run_id).live.decision = decision
+    return {"send": req.send, "mask": req.mask and req.send}
 
 
 def _slug(name: str) -> str:
@@ -778,7 +783,8 @@ class FlowRun(BrowserOptions):
     custom: CustomSource | None = None
     api_key: str = Field(default="", max_length=500)
     presidio: bool = False
-    review: bool = False                 # hold each model call until the person approves it
+    review: bool = False                 # hold each model call until the person approves it (same as review_mode always)
+    review_mode: Literal["off", "flagged", "always"] = "off"
 
 
 class MaskedLLM:
@@ -836,7 +842,7 @@ def _work_flow(run: Run, flow: dict[str, Any], req: FlowRun) -> None:
         holder["browser"].start()
         llm = None
         if req.summarize or req.failover:
-            run.live.review = req.review
+            run.live.mode = req.review_mode if req.review_mode != "off" else ("always" if req.review else "off")
             llm = MaskedLLM(MirrorLLM(build_llm(req), run.live, lambda: holder["browser"],
                                       on_pause=lambda paused: run.emit({"type": "paused", "paused": paused}),
                                       emit=run.emit, secrets=req.sensitive, presidio=req.presidio), req)

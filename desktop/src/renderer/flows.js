@@ -72,7 +72,7 @@ function runFlow(f) {
     const useModel = sumBox.checked || failBox.checked;
     let model = {};
     if (useModel) {
-      try { model = { summarize: sumBox.checked, failover: failBox.checked, ask: ask.value.trim(), ...modelRequest(), presidio: $('presidio').checked, review: $('review').checked }; }
+      try { model = { summarize: sumBox.checked, failover: failBox.checked, ask: ask.value.trim(), ...modelRequest(), presidio: $('presidio').checked, review_mode: $('review').value }; }
       catch (err) { msg.textContent = err.message; return; }
     }
     try {

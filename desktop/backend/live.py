@@ -49,13 +49,22 @@ class LiveView:
         self.stop = threading.Event()
         self.control = False                       # the person has taken over: the agent waits
         self.handoff: bool | None = None           # the person's answer to a hand-off request
-        self.review = False                        # hold every model call until the person approves it
-        self.decision: bool | None = None          # the answer to the call being held
+        self.mode = "off"                          # review before sending: "off", "flagged" (only when something looks
+                                                   # personal) or "always" (every model call)
+        self.decision: Any = None                  # the answer to the call being held: "send", "redact" or "stop"
         self.inputs: collections.deque[Input] = collections.deque(maxlen=MAX_QUEUED_INPUTS)
         self.frame: dict[str, Any] | None = None   # only the latest frame is kept
         self.seq = 0
         self._page: Any = None
         self._session: Any = None
+
+    @property
+    def review(self) -> bool:                      # the older on/off switch: on means every call
+        return self.mode != "off"
+
+    @review.setter
+    def review(self, on: bool) -> None:
+        self.mode = "always" if on else "off"
 
     # ── agent thread only ──────────────────────────────────────────────────────────
     def _on_frame(self, params: dict[str, Any]) -> None:
@@ -138,9 +147,35 @@ class LiveView:
             self.tick(browser)
 
 
+def _mask_text(text: str, flags: list[dict[str, str]]) -> str:
+    for f in sorted(flags, key=lambda f: -len(f["match"])):
+        text = text.replace(f["match"], f"[removed: {f['name']}]")
+    return text
+
+
+def _mask_content(content: Any, flags: list[dict[str, str]]) -> Any:
+    if isinstance(content, str):
+        return _mask_text(content, flags)
+    out = []
+    for b in content or []:
+        if isinstance(b, dict) and b.get("type") == "text":
+            b = {**b, "text": _mask_text(str(b.get("text", "")), flags)}
+        elif isinstance(b, dict) and b.get("type") == "tool_result":
+            b = {**b, "content": _mask_content(b.get("content"), flags)}
+        out.append(b)
+    return out
+
+
+def _decision(value: Any) -> str:
+    if value is True:
+        return "send"
+    return value if value in ("send", "redact") else "stop"
+
+
 class MirrorLLM:
     """Wraps the real model: keeps the browser pumped during a call, records what was sent, and can hold
-    a call until the person approves it."""
+    a call until the person approves it. Modes: off, "flagged" (hold only when something in the request looks
+    personal), "always". The person can send it, send it with the flagged text masked, or stop the run."""
 
     def __init__(self, inner: Any, live: LiveView, get_browser: Callable[[], Any],
                  on_pause: Callable[[bool], None] | None = None,
@@ -151,11 +186,22 @@ class MirrorLLM:
         self._emit = emit or (lambda e: None)
         self._secrets = secrets or {}
         self._table: dict[str, dict[str, Any]] = {}
+        self._decided: dict[tuple[str, str], str] = {}      # (kind, text) -> "send" | "redact", kept for the run
         self._n = 0
         self.model = getattr(inner, "model", "?")
 
     def __getattr__(self, name: str) -> Any:        # anything else the agent asks of the model
         return getattr(self._inner, name)
+
+    def _flags(self, payload: dict[str, Any]) -> list[dict[str, str]]:
+        seen, out = set(), []
+        for mid in payload["ids"]:
+            for f in self._table.get(mid, {}).get("flags", []):
+                key = (f["kind"], f["match"])
+                if key not in seen:
+                    seen.add(key)
+                    out.append(f)
+        return out
 
     def complete(self, **kwargs: Any) -> Any:
         browser, live = self._get_browser(), self._live
@@ -168,13 +214,33 @@ class MirrorLLM:
         self._n += 1
         idx = self._n
         payload = record.build(kwargs, self._table, self._secrets, self._presidio)
-        self._emit({"type": "call", "idx": idx, "holding": live.review, **payload})
-        if live.review:                             # nothing leaves this computer until the person says so
+        flags = self._flags(payload)
+        key = lambda f: (f["kind"], f["match"])
+        new = [f for f in flags if key(f) not in self._decided]
+        to_mask = [f for f in flags if self._decided.get(key(f)) == "redact"]
+        mode = live.mode
+        hold = mode == "always" or (mode == "flagged" and bool(new))
+        shown = flags if mode == "always" else new
+        self._emit({"type": "call", "idx": idx, "holding": hold, "mode": mode if hold else "off",
+                    "reason": shown if hold else [], **payload})
+        if hold:                                    # nothing leaves this computer until the person says so
             live.decision = None
-            live.wait_while(browser, lambda: live.review and live.decision is None)
-            if live.review and live.decision is False:
+            live.wait_while(browser, lambda: live.mode != "off" and live.decision is None)
+            answer = _decision(live.decision) if live.decision is not None else "send"   # review switched off: send
+            if answer == "stop":
                 raise Stopped()
+            if mode == "flagged":
+                for f in new:
+                    self._decided[key(f)] = answer
+            if answer == "redact":
+                to_mask = to_mask + [f for f in shown if f not in to_mask]
             self._emit({"type": "call_sent", "idx": idx})
+        if to_mask:                                 # what is sent is the masked request, so that is what is recorded
+            kwargs = dict(kwargs)
+            kwargs["messages"] = [{**m, "content": _mask_content(m.get("content"), to_mask)} if m.get("role") == "user" else m
+                                  for m in kwargs.get("messages", [])]
+            masked = record.build(kwargs, self._table, self._secrets, False)
+            self._emit({"type": "call_masked", "idx": idx, "ids": masked["ids"], "new": masked["new"], "count": len(to_mask)})
         box: dict[str, Any] = {}
 
         def call() -> None:

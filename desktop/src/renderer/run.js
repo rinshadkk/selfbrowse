@@ -71,6 +71,7 @@ function renderTimeline() {
       const kept = callRefs(c).length, flags = callFlags(c).length;
       if (kept) chips.push(h('span', { class: 'chip local' }, `${kept} kept private`));
       if (flags) chips.push(h('span', { class: 'chip sent' }, `${flags} looks personal`));
+      if (c.masked) chips.push(h('span', { class: 'chip local' }, `${c.masked} replaced before sending`));
     }
     const title = it.step ? stepTitle(it.step) : 'Thinking…';
     return h('button', { class: `step${it.step ? '' : ' waiting'}`, type: 'button', 'aria-pressed': String(i === R.selected), onclick: () => { R.selected = i; R.follow = i === R.items.length - 1; render(); } },
@@ -190,14 +191,27 @@ function renderLedger() {
   $('lCost').textContent = cost == null || !done.length ? '' : `≈ ${money(cost)}`;
   const kept = new Set(cs.flatMap(callRefs)).size;
   $('lKept').textContent = `${kept} value${kept === 1 ? '' : 's'}`;
-  const flagged = new Set(cs.flatMap((c) => callFlags(c).map((f) => f.match))).size;
+  const flagged = new Set(cs.filter((c) => !c.holding).flatMap((c) => callFlags(c).map((f) => f.match))).size;     // a held call has not been sent
   $('lFlagWrap').hidden = flagged === 0;
   $('lFlags').textContent = `${flagged} item${flagged === 1 ? '' : 's'}`;
 }
 
 function renderBanner() {
   const it = R.items[R.items.length - 1];
-  $('banner').hidden = !(R.running && it && it.call && it.call.holding);
+  const c = it && it.call;
+  const show = !!(R.running && c && c.holding);
+  $('banner').hidden = !show;
+  if (!show) return;
+  const flags = c.reason || [];
+  const flagged = c.mode === 'flagged';
+  $('bannerTitle').textContent = flagged ? 'Something in this request looks personal.' : 'Waiting for your OK.';
+  $('bannerText').textContent = flagged
+    ? 'It is shown on the right with the parts highlighted. Nothing has left this computer yet.'
+    : 'The next model call is shown on the right. Nothing has left this computer yet.';
+  $('bannerFlags').replaceChildren(...flags.slice(0, 6).map((f) => h('span', { class: 'flag' }, f.match.length > 40 ? `${f.match.slice(0, 39)}\u2026` : f.match)),
+    ...(flags.length > 6 ? [h('span', { class: 'muted' }, ` and ${flags.length - 6} more`)] : []));
+  $('maskCall').hidden = flags.length === 0;
+  $('sendCall').textContent = flagged ? 'Send as is' : 'Send this call';
 }
 function render() { renderTimeline(); renderInspector(); renderUsage(); renderLedger(); renderBanner(); renderHead(); }
 
@@ -313,15 +327,19 @@ $('handoffNo').addEventListener('click', () => answerHandoff(false));
 
 // ---- approval of a held call ----
 $('sendCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true }).catch((e) => toast(e.message)); });
+$('maskCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true, mask: true }).catch((e) => toast(e.message)); });
 $('refuseCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: false }).catch((e) => toast(e.message)); });
-$('review').addEventListener('change', (e) => { if (R.running) post(`/runs/${R.id}/review`, { on: e.target.checked }).catch(() => {}); });
 
 // ---- events from the run ----
 function onEvent(e) {
   if (e.type === 'call') {
     Object.assign(R.table, e.new);
-    R.items.push({ call: { idx: e.idx, ids: e.ids, holding: e.holding, usage: null, reply: null, ms: 0, tools: e.tools }, step: null });
+    R.items.push({ call: { idx: e.idx, ids: e.ids, holding: e.holding, mode: e.mode, reason: e.reason || [], masked: 0, usage: null, reply: null, ms: 0, tools: e.tools }, step: null });
     if (R.follow) R.selected = R.items.length - 1;
+  } else if (e.type === 'call_masked') {
+    Object.assign(R.table, e.new);
+    const c = calls().find((x) => x.idx === e.idx);
+    if (c) { c.ids = e.ids; c.masked = e.count; }
   } else if (e.type === 'call_sent') {
     const c = calls().find((x) => x.idx === e.idx);
     if (c) c.holding = false;
@@ -377,7 +395,7 @@ function finish(e) {
 async function beginRun(id, flowName, flowModel, title) {
   Object.assign(R, { id, items: [], table: {}, selected: -1, follow: true, flowName: flowName || null, flowModel: !!flowModel, doneEvent: null, canSaveFlow: false,
     title: flowName ? `Flow: ${flowName}` : String(title || '').split('\n')[0].slice(0, 160), task: title || '', startedAt: Date.now(), durationText: '' });
-  $('reviewHead').checked = $('review').checked;
+  $('reviewHead').value = $('review').value;
   $('followForm').hidden = true; $('resultStats').hidden = true; $('live').classList.remove('shown'); $('showBrowser').textContent = 'Show browser';
   if (R.stream) R.stream.abort();
   if (R.frames) R.frames.abort();
@@ -443,7 +461,7 @@ async function startRun(prompt, title) {
   setRunning(true);
   try {
     const { id } = await post('/runs', {
-      prompt: prompt + (useInfo ? sharedNote() : ''), ...modelRequest(), review: $('review').checked,
+      prompt: prompt + (useInfo ? sharedNote() : ''), ...modelRequest(), review_mode: $('review').value,
       sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(),
     });
     beginRun(id, null, false, title || prompt);
@@ -559,11 +577,15 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newRun(); }
 });
 // approve each call: the same setting on the idle screen and in the run bar
-$('review').addEventListener('change', () => { $('reviewHead').checked = $('review').checked; });
-$('reviewHead').addEventListener('change', (e) => {
-  $('review').checked = e.target.checked;
-  if (R.running) post(`/runs/${R.id}/review`, { on: e.target.checked }).catch(() => {});
-});
+try { const saved = localStorage.getItem('sb.reviewmode'); if (['off', 'flagged', 'always'].includes(saved)) { $('review').value = saved; $('reviewHead').value = saved; } } catch (_) { /* default off */ }
+function setReviewMode(mode) {
+  $('review').value = mode;
+  $('reviewHead').value = mode;
+  try { localStorage.setItem('sb.reviewmode', mode); } catch (_) { /* fine */ }
+  if (R.running) post(`/runs/${R.id}/review`, { mode }).catch(() => {});
+}
+$('review').addEventListener('change', (e) => setReviewMode(e.target.value));
+$('reviewHead').addEventListener('change', (e) => setReviewMode(e.target.value));
 
 // ---- what to try: your recent runs and flows, or examples ----
 const EXAMPLES = [

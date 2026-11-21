@@ -50,8 +50,13 @@
               <div class="pop">
                 <label class="switch" id="presidioLabel" title="Uses Microsoft Presidio, on this computer, to flag names and ID numbers in what is sent"><input type="checkbox" id="presidio"> Detect more personal data</label>
                 <div class="btns"><button class="btn small" id="presidioInstall" type="button" hidden>Install</button><span class="foot" id="presidioNote"></span></div>
-                <label class="switch review"><input type="checkbox" id="review"> Let me approve each model call</label>
-                <p class="foot">Holds every call to the model until you press Send, so you can read it first.</p>
+                <label class="field" for="review">Review before sending
+                  <select id="review">
+                    <option value="off">Off</option>
+                    <option value="flagged">When something looks personal</option>
+                    <option value="always">Every model call</option>
+                  </select></label>
+                <p class="foot">Stops before a call goes to the model and shows you exactly what is in it. You can send it, send it with the personal parts replaced, or stop the run.</p>
               </div>
             </details>
             <span class="grow"></span>
@@ -73,7 +78,12 @@
         <span class="statuspill" id="runPill">Running</span>
         <span class="grow"></span>
         <span class="muted runmodel" id="runModel"></span>
-        <label class="switch review" title="Hold each model call until you press Send"><input type="checkbox" id="reviewHead"> Approve each call</label>
+        <label class="reviewsel" title="Stop before a call goes to the model, so you can read it first"><span>Review</span>
+          <select id="reviewHead" aria-label="Review before sending">
+            <option value="off">Off</option>
+            <option value="flagged">When personal</option>
+            <option value="always">Every call</option>
+          </select></label>
         <button class="btn danger stopbtn" id="stopBtn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>Stop</button>
       </header>
     <div class="runbody">
@@ -85,8 +95,9 @@
 
       <div class="col stage">
         <div class="review-banner" id="banner" hidden role="alert">
-          <div><b>Waiting for your OK.</b> The next model call is shown on the right. Nothing has left this computer yet.</div>
-          <div class="btns"><button class="btn" id="refuseCall" type="button">Stop the run</button><button class="btn primary" id="sendCall" type="button">Send this call</button></div>
+          <div><b id="bannerTitle">Waiting for your OK.</b> <span id="bannerText">The next model call is shown on the right. Nothing has left this computer yet.</span>
+            <div class="flaglist" id="bannerFlags"></div></div>
+          <div class="btns"><button class="btn" id="refuseCall" type="button">Stop the run</button><button class="btn" id="maskCall" type="button" hidden>Send with these replaced</button><button class="btn primary" id="sendCall" type="button">Send as is</button></div>
         </div>
         <div class="browser" id="live" hidden>
           <div class="bar">

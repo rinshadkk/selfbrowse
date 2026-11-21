@@ -723,3 +723,69 @@ def test_replay_with_a_model_option_needs_a_model(client, monkeypatch, page_url)
     fid = _save_flow_with_read(client, monkeypatch, page_url)
     r = client.post(f"/flows/{fid}/run", headers=H, json={"failover": True})
     assert r.status_code == 400 and "model" in r.json()["detail"].lower()
+
+
+# ── review before sending: off, only when something looks personal, every call ───────────────
+class Spy(Script):
+    def __init__(self, calls):
+        super().__init__(calls)
+        self.sent = []
+
+    def complete(self, *, system, messages, tools, max_tokens=2048):
+        self.sent.append(json.dumps(messages, ensure_ascii=False))
+        return super().complete(system=system, messages=messages, tools=tools, max_tokens=max_tokens)
+
+
+def test_flagged_mode_does_not_hold_a_request_with_nothing_personal(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="find the price of a stapler")
+    events = _events(client, run)
+    assert events[-1]["success"] is True and not any(e.get("holding") for e in events if e["type"] == "call")
+
+
+def test_flagged_mode_holds_a_request_with_an_email_until_you_choose(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    held = _wait_for(client, run, lambda e: e["type"] == "call")
+    assert held["holding"] is True and held["mode"] == "flagged"
+    assert [f["match"] for f in held["reason"]] == ["jane@example.com"]
+    time.sleep(0.5)
+    assert spy.sent == [], "it was sent without approval"
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": False})
+    events = _events(client, run)
+    assert events[-1]["success"] is True and "jane@example.com" in spy.sent[0]
+
+
+def test_send_masked_replaces_the_flagged_text_and_remembers_the_choice(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    events = _events(client, run)
+    calls = [e for e in events if e["type"] == "call"]
+    assert events[-1]["success"] is True and len(calls) == 2
+    assert all("jane@example.com" not in m and "[removed: email address]" in m for m in spy.sent)
+    assert calls[1]["holding"] is False                                   # the same text is not asked about again
+    assert any(e["type"] == "call_masked" for e in events)
+
+
+def test_refusing_a_flagged_request_stops_the_run_and_sends_nothing(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": False})
+    assert _events(client, run)[-1]["error"] == "Stopped by you." and spy.sent == []
+
+
+def test_every_call_mode_holds_even_a_clean_request_and_can_be_switched_off(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="always", prompt="find the price of a stapler")
+    held = _wait_for(client, run, lambda e: e["type"] == "call")
+    assert held["holding"] is True and held["mode"] == "always"
+    client.post(f"/runs/{run}/review", headers=H, json={"mode": "off"})      # switching it off releases the held call
+    assert _events(client, run)[-1]["success"] is True and len(spy.sent) == 2
