@@ -82,3 +82,50 @@ PresidioRedact(analyzer=my_analyzer_engine)        # your own AnalyzerEngine: cu
 - **Cost:** `en_core_web_sm` loads once per run (about 0.8 s on one laptop). After that a short page takes a few milliseconds and about 9,000 characters of page text took about 0.2 s. Those figures come from one machine and one synthetic page, so treat them as a rough guide, and `en_core_web_lg` will be slower.
 - **Scope:** it masks the page text sent to the model. It does not scrub traces, screenshots (`--vision`) or text you type; use `redact_trace=` for traces and avoid `--vision` with sensitive pages.
 - **MCP server:** `selfbrowse-mcp` takes the same `--redact-presidio`, `--presidio-entities` and `--presidio-model` flags and loads the model once at start-up.
+
+
+## Stop and review before anything is sent
+
+Masking hides personal data. A review is a gate: before each model call it shows you the exact request and lets
+you send it, send it with the flagged text masked, or stop the run.
+
+```python
+BrowseAgent(task, llm="anthropic:claude-haiku-5-5", review_payload="when_flagged")
+```
+
+```bash
+selfbrowse "..." --review-payload            # stops only when something looks personal
+selfbrowse "..." --review-payload always     # stops before every model call
+```
+
+| Mode | Stops | Use it when |
+|---|---|---|
+| `"always"` | Before every model call, whatever was found. | You need a guarantee. It does not depend on a detector, so it cannot miss anything. |
+| `"when_flagged"` (or `True`) | Only when something looks personal. | You want fewer interruptions and accept what the detector can find. |
+| off (the default) | Never. | |
+
+**What "looks personal" means.** Emails, phone numbers, US SSNs, card numbers (Luhn-checked) and any of your
+`sensitive` values are always checked. Names, IBANs, passports and similar are checked too when Microsoft Presidio and a
+spaCy model are installed (see above). Without them, names and street addresses are not found, so use `"always"` if
+that matters. Screenshots are not scanned; the review says how many are attached.
+
+**The decision.** By default the terminal asks: `s` send, `r` send with the flagged text masked as `[email]`, `q` stop,
+`v` view everything. With no terminal the run stops, because a request nobody can approve is not sent. To use your own
+interface, pass `on_review`:
+
+```python
+def decide(review):                 # a PayloadReview
+    print(review.n, review.mode, [f"{f.label}: {f.text}" for f in review.flags])
+    return "send"                   # "send" | "redact" | "stop"  (True sends; False, None or anything else stops)
+
+BrowseAgent(task, review_payload="when_flagged", on_review=decide)
+```
+
+A `PayloadReview` has the call number `n`, the exact `messages` that would be sent, the `tools`, the `flags`
+(`kind`, `label`, `text`), `images` (screenshots attached) and `text` (the messages flattened for display).
+
+A decision on a flagged text is remembered for the rest of the run, so one email in the task does not stop every call.
+In `"always"` mode every call is shown. If the reviewer raises an error, the request is not sent.
+
+This is separate from `--redact-pii`: redaction rewrites page text as it is read; review looks at the whole request
+at the last moment, after any redaction, and asks you.
