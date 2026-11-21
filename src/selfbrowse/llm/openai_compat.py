@@ -88,6 +88,9 @@ _FINISH = {"tool_calls": "tool_use", "function_call": "tool_use", "stop": "end_t
 
 
 def response_from_openai(resp: Any) -> LLMResponse:
+    if not getattr(resp, "choices", None):
+        raise LLMError("The server answered, but not in the OpenAI chat format (no \"choices\" in its reply). "
+                       "If it speaks the Anthropic messages API, use the Anthropic type instead.")
     choice = resp.choices[0]
     msg = choice.message
     content: list[dict[str, Any]] = []

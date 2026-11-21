@@ -65,6 +65,10 @@ class BrowseAgent:
             the model sees their names, never their folders. Without this the tool is not offered.
         sensitive: ``{"NAME": "value"}``. The model writes ``<secret:NAME>``; Selfbrowse substitutes the
             real value only when typing, so secrets never enter the model's context.
+        sensitive_hints: ``{"NAME": "Shipping address > City"}``, a short description of each secret. When given, the
+            model is not shown the list of secrets. It is told that saved details exist and may ask for one with the
+            ``find_saved_detail`` tool, which returns only the matching placeholders. Without it, every secret name is
+            listed in the task.
         restore_answer: put the real values back into the final answer you get (default True; the model
             never sees them, and the recorded steps stay masked). Pass False if you forward the answer to
             another model or a log.
@@ -89,6 +93,7 @@ class BrowseAgent:
         max_output_tokens: int = 2048,
         files: "list[str | Path] | None" = None,
         sensitive: dict[str, str] | None = None,
+        sensitive_hints: dict[str, str] | None = None,
         restore_answer: bool = True,
         handoff: "str | bool | Handler" = "auto",
         max_handoffs: int = 3,
@@ -123,6 +128,7 @@ class BrowseAgent:
                 raise ValueError(f"files: {f} is not a file")
         self._drag_offered = False
         self.sensitive = dict(sensitive or {})
+        self.hints = {k: str(v)[:120] for k, v in (sensitive_hints or {}).items() if k in self.sensitive}
         self.restore_answer = restore_answer
         self.on_step = on_step
         self._notes_shown = False
@@ -138,7 +144,7 @@ class BrowseAgent:
         self._handler: Handler | None = None
         self._handoffs = 0
         self._stop: str | None = None
-        self.tools = build_tools(vision=vision, files=bool(self.files), drag=True)
+        self.tools = build_tools(vision=vision, files=bool(self.files), drag=True, saved=bool(self.hints))
         user_guards = list(guardrails or [])
         if safe_urls and not any(isinstance(g, SafeUrls) for g in user_guards):
             user_guards.insert(0, SafeUrls())
@@ -159,7 +165,7 @@ class BrowseAgent:
             getattr(g, "check_ready", lambda: None)()
         self.browser.start()
         self._handler = self._resolve_handler()
-        self.tools = build_tools(vision=self.vision, human=self._handler is not None, files=bool(self.files), drag=True)
+        self.tools = build_tools(vision=self.vision, human=self._handler is not None, files=bool(self.files), drag=True, saved=bool(self.hints))
         self._system_text = SYSTEM + (HUMAN_RULE if self._handler else "")
         self._handoffs, self._stop = 0, None
         if hasattr(self.browser, "on_dialog"):
@@ -575,7 +581,20 @@ class BrowseAgent:
         spec = next((t for t in self.tools if t["name"] == name), None)
         if spec is None:
             return args, f"Error: unknown tool {name!r}. Tools: {', '.join(t['name'] for t in self.tools)}."
-        return normalize_args(spec, args)
+        out, error = normalize_args(spec, args)
+        if error is None and name == "type" and self.sensitive:
+            out["text"] = self._as_secret_ref(str(out.get("text", "")))
+        return out, error
+
+    def _as_secret_ref(self, text: str) -> str:
+        """A model that has been told a secret's name sometimes types the name itself (``WEBSITE_LOGIN_PASSWORD``,
+        ``secret:WEBSITE_LOGIN_PASSWORD``) instead of the ``<secret:NAME>`` placeholder, which would put the name in
+        the field. When the whole text is exactly one known name, treat it as that placeholder."""
+        t = text.strip()
+        m = re.fullmatch(r"[<{\[]*\s*(?:secret\s*:\s*)?([A-Za-z0-9_\-]+)\s*[>}\]]*", t)
+        if m and m.group(1) in self.sensitive and (m.group(1) == t or t.lower().startswith(("<secret", "{secret", "secret", "[secret"))):
+            return f"<secret:{m.group(1)}>"
+        return text
 
     def _repair(self, content: list[dict[str, Any]], n: int) -> list[dict[str, Any]]:
         """If the model wrote a tool call as text, turn it into a real one."""
@@ -693,8 +712,27 @@ class BrowseAgent:
         """Tell the model which secret names exist (never the values)."""
         if not self.sensitive:
             return ""
+        if getattr(self, "hints", None):                  # on demand: say that they exist, not what they are
+            return ("\nThe person has saved details (such as name, contact, address or logins). When a field needs one, call "
+                    "find_saved_detail and type the placeholder it returns. Never guess a placeholder.")
         names = ", ".join(f"<secret:{n}>" for n in self.sensitive)
         return f"\nStored secrets you can type (use the placeholder exactly; you never see the value): {names}"
+
+    _STOP = {"the", "my", "your", "of", "and", "for", "number", "field", "please", "need", "needs"}
+
+    def _find_saved(self, what: str) -> str:
+        """The placeholders that match what the model asked for. Only these descriptions reach the model."""
+        words = [w for w in re.findall(r"[a-z0-9]+", what.lower()) if len(w) >= 3 and w not in self._STOP]
+        scored = []
+        for name, desc in self.hints.items():
+            hay = re.sub(r"[^a-z0-9]", "", f"{desc} {name}".lower())
+            score = sum(1 for w in words if w in hay)
+            if score:
+                scored.append((-score, name, desc))
+        if not scored:
+            return f'No saved detail matches "{what[:60]}". If you need it, use ask_human.'
+        best = min(sc for sc, _, _ in scored)                # the closest matches only: "first name" is not "last name"
+        return "\n".join(f"<secret:{n}> is {d}" for sc, n, d in sorted(scored)[:6] if sc == best)
 
     def _substitute_secrets(self, text: str) -> str:
         def sub(m: re.Match) -> str:
@@ -754,6 +792,8 @@ class BrowseAgent:
             if name == "read":
                 return "Visible text:\n" + self.guards.page(
                     b.visible_text(FULL_READ_CHARS, whole=True) if a.get("full") else b.visible_text(), b.url), False
+            if name == "find_saved_detail":
+                return self._find_saved(str(a.get("what", ""))), False
             if name == "ask_human":
                 note = self._hand_off("model", str(a.get("reason", "the agent needs your help")))
                 return note, True

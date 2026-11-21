@@ -16,6 +16,16 @@ def test_detects_challenge_by_text_on_sparse_page():
     assert detect_block("Walmart", "Please verify you are human to continue", 4)
 
 
+def test_a_form_that_only_carries_a_recaptcha_badge_is_not_a_block():
+    # Greenhouse application forms end with "protected by reCAPTCHA"; the page is a normal form.
+    assert detect_block("Job Application", "Last Name *\nEmail *\nPhone\nprotected by\nreCAPTCHA", 12) is None
+
+
+def test_a_real_captcha_prompt_is_still_a_block():
+    assert detect_block("Login", "Please solve the CAPTCHA to continue", 6)
+    assert detect_block("Login", "Select all images with traffic lights", 6)
+
+
 def test_article_mentioning_captcha_is_not_a_block():
     assert detect_block("How CAPTCHAs work - Wiki", "A captcha is a test ...", 120) is None
 
