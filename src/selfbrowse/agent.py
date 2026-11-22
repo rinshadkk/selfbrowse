@@ -177,6 +177,7 @@ class BrowseAgent:
         for g in self.guards.items:                       # e.g. Presidio: fail now, not mid-run
             getattr(g, "check_ready", lambda: None)()
         self.browser.start()
+        self._guard_navigation()
         self._handler = self._resolve_handler()
         self.tools = build_tools(vision=self.vision, human=self._handler is not None, files=bool(self.files), drag=True, saved=bool(self.hints))
         self._system_text = SYSTEM + (HUMAN_RULE if self._handler else "")
@@ -342,6 +343,8 @@ class BrowseAgent:
                     started = time.perf_counter()
                     flow_target = self._flow_target(name, args)
                     text, changed = self._execute(name, args)
+                    if refused := getattr(self.browser, "take_refused", lambda: [])():
+                        text, changed = self._refused_note(refused), False
                     if dialogs := getattr(self.browser, "pop_dialogs", lambda: [])():
                         text += dialog_note(dialogs)
                         self._trace("dialog", dialogs=dialogs)
@@ -688,6 +691,29 @@ class BrowseAgent:
         except Exception:
             ok = False
         return None if ok else False
+
+    def _guard_navigation(self) -> None:
+        """If a guardrail limits where the agent may go, have the browser refuse a forbidden navigation before it is requested."""
+        if not hasattr(self.browser, "refuse_navigations"):
+            return
+        if not any(type(g).check_url is not Guardrail.check_url and not isinstance(g, SafeUrls) for g in self.guards.items):
+            return                                        # nothing restricts sites: leave the browser's cache and speed alone
+        def check(url: str) -> "tuple[str, str] | None":
+            hit = self.guards.url(url)
+            return (hit[0].name, hit[1].reason) if hit else None
+        self.browser.refuse_navigations(check)
+
+    def _refused_note(self, refused: "list[tuple[str, str, str]]") -> str:
+        who, reason, url = refused[0]
+        self._trace("guardrail", guardrail=who, decision="block", reason=f"{reason} (navigation to {url} refused)")
+        if self.browser.url.startswith("chrome-error:"):  # a refused page load leaves the browser's error page behind
+            try:
+                self.browser.back()
+                if self.browser.url.startswith("chrome-error:"):
+                    self.browser.page.goto("about:blank")
+            except Exception:
+                pass
+        return f"Blocked by guardrail {who}: {reason}. The page was not opened, and you are still on {self.browser.url}. Choose another approach."
 
     def _post_url_check(self, text: str) -> str:
         """After an action, make sure the browser did not land somewhere the guardrails forbid."""

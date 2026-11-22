@@ -41,6 +41,7 @@ def client(monkeypatch, tmp_path):
             server._RUN_LOCK.release()
             break
         time.sleep(0.1)
+    server.close_idle_sessions()                       # an answered run keeps its browser open; do not leak it past the test
 
 
 def _events(client, run_id):
@@ -723,3 +724,324 @@ def test_replay_with_a_model_option_needs_a_model(client, monkeypatch, page_url)
     fid = _save_flow_with_read(client, monkeypatch, page_url)
     r = client.post(f"/flows/{fid}/run", headers=H, json={"failover": True})
     assert r.status_code == 400 and "model" in r.json()["detail"].lower()
+
+
+# ── review before sending: off, only when something looks personal, every call ───────────────
+class Spy(Script):
+    def __init__(self, calls):
+        super().__init__(calls)
+        self.sent = []
+
+    def complete(self, *, system, messages, tools, max_tokens=2048):
+        self.sent.append(json.dumps(messages, ensure_ascii=False))
+        return super().complete(system=system, messages=messages, tools=tools, max_tokens=max_tokens)
+
+
+def test_flagged_mode_does_not_hold_a_request_with_nothing_personal(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="find the price of a stapler")
+    events = _events(client, run)
+    assert events[-1]["success"] is True and not any(e.get("holding") for e in events if e["type"] == "call")
+
+
+def test_flagged_mode_holds_a_request_with_an_email_until_you_choose(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    held = _wait_for(client, run, lambda e: e["type"] == "call")
+    assert held["holding"] is True and held["mode"] == "flagged"
+    assert [f["match"] for f in held["reason"]] == ["jane@example.com"]
+    time.sleep(0.5)
+    assert spy.sent == [], "it was sent without approval"
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": False})
+    events = _events(client, run)
+    assert events[-1]["success"] is True and "jane@example.com" in spy.sent[0]
+
+
+def test_send_masked_replaces_the_flagged_text_and_remembers_the_choice(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    events = _events(client, run)
+    calls = [e for e in events if e["type"] == "call"]
+    assert events[-1]["success"] is True and len(calls) == 2
+    assert all("jane@example.com" not in m and "<EMAIL_1>" in m for m in spy.sent)
+    assert "placeholders like" in spy.sent[0]                             # the model is told how to use them
+    assert calls[1]["holding"] is False                                   # the same text is not asked about again
+    assert any(e["type"] == "call_masked" for e in events)
+
+
+def test_a_masked_value_is_put_back_in_the_answer_you_read(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "I wrote to <EMAIL_1> as asked."})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    done = _events(client, run)[-1]
+    assert "jane@example.com" not in spy.sent[0]                          # the model never saw it
+    assert done["output"] == "I wrote to jane@example.com as asked."      # you do
+
+
+def test_without_a_vault_masking_is_one_way_and_a_saved_value_becomes_its_placeholder():
+    from live import LiveView, MirrorLLM
+    m = MirrorLLM(Script([]), LiveView(), lambda: None)                  # no agent, so no vault
+    tokens = m._tokens([{"kind": "email", "name": "email address", "match": "a@b.co"},
+                        {"kind": "value", "name": "HOME_CITY", "match": "Springfield"}], {"ids": []})
+    assert tokens == {"a@b.co": "[removed: email address]", "Springfield": "<secret:HOME_CITY>"}
+
+
+def test_refusing_a_flagged_request_stops_the_run_and_sends_nothing(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": False})
+    assert _events(client, run)[-1]["error"] == "Stopped by you." and spy.sent == []
+
+
+def test_every_call_mode_holds_even_a_clean_request_and_can_be_switched_off(client, monkeypatch, page_url):
+    spy = Spy([("goto", {"url": page_url}), ("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="always", prompt="find the price of a stapler")
+    held = _wait_for(client, run, lambda e: e["type"] == "call")
+    assert held["holding"] is True and held["mode"] == "always"
+    client.post(f"/runs/{run}/review", headers=H, json={"mode": "off"})      # switching it off releases the held call
+    assert _events(client, run)[-1]["success"] is True and len(spy.sent) == 2
+
+
+def test_you_can_replace_only_some_of_what_was_flagged(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="write to jane@example.com or call (312) 555-0187")
+    held = _wait_for(client, run, lambda e: e["type"] == "call")
+    assert {f["match"] for f in held["reason"]} == {"jane@example.com", "(312) 555-0187"}
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True, "replace": ["jane@example.com"]})
+    _events(client, run)
+    assert "jane@example.com" not in spy.sent[0] and "<EMAIL_1>" in spy.sent[0]
+    assert "(312) 555-0187" in spy.sent[0]                                  # left alone, as you chose
+
+
+def test_the_model_is_told_to_write_placeholders_in_its_answer(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "ok"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="write to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    _events(client, run)
+    assert "write its placeholder exactly" in spy.sent[0]
+
+
+# ── a follow-up carries on in the same run ───────────────────────────────────────────────────
+def test_a_follow_up_continues_in_the_same_run_and_browser(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "First answer"}), ("done", {"success": True, "answer": "Second answer"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, prompt="find the lamp price")
+    assert _events(client, run)[-1]["output"] == "First answer"
+    browser = server.RUNS[run].session.browser
+    r = client.post(f"/runs/{run}/followup", headers=H, json={"prompt": "and the desk price?"})
+    assert r.status_code == 200
+    events = _events(client, run)
+    kinds = [e["type"] for e in events]
+    assert kinds.count("done") == 2 and "turn" in kinds and events[-1]["output"] == "Second answer", events[-1].get("error")
+    assert server.RUNS[run].session.browser is browser                       # the same browser, not a new one
+    assert len(client.get("/history", headers=H).json()) == 1                # one run in History, not two
+    second = spy.sent[1]
+    assert "find the lamp price" in second and "First answer" in second and "and the desk price?" in second
+
+
+def test_a_follow_up_needs_a_finished_run_with_its_browser(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    _events(client, run)
+    time.sleep(0.2)
+    assert client.post(f"/runs/{run}/close", headers=H).json() == {"closed": True}
+    r = client.post(f"/runs/{run}/followup", headers=H, json={"prompt": "more"})
+    assert r.status_code == 409 and "follow-up" in r.json()["detail"]
+    assert client.post("/runs/nosuchrun/followup", headers=H, json={"prompt": "x"}).status_code == 404
+
+
+def test_starting_a_new_run_closes_the_old_ones_browser(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"}), ("done", {"success": True, "answer": "ok"})]))
+    first = _start(client)
+    _events(client, first)
+    time.sleep(0.2)
+    assert server.RUNS[first].session is not None
+    second = _start(client)
+    _events(client, second)
+    assert server.RUNS[first].session is None
+    assert server.close_idle_sessions(max_age=0) in (0, 1)
+
+
+def test_idle_browsers_are_closed_after_a_while(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    _events(client, run)
+    time.sleep(0.2)
+    assert server.close_idle_sessions(max_age=3600) == 0 and server.RUNS[run].session is not None
+    server.RUNS[run].session.idle_since -= 7200
+    assert server.close_idle_sessions(max_age=3600) == 1 and server.RUNS[run].session is None
+
+
+def test_a_masked_value_means_the_same_thing_in_the_follow_up(client, monkeypatch, page_url):
+    spy = Spy([("done", {"success": True, "answer": "Wrote to <EMAIL_1>"}), ("done", {"success": True, "answer": "Again to <EMAIL_1>"})])
+    _patch_agent(monkeypatch, spy)
+    run = _start(client, review_mode="flagged", prompt="reply to jane@example.com")
+    _wait_for(client, run, lambda e: e["type"] == "call")
+    client.post(f"/runs/{run}/call", headers=H, json={"send": True, "mask": True})
+    assert _events(client, run)[-1]["output"] == "Wrote to jane@example.com"
+    client.post(f"/runs/{run}/followup", headers=H, json={"prompt": "send it again"})
+    done = _events(client, run)[-1]
+    assert done["output"] == "Again to jane@example.com"                     # the same token, restored again
+    assert "jane@example.com" not in spy.sent[1] and "<EMAIL_1>" in spy.sent[1]
+
+
+def test_events_can_be_read_from_an_offset(client, monkeypatch, page_url):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = _start(client)
+    full = _events(client, run)
+    text = client.get(f"/runs/{run}/events?after={len(full) - 1}", headers=H).text
+    tail = [json.loads(l[6:]) for l in text.splitlines() if l.startswith("data: ")]
+    assert [e["type"] for e in tail] == ["done"]
+
+
+# ---- guardrail settings ----
+
+def test_a_bad_site_name_is_refused(client):
+    r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"allow": ["exa mple.com/<script>"]}})
+    assert r.status_code == 422
+
+
+def test_a_dollar_limit_needs_prices(client):
+    r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"max_usd": 1}})
+    assert r.status_code == 422
+    ok = server.GuardSettings(max_usd=1, price_in=1, price_out=5)
+    assert [g.name for g in ok.build()] == ["Budget"]
+
+
+def test_settings_become_the_libraries_guardrails():
+    g = server.GuardSettings(allow=["https://Example.com/"], block=["bad.test"], confirm_risky=True, watch_injection=True,
+                             redact=["email", "card"], max_tokens=5000, max_seconds=60)
+    names = [x.name for x in g.build()]
+    assert names == ["AllowedDomains", "BlockedDomains", "ConfirmRisky", "RedactPII", "InjectionWatch", "Budget"]
+    assert g.allow == ["example.com"]
+    pii = [x for x in g.build() if x.name == "RedactPII"][0]
+    assert pii.kinds == ("card", "email")
+
+
+def test_nothing_set_adds_no_guardrails():
+    assert server.GuardSettings().build() == []
+
+
+def test_a_blocked_site_stops_the_run(client, monkeypatch):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))      # the test browser starts on 127.0.0.1
+    run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"block": ["127.0.0.1"]}}).json()["id"]
+    done = _events(client, run)[-1]
+    assert done["success"] is False and "BlockedDomains" in done["error"]
+
+
+def test_a_site_outside_the_allowed_list_stops_the_run(client, monkeypatch):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"allow": ["example.org"]}}).json()["id"]
+    done = _events(client, run)[-1]
+    assert done["success"] is False and "AllowedDomains" in done["error"]
+
+
+def test_an_allowed_site_runs(client, monkeypatch):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"allow": ["127.0.0.1"]}}).json()["id"]
+    assert _events(client, run)[-1]["success"] is True
+
+
+# ---- models installed on this computer ----
+
+class _Reply:
+    def __init__(self, data):
+        self._d = json.dumps(data).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, n=-1):
+        return self._d
+
+
+def test_installed_ollama_models_are_listed(client, monkeypatch):
+    import urllib.request
+    seen = []
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: seen.append(url) or _Reply(
+        {"models": [{"name": "qwen3:latest", "size": 5}, {"name": "llama3.1:latest", "size": 4}, {"bad": 1}]}))
+    r = client.get("/local-models/ollama", headers=H).json()
+    assert r["ok"] and [m["name"] for m in r["models"]] == ["llama3.1:latest", "qwen3:latest"]
+    assert seen == ["http://127.0.0.1:11434/api/tags"]
+
+
+def test_lm_studio_models_are_listed(client, monkeypatch):
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: _Reply({"data": [{"id": "phi-4"}]}))
+    r = client.get("/local-models/lmstudio", headers=H).json()
+    assert r["ok"] and r["models"] == [{"name": "phi-4", "size": 0}]
+
+
+def test_ollama_not_running_says_so(client, monkeypatch):
+    import urllib.request
+
+    def refuse(url, timeout=0):
+        raise OSError("connection refused")
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    r = client.get("/local-models/ollama", headers=H).json()
+    assert r["ok"] is False and r["models"] == [] and "not running" in r["error"]
+
+
+def test_only_known_local_sources_are_listed(client):
+    assert client.get("/local-models/evil", headers=H).status_code == 422
+    assert client.get("/local-models/ollama").status_code == 401
+
+
+def test_ollama_host_may_only_point_at_this_computer(monkeypatch):
+    monkeypatch.setenv("OLLAMA_HOST", "10.0.0.5:11434")
+    assert server._local_base("ollama") == "http://127.0.0.1:11434"
+    monkeypatch.setenv("OLLAMA_HOST", "localhost:9999")
+    assert server._local_base("ollama") == "http://localhost:9999"
+
+
+# ---- the words that make a click risky ----
+
+def _ask(g, text):
+    from selfbrowse.guardrails import Action
+    c = [x for x in g.build() if x.name == "ConfirmRisky"][0]
+    return c.before_action(Action("click", {}, "http://x/", text=text)) is not None
+
+
+def test_the_default_words_apply_when_none_are_set():
+    g = server.GuardSettings(confirm_risky=True)
+    assert _ask(g, "Delete account") and not _ask(g, "Proceed to payment")
+
+
+def test_your_own_words_replace_the_defaults():
+    g = server.GuardSettings(confirm_risky=True, risky_words=["Payment", " close   account ", "payment"])
+    assert g.risky_words == ["payment", "close account"]
+    assert _ask(g, "Proceed to payment") and _ask(g, "Close account") and not _ask(g, "Delete account")
+
+
+def test_words_match_whole_words_and_are_not_patterns():
+    g = server.GuardSettings(confirm_risky=True, risky_words=["pay", "a.c"])
+    assert _ask(g, "Pay now") and not _ask(g, "Payment") and not _ask(g, "abc")
+
+
+def test_an_empty_word_list_leaves_only_uploads_and_dialogs():
+    from selfbrowse.guardrails import Action
+    g = server.GuardSettings(confirm_risky=True, risky_words=[])
+    assert not _ask(g, "Delete account")
+    c = [x for x in g.build() if x.name == "ConfirmRisky"][0]
+    assert c.before_action(Action("upload", {"file": "cv.pdf"}, "http://x/")) is not None
+
+
+def test_too_long_a_word_is_refused(client):
+    r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"confirm_risky": True, "risky_words": ["x" * 41]}})
+    assert r.status_code == 422

@@ -43,6 +43,23 @@ The agent drives its own Chromium (headless by default). The backend mirrors it 
 - Playwright's synchronous API only delivers frames while its thread is inside a Playwright call, so `backend/live.py` runs the model call in a helper thread and pumps the browser every 50 ms meanwhile.
 - Known limits: a little lag, no native scrolling feel or IME, and the frame is a picture of the page, not the browser's own chrome (tabs, address bar).
 
+## Models on this computer
+
+With Ollama or LM Studio selected, the model sheet lists what is installed there (and the quick-switch menu offers it), instead of asking you to type a name.
+
+## Guardrails
+
+The Guardrails screen sets every limit the library offers, once, for all runs (kept in the app's local storage):
+
+- **Sites:** web pages only, an allow list, a block list. Checked on every page, including after a redirect.
+- **Actions:** ask before risky clicks, uploads and dialogs (the run pauses with Allow / Don't allow). The words that make a click risky are an editable list. Watch for instructions hidden in pages.
+- **Strict preset:** one button turns on the guardrails that limit what a hijacked agent could do, then asks for the sites the task needs. Clicks and form posts to a site outside the allow list are refused before any request is made.
+- **Personal data in pages:** mask emails, phones, SSNs and card numbers (and, with Presidio installed, names) before the model reads the page; type them back or mask for good.
+- **Limits:** most steps, tokens, seconds and dollars (a dollar limit needs your model's prices).
+- **Messages to the model:** review before sending and show My info values in the answer, the same controls as on the Run screen.
+
+They apply to agent runs, including follow-ups, not to replaying a saved flow.
+
 ## Security model
 
 - The backend listens on `127.0.0.1` only, on a random port, and every call needs a one-time token in the `Authorization` header (no token in URLs). Requests whose `Host` is not a loopback name are refused (DNS rebinding), and only the app's own `file://` origin may read responses.
@@ -64,3 +81,15 @@ The agent drives its own Chromium (headless by default). The backend mirrors it 
 - **History.** Each finished run (and flow replay) is summarised under History: the task, outcome, answer or error, steps, time and token counts. “Run again” puts the task back in the Run box. It is stored as small JSON files in the app's data folder (`history/`), the last 500 only. Pages, screenshots and what was sent to the model are not kept, and My info shared with the model is stripped from the task. Turn “Keep a history of runs” off to stop recording, or use Clear history.
 
 - **Passwords and secrets in My info.** “Add password or secret” (and the Website login and Sensitive details templates) make protected fields: masked, kept only on this computer, never offered to the model, and never shown beside a placeholder in the inspector. Showing one needs Touch ID where the Mac has it (a plain confirmation elsewhere), and it covers itself again after 15 seconds or when you leave the tab. Like everything in My info they are encrypted with the system keychain. Card numbers are still refused.
+
+- **Layout.** The Run screen has three states. Idle: a centred prompt box with Model, My info, Browser and ⋯ (personal-data detection, approve each call) pills, and shortcuts to your recent runs and flows. Running: a bar with the task, status and Stop, the steps on the left, the live browser in the middle and the Outbound inspector on the right. Finished: the result with its numbers, Run again, Save as flow, Copy summary, New run (Cmd+N) and a follow-up box that starts a new run with the last result as context.
+
+- **Review before sending.** Under ⋯ (and in the run bar) choose Off, When something looks personal, or Every model call. The run stops before the call, shows exactly what is in it with the personal parts highlighted, and waits: Send as is, Send with these replaced (they go as placeholders like `<EMAIL_1>` from the library's own masking: the real value is typed back for the model on the site where it was seen, or on any site if you wrote it in the task, and your answer shows the real value), or Stop the run. A choice on a piece of text is remembered for the rest of the run, so one email in the task does not stop every call. The setting is remembered and can be changed during a run, which releases a held call if you switch it off. Checks: emails, phones, cards, your My info values, and names too if Presidio is on. Screenshots are not scanned.
+
+  Replacing is reversible only when review was on when the run started (the run then carries the library's vault, about 55 more tokens per call for a note on how to use placeholders). If you switch review on mid-run, a replaced value goes as `[removed: …]` and is not put back. Saved flows turn a typed placeholder into a required input.
+
+  Each flagged item in the banner has a tick: replace it or leave it. Presidio can take a form label (such as “Suff.” on a W-2) for a name and miss part of a real one, so you decide. Items you leave are not asked about again. When something is replaced the model is also told to write the placeholder in its answer, which is swapped for the real value before you read it.
+
+- **Show My info values in the answer.** When the model reports one of your saved values it writes a placeholder such as `<secret:MY_BASIC_INFO_FIRST>`. The switch under ⋯ (on by default, remembered) swaps the real value in on your screen, in the result and in History. It is done at display time only: the stored answer and anything sent to a model keep the placeholder (a follow-up uses the placeholder version), and passwords and other protected fields are never swapped in.
+
+- **Follow-ups stay in the same run.** The bar at the bottom of a run is always there (it waits while the agent is working). A follow-up carries on in the same browser, on the page it ended on, with the earlier task and answer as context, and its steps are added under a “Follow-up” mark in the same run and the same History entry. A masked value means the same thing across turns. The browser is kept open for 10 minutes after an answer; starting a new run, New run, or quitting the app closes it. If it has already closed, the follow-up starts a new run with the earlier result as context. A follow-up turn cannot be saved as a flow (it starts mid-way).

@@ -72,12 +72,13 @@ function runFlow(f) {
     const useModel = sumBox.checked || failBox.checked;
     let model = {};
     if (useModel) {
-      try { model = { summarize: sumBox.checked, failover: failBox.checked, ask: ask.value.trim(), ...modelRequest(), presidio: $('presidio').checked, review: $('review').checked }; }
+      try { model = { summarize: sumBox.checked, failover: failBox.checked, ask: ask.value.trim(), ...modelRequest(), presidio: $('presidio').checked, review_mode: $('review').value }; }
       catch (err) { msg.textContent = err.message; return; }
     }
     try {
       const { id } = await post(`/flows/${f.id}/run`, { params, sensitive: have, headed: false, history: keepHistory(), ...model, ...browserOptions() });
       closeSheet();
+      R.lastFlow = f;
       beginRun(id, f.name, useModel);
     } catch (err) { msg.textContent = err.message; }
   };

@@ -15,44 +15,80 @@
         <path class="mk-ink" d="M11 22 V22 a9 9 0 0 1 9 -9 h31 a9 9 0 0 1 9 9 v1 H11 Z"/>
         <rect class="mk-ink" x="21" y="31" width="30" height="4" rx="2"/><rect class="mk-ink" x="21" y="40" width="24" height="4" rx="2"/><rect class="mk-ink" x="21" y="49" width="15" height="4" rx="2"/>
         <rect class="mk-tag" x="3" y="5" width="22" height="20" rx="5" stroke-width="3.5"/>
-        <path class="mk-one" d="M12.2 10.6 L15.6 9 H17.4 V20.5 H14.4 V12.6 L12.2 13.6 Z"/></svg>Selfbrowse</div>
+        <circle class="mk-key" cx="14" cy="13" r="3.2"/><path class="mk-key" d="M12.6 15 L15.4 15 L16.4 20.5 L11.6 20.5 Z"/></svg>Selfbrowse</div>
     <button data-go="run" aria-current="page"><svg viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>Run</button>
     <button data-go="flows"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="18" r="2"/><path d="M7 6h5a4 4 0 014 4v0M7 18h5a4 4 0 004-4v0"/></svg>Flows</button>
     <button data-go="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>History</button>
+    <button data-go="guards"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Guardrails</button>
     <button data-go="vault"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>My info</button>
   </nav>
 
   <!-- ================= RUN ================= -->
-  <section class="screen on" id="run" aria-label="Run">
-    <form class="promptbar" id="form">
-      <div class="composer">
-        <textarea id="prompt" rows="2" aria-label="What should the browser do?" placeholder="What should the browser do? For example: find the cheapest nonstop flight from Chicago to Kochi next month"></textarea>
-        <button class="send" id="go" type="submit" aria-label="Run" title="Run (Cmd+Enter)">
-          <svg class="i-run" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 001.5.86l10.4-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z"/></svg>
-          <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>
-        </button>
-      </div>
-      <div class="opts">
-        <div class="inline menuwrap">Model <button class="btn small" id="modelBtn" type="button" aria-haspopup="menu" aria-expanded="false">Anthropic ▾</button><div class="menu" id="modelMenu" role="menu" hidden></div></div>
-        <label class="switch" id="useInfoLabel"><input type="checkbox" id="useInfo" checked> Use My info</label>
-        <label class="switch" id="presidioLabel" title="Uses Microsoft Presidio, on this computer, to flag names and ID numbers in what is sent"><input type="checkbox" id="presidio"> Detect more personal data</label>
-        <button class="btn small" id="presidioInstall" type="button" hidden>Install</button><span class="foot" id="presidioNote"></span>
-        <label class="switch review"><input type="checkbox" id="review"> Let me approve each model call</label>
-        <details class="popover" id="browserOpts">
-          <summary>Browser</summary>
-          <div class="pop">
-            <label class="switch"><input type="checkbox" id="optProfile" checked> Remember logins and cookies</label>
-            <p class="foot">Keeps a browser profile on this computer, so sites see a returning visitor and you sign in once. Stored unencrypted in Chrome’s own format.</p>
-            <label class="switch"><input type="checkbox" id="optChrome" checked> Use my installed Chrome</label>
-            <p class="foot" id="chromeNote">A real Chrome looks less like automation than the bundled browser.</p>
-            <label class="switch"><input type="checkbox" id="optStealth"> Stealth mode</label>
-            <p class="foot" id="stealthNote">Hides common automation tells. Needs an extra package.</p>
-            <div class="btns"><button class="btn small danger" id="clearData" type="button">Clear browser data</button><span class="foot" id="profileSize"></span></div>
+  <section class="screen on" id="run" data-state="idle" aria-label="Run">
+    <div class="idleview" id="idleView">
+      <div class="idle-inner">
+        <h1>What should the browser do?</h1>
+        <p class="idle-sub">You’ll watch every step, and see exactly what’s sent to the model.</p>
+        <form class="composer-card" id="form">
+          <textarea id="prompt" rows="3" aria-label="What should the browser do?" placeholder="e.g. Find the cheapest nonstop flight from Chicago to Kochi next month"></textarea>
+          <div class="pills">
+            <div class="menuwrap"><button class="pill" id="modelBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Choose the model">Anthropic ▾</button><div class="menu" id="modelMenu" role="menu" hidden></div></div>
+            <label class="pill check" id="useInfoLabel" title="Let runs type your saved details"><input type="checkbox" id="useInfo" checked><span>My info<span class="st"></span></span></label>
+            <details class="popover" id="browserOpts">
+              <summary class="pill">Browser</summary>
+              <div class="pop">
+                <label class="switch"><input type="checkbox" id="optProfile" checked> Remember logins and cookies</label>
+                <p class="foot">Keeps a browser profile on this computer, so sites see a returning visitor and you sign in once. Stored unencrypted in Chrome’s own format.</p>
+                <label class="switch"><input type="checkbox" id="optChrome" checked> Use my installed Chrome</label>
+                <p class="foot" id="chromeNote">A real Chrome looks less like automation than the bundled browser.</p>
+                <label class="switch"><input type="checkbox" id="optStealth"> Stealth mode</label>
+                <p class="foot" id="stealthNote">Hides common automation tells. Needs an extra package.</p>
+                <div class="btns"><button class="btn small danger" id="clearData" type="button">Clear browser data</button><span class="foot" id="profileSize"></span></div>
+              </div>
+            </details>
+            <details class="popover" id="moreOpts">
+              <summary class="pill icononly" aria-label="More settings">⋯</summary>
+              <div class="pop">
+                <label class="switch" id="presidioLabel" title="Uses Microsoft Presidio, on this computer, to flag names and ID numbers in what is sent"><input type="checkbox" id="presidio"> Detect more personal data</label>
+                <div class="btns"><button class="btn small" id="presidioInstall" type="button" hidden>Install</button><span class="foot" id="presidioNote"></span></div>
+                <label class="switch" id="showSecretsLabel" title="The model writes a placeholder when it reports one of your saved values. This swaps in the real value on screen only."><input type="checkbox" id="showSecrets" checked> Show My info values in the answer</label>
+                <p class="foot">The model only ever sees a placeholder. This swaps the real value in on your screen, never for passwords or other protected fields.</p>
+                <label class="field" for="review">Review before sending
+                  <select id="review">
+                    <option value="off">Off</option>
+                    <option value="flagged">When something looks personal</option>
+                    <option value="always">Every model call</option>
+                  </select></label>
+                <p class="foot">Stops before a call goes to the model and shows you exactly what is in it. You can send it, send it with the personal parts replaced, or stop the run.</p>
+              </div>
+            </details>
+            <span class="grow"></span>
+            <button class="runbtn" id="go" type="submit" title="Run (Cmd+Enter)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15a1 1 0 001.5.86l12-7.5a1 1 0 000-1.72l-12-7.5A1 1 0 007 4.5z"/></svg>Run</button>
           </div>
-        </details>
+        </form>
+        <ul class="pillars" aria-label="Why Selfbrowse">
+          <li class="sec"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg></span><div><b>Your secrets stay with you</b><span>The model sees a placeholder, never your passwords. Every message sent is shown.</span></div></li>
+          <li class="tok"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18a8 8 0 1116 0"/><path d="M12 18l4-6"/></svg></span><div><b>Fewer tokens</b><span>3 to 6 times fewer than browser-use on small and local models. Saved flows replay for none.</span></div></li>
+          <li class="oss"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 8v8M8 6h4a4 4 0 014 4v-1"/></svg></span><div><b>Open source, any model</b><span>MIT licensed. Claude, OpenAI, Gemini, Ollama, or your own server.</span></div></li>
+        </ul>
+        <div class="suggest-grid" id="suggestions"></div>
       </div>
-    </form>
+    </div>
 
+    <div class="activeview" id="activeView">
+      <header class="runhead">
+        <h1 id="runTitle">Run</h1>
+        <span class="statuspill" id="runPill">Running</span>
+        <span class="grow"></span>
+        <span class="muted runmodel" id="runModel"></span>
+        <label class="reviewsel" title="Stop before a call goes to the model, so you can read it first"><span>Review</span>
+          <select id="reviewHead" aria-label="Review before sending">
+            <option value="off">Off</option>
+            <option value="flagged">When personal</option>
+            <option value="always">Every call</option>
+          </select></label>
+        <button class="btn danger stopbtn" id="stopBtn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>Stop</button>
+      </header>
     <div class="runbody">
       <div class="col timeline" aria-label="Steps">
         <h3>Steps</h3>
@@ -62,8 +98,9 @@
 
       <div class="col stage">
         <div class="review-banner" id="banner" hidden role="alert">
-          <div><b>Waiting for your OK.</b> The next model call is shown on the right. Nothing has left this computer yet.</div>
-          <div class="btns"><button class="btn" id="refuseCall" type="button">Stop the run</button><button class="btn primary" id="sendCall" type="button">Send this call</button></div>
+          <div><b id="bannerTitle">Waiting for your OK.</b> <span id="bannerText">The next model call is shown on the right. Nothing has left this computer yet.</span>
+            <div class="flaglist" id="bannerFlags"></div></div>
+          <div class="btns"><button class="btn" id="refuseCall" type="button">Stop the run</button><button class="btn" id="maskCall" type="button" hidden title="They go as placeholders like &lt;EMAIL_1&gt;. Selfbrowse types the real value back where the model needs it, and your answer shows it.">Send with these replaced</button><button class="btn primary" id="sendCall" type="button">Send as is</button></div>
         </div>
         <div class="browser" id="live" hidden>
           <div class="bar">
@@ -82,8 +119,21 @@
           <b id="statusTitle">Ready</b>
           <p class="muted" id="statusText">Describe a task above and press Run. You will see the browser here, and everything sent to the model on the right.</p>
           <div class="answer" id="answerText" hidden></div>
-          <div class="btns" id="afterRun" hidden><button class="btn" id="saveFlow" type="button">Save as flow</button></div>
+          <div class="stats" id="resultStats" hidden></div>
+          <div class="btns actions" id="afterRun" hidden>
+            <button class="btn" id="runAgain" type="button">Run again</button>
+            <button class="btn" id="saveFlow" type="button" hidden>Save as flow</button>
+            <button class="btn" id="copyAnswer" type="button" hidden>Copy summary</button>
+            <button class="btn" id="showBrowser" type="button">Show browser</button>
+            <span class="grow"></span>
+            <button class="btn primary" id="newRun" type="button" title="New run (Cmd+N)">+ New run <kbd>⌘N</kbd></button>
+          </div>
         </div>
+        <form class="followform" id="followForm" hidden>
+          <label for="follow" class="sr">Follow-up</label>
+          <input id="follow" type="text" maxlength="1000" autocomplete="off" placeholder="Follow up on this run…">
+          <button class="sendarrow" type="submit" aria-label="Send follow-up"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </form>
       </div>
 
       <aside class="inspector" aria-label="What was sent to the model">
@@ -131,6 +181,7 @@
         </div>
       </aside>
     </div>
+    </div>
 
     <div class="ledger" role="status" id="ledger">
       <span><span class="dot sent"></span><b id="lCalls">0 calls</b> <span id="lProvider"></span></span>
@@ -164,6 +215,17 @@
     <div class="main" id="vaultMain"></div>
   </section>
 
+  <!-- ================= GUARDRAILS ================= -->
+  <section class="screen" id="guards" aria-label="Guardrails">
+    <div class="main">
+      <h1>Guardrails</h1>
+      <p class="lead">Limits Selfbrowse keeps to on every run, however the task is worded. They are saved on this computer and applied to the next run.</p>
+      <p class="gsummary" id="gSummary"></p>
+      <div id="gBody"></div>
+      <div class="btns"><button class="btn" id="gReset" type="button">Reset to defaults</button></div>
+    </div>
+  </section>
+
   <!-- ================= FLOWS ================= -->
   <section class="screen" id="flows" aria-label="Flows">
     <div class="main wide">
@@ -185,6 +247,7 @@
 <script src="flowedit.js"></script>
 <script src="run.js"></script>
 <script src="history.js"></script>
+<script src="guardrails.js"></script>
 <script src="myinfo.js"></script>
 <script src="flows.js"></script>
 </body>

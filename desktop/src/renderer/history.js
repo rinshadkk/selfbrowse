@@ -52,7 +52,7 @@ async function showHistory(id) {
     r.prompt ? h('p', {}, h('b', {}, 'Task: '), r.prompt) : null,
     h('div', { class: 'hstats' }, stat(String(r.steps.length), 'steps'), stat(dur(r.seconds), 'took'),
       stat(fmt(tokens), 'tokens'), r.kind === 'flow' && !r.calls ? null : stat(String(r.calls), 'model calls')),
-    r.answer ? [h('h3', {}, 'Answer'), h('div', { class: 'hanswer' }, r.answer)] : null,
+    r.answer ? [h('h3', {}, 'Answer'), h('div', { class: 'hanswer' }, restoreSecrets(r.answer))] : null,
     r.error && !r.stopped ? [h('h3', {}, 'What went wrong'), h('div', { class: 'hanswer err' }, r.error)] : null,
     h('div', { class: 'btns' },
       r.kind === 'run' && r.prompt ? h('button', { class: 'btn primary', type: 'button', onclick: () => { $('prompt').value = r.prompt; go('run'); $('prompt').focus(); } }, 'Run again') : null,

@@ -103,6 +103,16 @@ function savedLabels() {
   for (const form of vault.forms) for (const f of form.fields) if (f.policy === 'local' && f.value && f.secret) out[f.secret] = `${form.name} › ${f.label}`;
   return out;
 }
+// The model writes <secret:NAME> when it reports one of your saved values. Whether the answer you read shows the real value
+// is your choice. It is swapped in on this screen only: never stored, never sent anywhere, and never for protected fields
+// (passwords and other secrets).
+const showSecrets = () => { try { return localStorage.getItem('sb.showsecrets') !== 'off'; } catch (_) { return true; } };
+function restoreSecrets(text) {
+  if (!text || !showSecrets()) return text || '';
+  const open = {};
+  for (const form of vault.forms) for (const f of form.fields) if (f.secret && f.value && f.kind !== 'secret') open[f.secret] = f.value;
+  return String(text).replace(/<secret:([A-Za-z0-9_]+)>/g, (m, name) => (name in open ? open[name] : m));
+}
 function allValues() {                                  // for scanning shared files: every saved value, whatever its setting
   const out = {};
   for (const form of vault.forms) for (const f of form.fields) if (f.value && f.secret) out[f.secret] = f.value;
@@ -123,8 +133,10 @@ function go(id) {
     if (b.dataset.go === id) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   if (id === 'flows' && typeof loadFlows === 'function') loadFlows();
+  if (id === 'run' && typeof refreshSuggestions === 'function') refreshSuggestions();
   if (id === 'history' && typeof loadHistory === 'function') loadHistory();
   if (id === 'vault' && typeof renderVault === 'function') renderVault();
+  if (id === 'guards' && typeof drawGuards === 'function') drawGuards();
 }
 document.querySelector('.rail').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');

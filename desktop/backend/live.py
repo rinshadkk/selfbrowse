@@ -18,6 +18,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field
 
 import record
+from selfbrowse.guardrails import PLACEHOLDER_NOTE
 
 QUALITY = 60                # JPEG quality of the mirrored frames
 MAX_SIDE = 1280
@@ -49,13 +50,23 @@ class LiveView:
         self.stop = threading.Event()
         self.control = False                       # the person has taken over: the agent waits
         self.handoff: bool | None = None           # the person's answer to a hand-off request
-        self.review = False                        # hold every model call until the person approves it
-        self.decision: bool | None = None          # the answer to the call being held
+        self.mode = "off"                          # review before sending: "off", "flagged" (only when something looks
+                                                   # personal) or "always" (every model call)
+        self.decision: Any = None                  # the answer to the call being held: "send", "redact" or "stop"
+        self.replace: list[str] | None = None      # with "redact": which flagged texts to replace (None: all of them)
         self.inputs: collections.deque[Input] = collections.deque(maxlen=MAX_QUEUED_INPUTS)
         self.frame: dict[str, Any] | None = None   # only the latest frame is kept
         self.seq = 0
         self._page: Any = None
         self._session: Any = None
+
+    @property
+    def review(self) -> bool:                      # the older on/off switch: on means every call
+        return self.mode != "off"
+
+    @review.setter
+    def review(self, on: bool) -> None:
+        self.mode = "always" if on else "off"
 
     # ── agent thread only ──────────────────────────────────────────────────────────
     def _on_frame(self, params: dict[str, Any]) -> None:
@@ -138,9 +149,39 @@ class LiveView:
             self.tick(browser)
 
 
+ANSWER_HINT = ("When you report one of these values in your answer, write its placeholder exactly (for example <PERSON_1>). "
+               "It is replaced with the real value in the answer the person reads, so you can answer fully.")
+
+
+def _mask_text(text: str, tokens: dict[str, str]) -> str:
+    for match in sorted(tokens, key=len, reverse=True):          # longest first, so a part of a value never survives
+        text = text.replace(match, tokens[match])
+    return text
+
+
+def _mask_content(content: Any, tokens: dict[str, str]) -> Any:
+    if isinstance(content, str):
+        return _mask_text(content, tokens)
+    out = []
+    for b in content or []:
+        if isinstance(b, dict) and b.get("type") == "text":
+            b = {**b, "text": _mask_text(str(b.get("text", "")), tokens)}
+        elif isinstance(b, dict) and b.get("type") == "tool_result":
+            b = {**b, "content": _mask_content(b.get("content"), tokens)}
+        out.append(b)
+    return out
+
+
+def _decision(value: Any) -> str:
+    if value is True:
+        return "send"
+    return value if value in ("send", "redact") else "stop"
+
+
 class MirrorLLM:
     """Wraps the real model: keeps the browser pumped during a call, records what was sent, and can hold
-    a call until the person approves it."""
+    a call until the person approves it. Modes: off, "flagged" (hold only when something in the request looks
+    personal), "always". The person can send it, send it with the flagged text masked, or stop the run."""
 
     def __init__(self, inner: Any, live: LiveView, get_browser: Callable[[], Any],
                  on_pause: Callable[[bool], None] | None = None,
@@ -151,11 +192,45 @@ class MirrorLLM:
         self._emit = emit or (lambda e: None)
         self._secrets = secrets or {}
         self._table: dict[str, dict[str, Any]] = {}
+        self._decided: dict[tuple[str, str], str] = {}      # (kind, text) -> "send" | "redact", kept for the run
+        self.get_vault: Callable[[], Any] = lambda: None    # the agent's own vault, so a masked value can be put back
         self._n = 0
         self.model = getattr(inner, "model", "?")
 
     def __getattr__(self, name: str) -> Any:        # anything else the agent asks of the model
         return getattr(self._inner, name)
+
+    def _tokens(self, to_mask: list[dict[str, str]], payload: dict[str, Any]) -> dict[str, str]:
+        """What to put in place of each flagged text. Reversible whenever the agent has a vault: the library's own
+        placeholders (<EMAIL_1>) are typed back for the model on the right site and restored in the answer. One of the
+        person's saved values becomes its <secret:NAME>. Without a vault it is a one-way [removed: ...]."""
+        vault = self.get_vault()
+        task = self._table.get(payload["ids"][1], {}).get("text", "") if len(payload["ids"]) > 1 else ""
+        try:
+            url = self._get_browser().url
+        except Exception:
+            url = ""
+        out: dict[str, str] = {}
+        for f in to_mask:
+            if f["kind"] == "value":
+                out[f["match"]] = f"<secret:{f['name']}>"
+            elif vault is None:
+                out[f["match"]] = f"[removed: {f['name']}]"
+            else:
+                kind = f["name"] if f["kind"] == "pii" else f["kind"]
+                given = f["match"] in task                       # written by the person in the task, not seen on a page
+                out[f["match"]] = vault.mint(kind, f["match"], "" if given else url, anywhere=given)
+        return out
+
+    def _flags(self, payload: dict[str, Any]) -> list[dict[str, str]]:
+        seen, out = set(), []
+        for mid in payload["ids"]:
+            for f in self._table.get(mid, {}).get("flags", []):
+                key = (f["kind"], f["match"])
+                if key not in seen:
+                    seen.add(key)
+                    out.append(f)
+        return out
 
     def complete(self, **kwargs: Any) -> Any:
         browser, live = self._get_browser(), self._live
@@ -168,13 +243,42 @@ class MirrorLLM:
         self._n += 1
         idx = self._n
         payload = record.build(kwargs, self._table, self._secrets, self._presidio)
-        self._emit({"type": "call", "idx": idx, "holding": live.review, **payload})
-        if live.review:                             # nothing leaves this computer until the person says so
-            live.decision = None
-            live.wait_while(browser, lambda: live.review and live.decision is None)
-            if live.review and live.decision is False:
+        flags = self._flags(payload)
+        key = lambda f: (f["kind"], f["match"])
+        new = [f for f in flags if key(f) not in self._decided]
+        to_mask = [f for f in flags if self._decided.get(key(f)) == "redact"]
+        mode = live.mode
+        hold = mode == "always" or (mode == "flagged" and bool(new))
+        shown = flags if mode == "always" else new
+        self._emit({"type": "call", "idx": idx, "holding": hold, "mode": mode if hold else "off",
+                    "reason": shown if hold else [], **payload})
+        if hold:                                    # nothing leaves this computer until the person says so
+            live.decision, live.replace = None, None
+            live.wait_while(browser, lambda: live.mode != "off" and live.decision is None)
+            answer = _decision(live.decision) if live.decision is not None else "send"   # review switched off: send
+            if answer == "stop":
                 raise Stopped()
+            chosen = [f for f in shown if live.replace is None or f["match"] in live.replace] if answer == "redact" else []
+            if mode == "flagged":
+                for f in new:                       # what you left alone is not asked about again either
+                    self._decided[key(f)] = "redact" if f in chosen else "send"
+            if answer == "redact":
+                to_mask = to_mask + [f for f in chosen if f not in to_mask]
             self._emit({"type": "call_sent", "idx": idx})
+        if to_mask:                                 # what is sent is the masked request, so that is what is recorded
+            kwargs = dict(kwargs)
+            tokens = self._tokens(to_mask, payload)
+            note = "" if any(t.startswith("<secret:") for t in tokens.values()) and len(tokens) == 1 else PLACEHOLDER_NOTE + " " + ANSWER_HINT
+            msgs = [{**m, "content": _mask_content(m.get("content"), tokens)} if m.get("role") == "user" else m
+                    for m in kwargs.get("messages", [])]
+            first = next((i for i, m in enumerate(msgs) if m.get("role") == "user"), None)
+            if note and first is not None and self.get_vault() is not None and isinstance(msgs[first].get("content"), str) \
+                    and ANSWER_HINT not in msgs[first]["content"]:
+                have = "placeholders like" in msgs[first]["content"]            # the library's note may already be there
+                msgs[first] = {**msgs[first], "content": msgs[first]["content"] + "\n" + (ANSWER_HINT if have else note)}
+            kwargs["messages"] = msgs
+            masked = record.build(kwargs, self._table, self._secrets, False)
+            self._emit({"type": "call_masked", "idx": idx, "ids": masked["ids"], "new": masked["new"], "count": len(to_mask)})
         box: dict[str, Any] = {}
 
         def call() -> None:

@@ -71,13 +71,20 @@ function renderTimeline() {
       const kept = callRefs(c).length, flags = callFlags(c).length;
       if (kept) chips.push(h('span', { class: 'chip local' }, `${kept} kept private`));
       if (flags) chips.push(h('span', { class: 'chip sent' }, `${flags} looks personal`));
+      if (c.masked) chips.push(h('span', { class: 'chip local' }, `${c.masked} replaced before sending`));
     }
     const title = it.step ? stepTitle(it.step) : 'Thinking…';
     return h('button', { class: `step${it.step ? '' : ' waiting'}`, type: 'button', 'aria-pressed': String(i === R.selected), onclick: () => { R.selected = i; R.follow = i === R.items.length - 1; render(); } },
       h('span', { class: 'n' }, String(i + 1)),
       h('span', {}, h('div', { class: 't' }, title), it.step && it.step.url ? h('div', { class: 'u' }, it.step.url) : null, h('div', { class: 'm' }, chips)));
   });
-  $('steps').replaceChildren(...list);
+  const withMarks = [];
+  list.forEach((el, i) => {
+    if (R.turnMarks && R.turnMarks[i] != null) withMarks.push(h('div', { class: 'turnmark' }, h('b', {}, 'Follow-up'), h('span', {}, R.turnMarks[i])));
+    withMarks.push(el);
+  });
+  if (R.turnMarks && R.turnMarks[list.length] != null) withMarks.push(h('div', { class: 'turnmark' }, h('b', {}, 'Follow-up'), h('span', {}, R.turnMarks[list.length])));
+  $('steps').replaceChildren(...withMarks);
   if (R.follow) $('steps').lastElementChild?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -190,16 +197,48 @@ function renderLedger() {
   $('lCost').textContent = cost == null || !done.length ? '' : `≈ ${money(cost)}`;
   const kept = new Set(cs.flatMap(callRefs)).size;
   $('lKept').textContent = `${kept} value${kept === 1 ? '' : 's'}`;
-  const flagged = new Set(cs.flatMap((c) => callFlags(c).map((f) => f.match))).size;
+  const flagged = new Set(cs.filter((c) => !c.holding).flatMap((c) => callFlags(c).map((f) => f.match))).size;     // a held call has not been sent
   $('lFlagWrap').hidden = flagged === 0;
   $('lFlags').textContent = `${flagged} item${flagged === 1 ? '' : 's'}`;
 }
 
+function syncMaskButton() {
+  const n = R.replace ? R.replace.size : 0;
+  $('maskCall').textContent = n ? `Send with ${n} replaced` : 'Nothing ticked to replace';
+  $('maskCall').disabled = n === 0;
+}
 function renderBanner() {
   const it = R.items[R.items.length - 1];
-  $('banner').hidden = !(R.running && it && it.call && it.call.holding);
+  const c = it && it.call;
+  const show = !!(R.running && c && c.holding);
+  $('banner').hidden = !show;
+  if (!show) return;
+  const flags = c.reason || [];
+  const flagged = c.mode === 'flagged';
+  $('bannerTitle').textContent = flagged ? 'Something in this request looks personal.' : 'Waiting for your OK.';
+  $('bannerText').textContent = flagged
+    ? 'It is shown on the right with the parts highlighted. Nothing has left this computer yet.'
+    : 'The next model call is shown on the right. Nothing has left this computer yet.';
+  // each flagged item is a choice: ticked ones are replaced, the others go as they are (a form label such as "Suff."
+  // can be taken for a name, so you decide)
+  R.replace = new Set(flags.map((f) => f.match));
+  $('bannerFlags').replaceChildren(...flags.slice(0, 12).map((f) => {
+    const short = f.match.length > 40 ? `${f.match.slice(0, 39)}\u2026` : f.match;
+    const b = h('button', { class: 'flagchip', type: 'button', 'aria-pressed': 'true', title: `${f.name}. Click to replace it or leave it.` }, h('i', { 'aria-hidden': 'true' }, '\u2713'), short);
+    b.addEventListener('click', () => {
+      const on = b.getAttribute('aria-pressed') !== 'true';
+      b.setAttribute('aria-pressed', String(on));
+      b.firstChild.textContent = on ? '\u2713' : '';
+      if (on) R.replace.add(f.match); else R.replace.delete(f.match);
+      syncMaskButton();
+    });
+    return b;
+  }), ...(flags.length > 12 ? [h('span', { class: 'muted' }, ` and ${flags.length - 12} more`)] : []));
+  $('maskCall').hidden = flags.length === 0;
+  syncMaskButton();
+  $('sendCall').textContent = flagged ? 'Send as is' : 'Send this call';
 }
-function render() { renderTimeline(); renderInspector(); renderUsage(); renderLedger(); renderBanner(); }
+function render() { renderTimeline(); renderInspector(); renderUsage(); renderLedger(); renderBanner(); renderHead(); }
 
 // ---- tabs ----
 for (const t of document.querySelectorAll('.tabs button')) {
@@ -221,15 +260,40 @@ function setStatus(title, text, { error = false, answer = '' } = {}) {
   $('answerText').textContent = answer;
   $('answerText').hidden = !answer;
 }
+const setState = (st) => { $('run').dataset.state = st; };
 function setRunning(on) {
   R.running = on;
-  const go = $('go');                                        // one button: Run, and while running, Stop
-  go.classList.toggle('stopping', on);
-  go.setAttribute('aria-label', on ? 'Stop' : 'Run');
-  go.title = on ? 'Stop the run' : 'Run (Cmd+Enter)';
+  if (on) setState('running');
+  $('follow').disabled = on;
+  $('follow').placeholder = on ? 'Working… you can follow up when it finishes' : 'Follow up on this run…';
+  $('followForm').classList.toggle('busy', on);
   $('control').disabled = !on;
   if (!on) setControl(false, false);
   renderBanner();
+  renderHead();
+}
+
+// The bar above a run: what it is, and whether it is working, waiting for you, or finished.
+function renderHead() {
+  $('runTitle').textContent = R.title || 'Run';
+  $('runTitle').title = R.title || '';
+  const e = R.doneEvent;
+  let cls = 'run', text = 'Running';
+  if (e) {
+    if (e.error === 'Stopped by you.') [cls, text] = ['', 'Stopped'];
+    else if (e.success) [cls, text] = ['ok', `Done · ${R.durationText || `${e.steps} steps`}`];
+    else if (e.error && !e.output) [cls, text] = ['bad', 'Could not finish'];
+    else [cls, text] = ['wait', 'Not confirmed'];
+  } else {
+    const held = R.items.some((i) => i.call && i.call.holding);
+    if (held) [cls, text] = ['wait', 'Waiting for your OK'];
+    else if (R.control) [cls, text] = ['wait', 'You are driving'];
+    else if (!$('handoff').hidden) [cls, text] = ['wait', 'Paused · waiting for you'];
+  }
+  const pill = $('runPill');
+  pill.className = `statuspill ${cls}`;
+  pill.textContent = text;
+  $('runModel').textContent = R.flowName && !R.flowModel ? 'No model' : `${sourceLabel(models.selected.source)} · ${models.selected.model}`;
 }
 
 // ---- live view: frames in, clicks and keys out ----
@@ -291,15 +355,22 @@ $('handoffNo').addEventListener('click', () => answerHandoff(false));
 
 // ---- approval of a held call ----
 $('sendCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true }).catch((e) => toast(e.message)); });
+$('maskCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: true, mask: true, replace: [...(R.replace || [])] }).catch((e) => toast(e.message)); });
 $('refuseCall').addEventListener('click', () => { $('banner').hidden = true; post(`/runs/${R.id}/call`, { send: false }).catch((e) => toast(e.message)); });
-$('review').addEventListener('change', (e) => { if (R.running) post(`/runs/${R.id}/review`, { on: e.target.checked }).catch(() => {}); });
 
 // ---- events from the run ----
 function onEvent(e) {
   if (e.type === 'call') {
     Object.assign(R.table, e.new);
-    R.items.push({ call: { idx: e.idx, ids: e.ids, holding: e.holding, usage: null, reply: null, ms: 0, tools: e.tools }, step: null });
+    R.items.push({ call: { idx: e.idx, ids: e.ids, holding: e.holding, mode: e.mode, reason: e.reason || [], masked: 0, usage: null, reply: null, ms: 0, tools: e.tools }, step: null });
     if (R.follow) R.selected = R.items.length - 1;
+  } else if (e.type === 'turn') {
+    R.turnMarks = R.turnMarks || {};
+    R.turnMarks[R.items.length] = e.prompt;
+  } else if (e.type === 'call_masked') {
+    Object.assign(R.table, e.new);
+    const c = calls().find((x) => x.idx === e.idx);
+    if (c) { c.ids = e.ids; c.masked = e.count; }
   } else if (e.type === 'call_sent') {
     const c = calls().find((x) => x.idx === e.idx);
     if (c) c.holding = false;
@@ -314,6 +385,9 @@ function onEvent(e) {
     setStatus(R.flowName ? `Replaying “${R.flowName}”` : 'Working…', e.total ? `Step ${e.number} of ${e.total}.` : `Step ${e.number}: ${stepTitle(e)}`);
   } else if (e.type === 'handoff') {
     $('handoffReason').textContent = e.reason;
+    const ask = e.kind === 'confirm';                    // a guardrail wants your OK, not your hands on the page
+    $('handoffGo').textContent = ask ? 'Allow it' : "I'm done, continue";
+    $('handoffNo').textContent = ask ? 'Don’t allow' : 'Give up';
     $('handoff').hidden = false;
     setControl(true, false);                         // the backend already gave you the browser
   } else if (e.type === 'control') {
@@ -329,20 +403,35 @@ function onEvent(e) {
 
 function finish(e) {
   R.doneEvent = e;
+  R.rawAnswer = e.output || '';                       // as the model wrote it: this is what a follow-up may send
   setRunning(false);
   $('liveChip').textContent = 'Finished';
   $('liveChip').className = 'chip plain';
   $('handoff').hidden = true;
   R.canSaveFlow = !!e.can_save_flow;
-  $('afterRun').hidden = !R.canSaveFlow;
+  const secs = (Date.now() - (R.startedAt || Date.now())) / 1000;
+  R.durationText = secs < 90 ? `${Math.round(secs)} s` : `${Math.round(secs / 60)} min`;
+  setState('done');
+  $('afterRun').hidden = false;
+  $('saveFlow').hidden = !R.canSaveFlow;
+  $('copyAnswer').hidden = !e.output;
+  $('runAgain').hidden = false;
+  $('followForm').hidden = !!R.flowName;
+  const stat = (v, l) => h('div', {}, h('span', {}, l), h('b', {}, v));
+  $('resultStats').replaceChildren(stat(String(e.steps || 0), 'Steps'), stat(R.durationText, 'Time'),
+    stat(fmt(e.tokens || 0), 'Tokens'), stat(R.flowName && !e.model_calls ? 'None' : String(e.model_calls != null ? e.model_calls : calls().length), 'Model calls'));
+  $('resultStats').hidden = false;
   const used = e.model_calls ? `${fmt(e.tokens)} tokens in ${e.model_calls} model call${e.model_calls === 1 ? '' : 's'}` : R.flowName ? 'no model used' : `${fmt(e.tokens)} tokens`;
   const extra = [e.repaired ? `A model finished the task after step ${e.repaired_at} failed.` : '', e.summarized ? 'The model wrote the summary.' : '', e.warning || ''].filter(Boolean).join(' ');
   if (e.error && !e.output) setStatus(e.error === 'Stopped by you.' ? 'Stopped' : 'The run could not finish', e.error, { error: e.error !== 'Stopped by you.' });
-  else setStatus(e.success ? 'Done' : 'Finished without a confirmed answer', `${e.steps} steps, ${used}.${extra ? ` ${extra}` : ''}`, { answer: e.output });
+  else setStatus(e.success ? 'Done' : 'Finished without a confirmed answer', `${e.steps} steps, ${used}.${extra ? ` ${extra}` : ''}`, { answer: restoreSecrets(e.output) });
 }
 
-async function beginRun(id, flowName, flowModel) {
-  Object.assign(R, { id, items: [], table: {}, selected: -1, follow: true, flowName: flowName || null, flowModel: !!flowModel, doneEvent: null, canSaveFlow: false });
+async function beginRun(id, flowName, flowModel, title) {
+  Object.assign(R, { id, items: [], table: {}, selected: -1, follow: true, flowName: flowName || null, flowModel: !!flowModel, doneEvent: null, canSaveFlow: false,
+    title: flowName ? `Flow: ${flowName}` : String(title || '').split('\n')[0].slice(0, 160), task: title || '', startedAt: Date.now(), durationText: '', eventCount: 0, turnMarks: {} });
+  $('reviewHead').value = $('review').value;
+  $('followForm').hidden = !!flowName; $('resultStats').hidden = true; $('live').classList.remove('shown'); $('showBrowser').textContent = 'Show browser';
   if (R.stream) R.stream.abort();
   if (R.frames) R.frames.abort();
   $('afterRun').hidden = true;
@@ -354,6 +443,13 @@ async function beginRun(id, flowName, flowModel) {
   setRunning(true);
   go('run');
   render();
+  openStreams(id, 0);
+}
+
+// Read the live view and the events of a run. A follow-up reads on from where the last stream ended.
+function openStreams(id, after) {
+  if (R.stream) R.stream.abort();
+  if (R.frames) R.frames.abort();
   R.stream = new AbortController();
   R.frames = new AbortController();
   readSSE(`/runs/${id}/frames`, (batch) => {
@@ -361,10 +457,29 @@ async function beginRun(id, flowName, flowModel) {
     R.frameSize = { w: last.w, h: last.h };
     $('frame').src = `data:image/jpeg;base64,${last.jpeg}`;
   }, R.frames.signal).catch(() => {});
-  readSSE(`/runs/${id}/events`, (batch) => {
-    for (const e of batch) { onEvent(e); if (e.type === 'done') return 'stop'; }
+  readSSE(`/runs/${id}/events?after=${after}`, (batch) => {
+    for (const e of batch) { R.eventCount += 1; onEvent(e); if (e.type === 'done') return 'stop'; }
   }, R.stream.signal).then(() => { if (R.running) { finish({ error: 'The backend closed the connection before the run finished.', steps: 0, tokens: 0 }); render(); } })
     .catch(() => { if (R.running) { finish({ error: 'Lost connection to the backend.', steps: 0, tokens: 0 }); render(); } });
+}
+
+// A follow-up carries on in the same run and browser. If that browser has gone, it starts a new run with the context instead.
+async function continueRun(text) {
+  if (R.running || !R.id) return;
+  try {
+    await post(`/runs/${R.id}/followup`, { prompt: text });
+  } catch (err) {
+    toast('That browser was closed, so this started a new run with the earlier result as context.');
+    startRun(`${R.task}\n\nWhat you found last time:\n${String(R.rawAnswer || '').slice(0, 3000) || '(nothing recorded)'}\n\nNow: ${text}`, text);
+    return;
+  }
+  Object.assign(R, { doneEvent: null, canSaveFlow: false, startedAt: Date.now(), durationText: '' });
+  $('resultStats').hidden = true; $('afterRun').hidden = true; $('handoff').hidden = true;
+  $('live').hidden = false; $('live').classList.remove('shown'); $('showBrowser').textContent = 'Show browser';
+  setStatus('Working…', 'Following up in the same browser.');
+  setRunning(true);
+  render();
+  openStreams(R.id, R.eventCount);
 }
 
 // ---- browser options: profile, installed Chrome, stealth ----
@@ -386,7 +501,10 @@ async function refreshBrowserInfo() {
   } catch (_) { /* the backend is not ready yet */ }
 }
 $('browserOpts').addEventListener('toggle', () => { if ($('browserOpts').open) refreshBrowserInfo(); });
-document.addEventListener('click', (e) => { if (!e.target.closest('#browserOpts')) $('browserOpts').open = false; });
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#browserOpts')) $('browserOpts').open = false;
+  if (!e.target.closest('#moreOpts')) $('moreOpts').open = false;
+});
 {
   const btn = $('clearData');
   const text = btn.textContent;
@@ -399,25 +517,29 @@ document.addEventListener('click', (e) => { if (!e.target.closest('#browserOpts'
 }
 
 // ---- starting, stopping, saving ----
-$('form').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  if (R.running) { stopRun(); return; }
-  const prompt = $('prompt').value.trim();
-  if (!prompt) { setStatus('Type a task first', 'Describe what the browser should do.', { error: true }); return; }
+async function startRun(prompt, title) {
   const useInfo = $('useInfo').checked && !$('useInfo').disabled;
   setRunning(true);
   try {
     const { id } = await post('/runs', {
-      prompt: prompt + (useInfo ? sharedNote() : ''), ...modelRequest(), review: $('review').checked,
-      sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(),
+      prompt: prompt + (useInfo ? sharedNote() : ''), ...modelRequest(), review_mode: $('review').value,
+      sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(), ...guardSettings(),
     });
-    beginRun(id, null);
+    beginRun(id, null, false, title || prompt);
   } catch (err) {
     setRunning(false);
-    setStatus('Could not start', err.message, { error: true });
+    setState('idle');
+    toast(err.message);
   }
+}
+$('form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const prompt = $('prompt').value.trim();
+  if (!prompt) { toast('Describe what the browser should do first.'); $('prompt').focus(); return; }
+  startRun(prompt);
 });
 $('prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !R.running) $('form').requestSubmit(); });
+$('stopBtn').addEventListener('click', () => stopRun());
 function stopRun() {
   setStatus('Stopping…', 'Stopping now.');
   post(`/runs/${R.id}/stop`).catch(() => {});
@@ -429,7 +551,7 @@ $('saveFlow').addEventListener('click', async () => {
     runId: R.id, flow: draft.flow, lines: draft.lines, name: $('prompt').value.trim().slice(0, 60), description: draft.flow.description,
     onSave: async (body) => {
       await post(`/runs/${R.id}/save-flow`, body);
-      R.canSaveFlow = false; $('afterRun').hidden = true; closeSheet(); toast('Saved. Find it under Flows.');
+      R.canSaveFlow = false; $('saveFlow').hidden = true; closeSheet(); toast('Saved. Find it under Flows.');
     },
   });
 });
@@ -463,5 +585,98 @@ async function pollPresidio() {
 $('presidioInstall').addEventListener('click', async () => {
   try { showPresidio(await post('/presidio/install')); clearTimeout(presidioTimer); pollPresidio(); } catch (err) { toast(err.message); }
 });
-function onBoot() { loadModels(); pollPresidio(); refreshUseInfo(); render(); if (typeof renderVault === 'function') renderVault(); }
+
+// ---- after a run: run again, a new run, copy, follow up ----
+function copyText(text) {
+  const t = h('textarea', { 'aria-hidden': 'true', class: 'sr' });
+  t.value = text;
+  document.body.append(t);
+  t.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { /* fall through */ }
+  t.remove();
+  return ok;
+}
+function newRun() {
+  if (R.running) return;
+  if (R.id && !R.flowName) post(`/runs/${R.id}/close`).catch(() => {});      // let go of the browser kept for follow-ups
+  if (R.stream) R.stream.abort();
+  if (R.frames) R.frames.abort();
+  R.doneEvent = null;
+  setState('idle');
+  $('prompt').value = '';
+  go('run');
+  $('prompt').focus();
+  refreshSuggestions();
+}
+$('newRun').addEventListener('click', newRun);
+$('runAgain').addEventListener('click', () => {
+  if (R.running) return;
+  if (R.flowName && R.lastFlow) { runFlow(R.lastFlow); return; }
+  if (!R.task) return;
+  startRun(R.task);
+});
+$('copyAnswer').addEventListener('click', () => toast(copyText($('answerText').textContent) ? 'Copied.' : 'Could not copy.'));
+$('showBrowser').addEventListener('click', () => {
+  const on = $('live').classList.toggle('shown');
+  $('showBrowser').textContent = on ? 'Hide browser' : 'Show browser';
+});
+$('followForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const text = $('follow').value.trim();
+  if (!text || R.running) return;
+  $('follow').value = '';
+  continueRun(text);
+});
+// the Run icon, or Cmd+N, starts a fresh run once one has finished
+document.querySelector('.rail').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-go=run]');
+  if (b && $('run').classList.contains('on') && !R.running && $('run').dataset.state === 'done') newRun();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newRun(); }
+});
+// approve each call: the same setting on the idle screen and in the run bar
+try { const saved = localStorage.getItem('sb.reviewmode'); if (['off', 'flagged', 'always'].includes(saved)) { $('review').value = saved; $('reviewHead').value = saved; } } catch (_) { /* default off */ }
+function setReviewMode(mode) {
+  $('review').value = mode;
+  $('reviewHead').value = mode;
+  if ($('gReview')) $('gReview').value = mode;
+  try { localStorage.setItem('sb.reviewmode', mode); } catch (_) { /* fine */ }
+  if (R.running) post(`/runs/${R.id}/review`, { mode }).catch(() => {});
+}
+$('review').addEventListener('change', (e) => setReviewMode(e.target.value));
+$('reviewHead').addEventListener('change', (e) => setReviewMode(e.target.value));
+
+// ---- what to try: your recent runs and flows, or examples ----
+const EXAMPLES = [
+  { title: 'Compare flight prices', sub: 'Cheapest nonstop Chicago → Kochi next month', prompt: 'Find the cheapest nonstop flight from Chicago to Kochi next month' },
+  { title: 'Look up a price', sub: 'Find what a product costs on a store’s site', prompt: 'Find the price of ' },
+  { title: 'Summarize a page', sub: 'Read a page and give me the key points', prompt: 'Open this page and summarize the key points: ' },
+];
+async function refreshSuggestions() {
+  let runs = [], flows = [];
+  try { [runs, flows] = await Promise.all([call('GET', '/history'), call('GET', '/flows')]); } catch (_) { /* the backend is not ready yet */ }
+  const cards = [];
+  const seen = new Set();
+  for (const r of runs) {
+    if (cards.length >= 2) break;
+    if (r.kind !== 'run' || !r.prompt || seen.has(r.prompt)) continue;
+    seen.add(r.prompt);
+    cards.push({ title: r.prompt.length > 48 ? `${r.prompt.slice(0, 47)}…` : r.prompt, sub: `Run again · ${r.success ? 'finished' : r.stopped ? 'stopped' : 'not finished'}`, act: () => { $('prompt').value = r.prompt; $('prompt').focus(); } });
+  }
+  for (const f of flows.slice(0, 2)) cards.push({ title: f.name, sub: 'Run a saved flow · no model needed', act: () => runFlow(f) });
+  for (const ex of EXAMPLES) { if (cards.length >= 4) break; cards.push({ title: ex.title, sub: ex.sub, act: () => { $('prompt').value = ex.prompt; $('prompt').focus(); } }); }
+  $('suggestions').replaceChildren(...cards.slice(0, 4).map((c) => h('button', { class: 'suggest', type: 'button', onclick: c.act }, h('b', {}, c.title), h('span', {}, c.sub))));
+}
+
+function onBoot() { refreshSuggestions(); loadModels(); pollPresidio(); refreshUseInfo(); render(); if (typeof renderVault === 'function') renderVault(); }
 boot();
+
+// ---- show My info values in the answer: your choice, remembered ----
+try { $('showSecrets').checked = localStorage.getItem('sb.showsecrets') !== 'off'; } catch (_) { /* default on */ }
+$('showSecrets').addEventListener('change', (e) => {
+  try { localStorage.setItem('sb.showsecrets', e.target.checked ? 'on' : 'off'); } catch (_) { /* fine */ }
+  if (R.doneEvent && R.rawAnswer) { $('answerText').textContent = restoreSecrets(R.rawAnswer); }
+  if (typeof showHistory === 'function' && H && H.selected && $('history').classList.contains('on')) showHistory(H.selected);
+});
