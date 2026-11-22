@@ -509,6 +509,8 @@ class Browser:
         self.record_video_dir = Path(record_video_dir).expanduser() if record_video_dir else None
         self._videos: list[Any] = []
         self.on_dialog: "Callable[[dict[str, Any]], bool | None] | None" = None   # may veto accepting
+        self._nav_check: "Callable[[str], tuple[str, str] | None] | None" = None
+        self._refused: list[tuple[str, str, str]] = []     # navigations stopped before any request was made
         self._dialog_log: list[dict[str, Any]] = []
         self.headless = headless
         self.channel = channel
@@ -608,6 +610,35 @@ class Browser:
         self._watch_dialogs(self._page)                # new_page() may already have fired the event above
         self._unmask_headless(self._page)
         return self
+
+    def refuse_navigations(self, check: "Callable[[str], tuple[str, str] | None]") -> None:
+        """Stop page navigations (clicks, form posts, redirects, frames) to places ``check`` refuses, before the request
+        is made. ``check(url)`` returns ``(who, reason)`` to refuse. Without this a click is only judged after the page has
+        loaded, by which time the site has already received the request and anything in it. Turns off Chromium's HTTP
+        cache for the context, because Playwright does that while it intercepts requests."""
+        self._nav_check = check
+        if not getattr(self, "_routed", False):
+            self._routed = True
+            self._context.route("**/*", self._route)
+
+    def _route(self, route: Any) -> None:
+        try:
+            req = route.request
+            if self._nav_check and req.is_navigation_request() and (hit := self._nav_check(req.url)):
+                self._refused.append((hit[0], hit[1], req.url))
+                route.abort("blockedbyclient")
+                return
+        except Exception:
+            pass
+        try:
+            route.continue_()
+        except Exception:
+            pass
+
+    def take_refused(self) -> list[tuple[str, str, str]]:
+        """Navigations refused since the last call, as ``(guardrail, reason, url)``."""
+        out, self._refused = self._refused, []
+        return out
 
     def video_paths(self) -> list[Path]:
         """Video files recorded so far, one per page (complete once the browser has closed)."""

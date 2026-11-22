@@ -1,0 +1,9 @@
+body{font:17px/1.55 Georgia,serif;margin:0;background:#faf7f2;color:#2a2118}
+header{background:#3b2a1a;color:#fff;padding:16px 32px;display:flex;gap:24px;align-items:baseline;font-family:system-ui}
+header a{color:#f3d9b1;text-decoration:none}header b{font-size:20px;margin-right:auto}
+main{max-width:760px;margin:26px auto;padding:0 22px}
+.card{background:#fff;border:1px solid #e3d9c8;border-radius:10px;padding:16px 20px;margin:14px 0}
+.price{font:600 22px system-ui}button{font:16px system-ui;padding:10px 18px;border:0;border-radius:8px;background:#8a4b1c;color:#fff;cursor:pointer}
+input,textarea{font:16px system-ui;width:100%;box-sizing:border-box;padding:8px;margin:6px 0}
+footer{max-width:760px;margin:30px auto;padding:0 22px 40px;color:#6b5d4b;font:14px system-ui}
+.review b{font-family:system-ui}.hide{position:absolute;left:-9999px}

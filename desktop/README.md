@@ -43,12 +43,17 @@ The agent drives its own Chromium (headless by default). The backend mirrors it 
 - Playwright's synchronous API only delivers frames while its thread is inside a Playwright call, so `backend/live.py` runs the model call in a helper thread and pumps the browser every 50 ms meanwhile.
 - Known limits: a little lag, no native scrolling feel or IME, and the frame is a picture of the page, not the browser's own chrome (tabs, address bar).
 
+## Models on this computer
+
+With Ollama or LM Studio selected, the model sheet lists what is installed there (and the quick-switch menu offers it), instead of asking you to type a name.
+
 ## Guardrails
 
 The Guardrails screen sets every limit the library offers, once, for all runs (kept in the app's local storage):
 
 - **Sites:** web pages only, an allow list, a block list. Checked on every page, including after a redirect.
-- **Actions:** ask before risky clicks, uploads and dialogs (the run pauses with Allow / Don't allow); watch for instructions hidden in pages.
+- **Actions:** ask before risky clicks, uploads and dialogs (the run pauses with Allow / Don't allow). The words that make a click risky are an editable list. Watch for instructions hidden in pages.
+- **Strict preset:** one button turns on the guardrails that limit what a hijacked agent could do, then asks for the sites the task needs. Clicks and form posts to a site outside the allow list are refused before any request is made.
 - **Personal data in pages:** mask emails, phones, SSNs and card numbers (and, with Presidio installed, names) before the model reads the page; type them back or mask for good.
 - **Limits:** most steps, tokens, seconds and dollars (a dollar limit needs your model's prices).
 - **Messages to the model:** review before sending and show My info values in the answer, the same controls as on the Run screen.

@@ -1,7 +1,10 @@
 // Guardrails: every limit the library offers, set once and applied to each run. Kept in this browser's storage.
 // What a run sends is built by guardSettings(); the backend validates it (see GuardSettings in server.py).
+// The words that make a click "risky": the library's own list (RISKY_RE in guardrails.py), one per line.
+const RISKY_DEFAULT = ['buy', 'purchase', 'pay', 'checkout', 'check out', 'place order', 'order now', 'confirm', 'delete', 'remove', 'cancel',
+  'unsubscribe', 'send', 'submit', 'post', 'publish', 'sign out', 'log out', 'logout', 'subscribe', 'donate', 'transfer', 'withdraw'];
 const G_DEFAULT = {
-  safe_urls: true, allow: '', block: '', confirm_risky: false, watch_injection: false,
+  safe_urls: true, allow: '', block: '', confirm_risky: false, risky_words: RISKY_DEFAULT.join('\n'), watch_injection: false,
   redact: [], restore: true, page_presidio: false,
   max_steps: '40', max_tokens: '', max_seconds: '', max_usd: '',
 };
@@ -12,6 +15,13 @@ function saveGuards() { try { localStorage.setItem('sb.guards', JSON.stringify(G
 const lines = (t) => String(t || '').split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) && n > 0 ? n : null; };
 
+// null means "the library's own list"; anything you changed is sent as the list to use.
+function riskyWords() {
+  const mine = lines(GS.risky_words).map((w) => w.toLowerCase());
+  const same = mine.length === RISKY_DEFAULT.length && [...mine].sort().join('|') === [...RISKY_DEFAULT].sort().join('|');
+  return same ? null : mine;
+}
+
 // The `guards` and `max_steps` a run sends.
 function guardSettings() {
   const p = loadPrices(), usd = num(GS.max_usd);
@@ -19,7 +29,7 @@ function guardSettings() {
   return {
     guards: {
       safe_urls: GS.safe_urls, allow: lines(GS.allow), block: lines(GS.block),
-      confirm_risky: GS.confirm_risky, watch_injection: GS.watch_injection,
+      confirm_risky: GS.confirm_risky, risky_words: riskyWords(), watch_injection: GS.watch_injection,
       redact: GS.redact, restore: GS.restore, page_presidio: GS.page_presidio,
       max_tokens: num(GS.max_tokens) && Math.round(num(GS.max_tokens)), max_seconds: num(GS.max_seconds) && Math.round(num(GS.max_seconds)),
       max_usd: usd, price_in: usd ? parseFloat(p.in) : null, price_out: usd ? parseFloat(p.out) : null,
@@ -57,6 +67,16 @@ function textRow(key, label, note, placeholder) {
   ta.addEventListener('input', () => { GS[key] = ta.value; saveGuards(); });
   return h('label', { class: 'field' }, label, ta, note ? h('span', { class: 'foot' }, note) : null);
 }
+function riskyRow() {
+  const ta = h('textarea', { id: 'g_risky_words', spellcheck: 'false', 'aria-label': 'Words that make a click risky' });
+  ta.value = GS.risky_words;
+  ta.addEventListener('input', () => { GS.risky_words = ta.value; saveGuards(); });
+  const reset = h('button', { class: 'btn small', type: 'button', onclick: () => { GS.risky_words = RISKY_DEFAULT.join('\n'); saveGuards(); ta.value = GS.risky_words; } }, 'Use the standard words');
+  return h('div', { class: 'field' },
+    h('label', { class: 'field', for: 'g_risky_words' }, 'Ask before clicking a control whose label contains', ta,
+      h('span', { class: 'foot' }, 'One word or phrase per line, matched as whole words in any capitals. “pay” matches “Pay now” but not “Payment”, so add both if you want both. Only used when the switch above is on.')),
+    h('div', { class: 'btns' }, reset));
+}
 function numberRow(key, label, placeholder) {
   const inp = h('input', { type: 'number', id: `g_${key}`, min: '0', step: 'any', placeholder });
   inp.value = GS[key];
@@ -64,6 +84,19 @@ function numberRow(key, label, placeholder) {
   return h('label', { class: 'field' }, label, inp);
 }
 const card = (title, why, ...kids) => h('section', { class: 'gcard' }, h('h3', {}, title), why ? h('p', { class: 'why' }, why) : null, ...kids);
+
+// Strict: everything that limits what a hijacked agent can do. The allow list depends on the task, so it is only
+// kept if you already filled it in; otherwise the field is focused for you.
+const STRICT = {
+  safe_urls: true, confirm_risky: true, watch_injection: true, redact: ['email', 'phone', 'ssn', 'card'], restore: true,
+  max_steps: '30', max_tokens: '200000', max_seconds: '300',
+};
+function applyStrict() {
+  GS = { ...GS, ...STRICT };
+  saveGuards(); setReviewMode('flagged'); drawGuards();
+  if (!lines(GS.allow).length) { document.getElementById('g_allow').focus(); toast('Strict is on. Now list the only sites this task needs.'); }
+  else toast('Strict is on.');
+}
 
 function drawGuards() {
   const kinds = h('div', { class: 'kinds' }, [['email', 'Emails'], ['phone', 'Phone numbers'], ['ssn', 'US SSNs'], ['card', 'Card numbers']].map(([k, name]) => {
@@ -87,12 +120,16 @@ function drawGuards() {
   pIn.addEventListener('input', setPrice); pOut.addEventListener('input', setPrice);
 
   $('gBody').replaceChildren(
+    card('Strict preset', 'For a site you do not fully trust. Turns on every guardrail that limits what a hijacked agent could do, then asks for the sites the task needs.',
+      h('div', { class: 'btns' }, h('button', { class: 'btn primary', id: 'gStrict', type: 'button', onclick: applyStrict }, 'Apply Strict')),
+      h('p', { class: 'foot' }, 'Sets: web pages only, ask before risky actions, watch for hidden instructions, mask emails, phones, SSNs and cards, review when something looks personal, and limits of 30 steps, 200,000 tokens and 5 minutes. It keeps your site lists and prices. Change anything below afterwards.')),
     card('Sites', 'Where the agent may go. Each page it lands on is checked, including after a redirect.',
       switchRow('safe_urls', 'Web pages only', 'Blocks file:, chrome:, data: and javascript: addresses. Leave this on unless you are testing a local file.'),
       textRow('allow', 'Only these sites', 'One per line. A site includes its subdomains. Empty means any site.', 'example.com'),
       textRow('block', 'Never these sites', 'One per line.', 'ads.example.net')),
     card('Actions', 'What the agent must ask you about first.',
-      switchRow('confirm_risky', 'Ask before risky actions', 'Buy, Pay, Delete, Send, Sign out, file uploads and dialogs that look irreversible. The run pauses and shows the browser.'),
+      switchRow('confirm_risky', 'Ask before risky actions', 'The run pauses before a click on a control whose label has one of the words below, before any file upload, and before a dialog that looks irreversible.'),
+      riskyRow(),
       switchRow('watch_injection', 'Watch for instructions hidden in pages', 'Warns the model that a page is talking to it, and asks you before it navigates or acts from that page. Pattern based, so it can miss a cleverly worded attack.')),
     card('Personal data in pages', 'Masked before the model reads the page. This is separate from what you type in My info.',
       kinds, ...presidio,
