@@ -19,6 +19,7 @@
     <button data-go="run" aria-current="page"><svg viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>Run</button>
     <button data-go="flows"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="18" r="2"/><path d="M7 6h5a4 4 0 014 4v0M7 18h5a4 4 0 004-4v0"/></svg>Flows</button>
     <button data-go="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>History</button>
+    <button data-go="guards"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Guardrails</button>
     <button data-go="vault"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>My info</button>
   </nav>
 
@@ -214,6 +215,17 @@
     <div class="main" id="vaultMain"></div>
   </section>
 
+  <!-- ================= GUARDRAILS ================= -->
+  <section class="screen" id="guards" aria-label="Guardrails">
+    <div class="main">
+      <h1>Guardrails</h1>
+      <p class="lead">Limits Selfbrowse keeps to on every run, however the task is worded. They are saved on this computer and applied to the next run.</p>
+      <p class="gsummary" id="gSummary"></p>
+      <div id="gBody"></div>
+      <div class="btns"><button class="btn" id="gReset" type="button">Reset to defaults</button></div>
+    </div>
+  </section>
+
   <!-- ================= FLOWS ================= -->
   <section class="screen" id="flows" aria-label="Flows">
     <div class="main wide">
@@ -235,6 +247,7 @@
 <script src="flowedit.js"></script>
 <script src="run.js"></script>
 <script src="history.js"></script>
+<script src="guardrails.js"></script>
 <script src="myinfo.js"></script>
 <script src="flows.js"></script>
 </body>

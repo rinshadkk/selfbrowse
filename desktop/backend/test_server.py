@@ -905,3 +905,51 @@ def test_events_can_be_read_from_an_offset(client, monkeypatch, page_url):
     text = client.get(f"/runs/{run}/events?after={len(full) - 1}", headers=H).text
     tail = [json.loads(l[6:]) for l in text.splitlines() if l.startswith("data: ")]
     assert [e["type"] for e in tail] == ["done"]
+
+
+# ---- guardrail settings ----
+
+def test_a_bad_site_name_is_refused(client):
+    r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"allow": ["exa mple.com/<script>"]}})
+    assert r.status_code == 422
+
+
+def test_a_dollar_limit_needs_prices(client):
+    r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"max_usd": 1}})
+    assert r.status_code == 422
+    ok = server.GuardSettings(max_usd=1, price_in=1, price_out=5)
+    assert [g.name for g in ok.build()] == ["Budget"]
+
+
+def test_settings_become_the_libraries_guardrails():
+    g = server.GuardSettings(allow=["https://Example.com/"], block=["bad.test"], confirm_risky=True, watch_injection=True,
+                             redact=["email", "card"], max_tokens=5000, max_seconds=60)
+    names = [x.name for x in g.build()]
+    assert names == ["AllowedDomains", "BlockedDomains", "ConfirmRisky", "RedactPII", "InjectionWatch", "Budget"]
+    assert g.allow == ["example.com"]
+    pii = [x for x in g.build() if x.name == "RedactPII"][0]
+    assert pii.kinds == ("card", "email")
+
+
+def test_nothing_set_adds_no_guardrails():
+    assert server.GuardSettings().build() == []
+
+
+def test_a_blocked_site_stops_the_run(client, monkeypatch):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))      # the test browser starts on 127.0.0.1
+    run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"block": ["127.0.0.1"]}}).json()["id"]
+    done = _events(client, run)[-1]
+    assert done["success"] is False and "BlockedDomains" in done["error"]
+
+
+def test_a_site_outside_the_allowed_list_stops_the_run(client, monkeypatch):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"allow": ["example.org"]}}).json()["id"]
+    done = _events(client, run)[-1]
+    assert done["success"] is False and "AllowedDomains" in done["error"]
+
+
+def test_an_allowed_site_runs(client, monkeypatch):
+    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
+    run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"allow": ["127.0.0.1"]}}).json()["id"]
+    assert _events(client, run)[-1]["success"] is True

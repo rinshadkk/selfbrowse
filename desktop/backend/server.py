@@ -32,13 +32,13 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from live import Input, LiveView, MirrorLLM, Stopped
 from selfbrowse import Browser, BrowseAgent
 from selfbrowse.llm import make_llm
-from selfbrowse.guardrails import Guardrail
+from selfbrowse.guardrails import Budget, Guardrail, RedactPII, build_guards
 from selfbrowse.handoff import HandoffRequest
 from selfbrowse.flow import FlowError, FlowRunner, describe_step, load_flow, save_flow, validate_flow
 
@@ -93,6 +93,57 @@ class CustomSource(BaseModel):
     json_mode: bool = False              # force JSON actions, for models without reliable tool calling
 
 
+_DOMAIN = r"^[A-Za-z0-9*.-]{1,253}$"
+
+
+class GuardSettings(BaseModel):
+    """Every guardrail the library offers, as the person set them under Guardrails. Off or empty means not applied."""
+    safe_urls: bool = True               # only http(s) pages: no file:, chrome:, data:, javascript:
+    allow: list[str] = Field(default_factory=list, max_length=100)    # only these sites (and their subdomains)
+    block: list[str] = Field(default_factory=list, max_length=100)    # never these sites
+    confirm_risky: bool = False          # ask before Buy, Pay, Delete, Send, Sign out, uploads and risky dialogs
+    watch_injection: bool = False        # warn the model about instruction-like page text, ask before acting on it
+    redact: list[Literal["email", "phone", "ssn", "card"]] = Field(default_factory=list)    # mask these in page text
+    restore: bool = True                 # type masked values back where the model needs them (else mask for good)
+    page_presidio: bool = False          # also mask names and more in page text with Presidio
+    max_tokens: int | None = Field(default=None, ge=1_000, le=50_000_000)
+    max_seconds: int | None = Field(default=None, ge=10, le=86_400)
+    max_usd: float | None = Field(default=None, gt=0, le=10_000)
+    price_in: float | None = Field(default=None, ge=0, le=10_000)     # USD per million input tokens, for max_usd
+    price_out: float | None = Field(default=None, ge=0, le=10_000)
+
+    @field_validator("allow", "block")
+    @classmethod
+    def _check_domains(cls, v: list[str]) -> list[str]:
+        out = []
+        for d in v:
+            d = d.strip().lower().removeprefix("https://").removeprefix("http://").strip("/")
+            if not d:
+                continue
+            if not re.fullmatch(_DOMAIN, d):
+                raise ValueError(f"{d!r} is not a site name")
+            out.append(d)
+        return out
+
+    @model_validator(mode="after")
+    def _usd_needs_price(self) -> "GuardSettings":
+        if self.max_usd and (self.price_in is None or self.price_out is None):
+            raise ValueError("a dollar limit needs the model's prices")
+        return self
+
+    def build(self) -> list[Guardrail]:
+        guards = build_guards(allow=self.allow, block=self.block, confirm_risky=self.confirm_risky,
+                              redact_pii=bool(self.redact), watch_injection=self.watch_injection,
+                              max_tokens=self.max_tokens, max_seconds=self.max_seconds,
+                              presidio=self.page_presidio, restore=self.restore)
+        for g in guards:
+            if isinstance(g, RedactPII):
+                g.kinds = tuple(k for k in RedactPII.ALL if k in self.redact)
+        if self.max_usd and self.price_in is not None and self.price_out is not None:
+            guards.append(Budget(max_usd=self.max_usd, price=(self.price_in, self.price_out)))
+        return guards
+
+
 class RunRequest(BrowserOptions):
     prompt: str = Field(max_length=10_000)
     model: str = Field(default="anthropic:claude-haiku-5-5", max_length=100, pattern=r"^[A-Za-z0-9_.:/@+-]+$")
@@ -104,6 +155,7 @@ class RunRequest(BrowserOptions):
     presidio: bool = False               # also look for personal data with Microsoft Presidio
     review: bool = False                 # hold each model call until the person approves it (same as review_mode always)
     review_mode: Literal["off", "flagged", "always"] = "off"    # off, only when something looks personal, or every call
+    guards: GuardSettings = Field(default_factory=GuardSettings)
     sensitive: dict[str, str] = Field(default_factory=dict)      # values from My info; typed locally, never sent
     labels: dict[str, str] = Field(default_factory=dict)         # what each is, "Form > Field"; given to the model only on request
 
@@ -230,7 +282,7 @@ def build_llm(req: "RunRequest") -> Any:
 
 
 def check_presidio(req: "RunRequest") -> None:
-    if req.presidio and not record.presidio_available():
+    if (req.presidio or getattr(getattr(req, "guards", None), "page_presidio", False)) and not record.presidio_available():
         raise HTTPException(status_code=400, detail="Presidio is not installed. In the desktop folder run: "
                             "Turn it on in the app and press Install, or run backend/.venv/bin/pip install presidio-analyzer "
                             "and then backend/.venv/bin/python -m spacy download en_core_web_sm.")
@@ -395,7 +447,8 @@ def _execute(run: Run, task: str, *, first: bool) -> None:
         agent = BrowseAgent(task, llm=s.llm, browser=s.browser, max_steps=req.max_steps,
                             on_step=on_step, handoff=hand_off, sensitive=req.sensitive, sensitive_hints=req.labels or None,
                             save_flow=run.flow_path if first else None,        # a follow-up starts mid-way: not a replayable flow
-                            guardrails=[HoldsValues()] if run.live.mode != "off" else None)
+                            safe_urls=req.guards.safe_urls,
+                            guardrails=([HoldsValues()] if run.live.mode != "off" else []) + req.guards.build())
         v = agent.guards.vault
         if v is not None:                                # one vault for the whole run, so <EMAIL_1> means the same later
             if s.vault is None:

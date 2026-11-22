@@ -385,6 +385,9 @@ function onEvent(e) {
     setStatus(R.flowName ? `Replaying “${R.flowName}”` : 'Working…', e.total ? `Step ${e.number} of ${e.total}.` : `Step ${e.number}: ${stepTitle(e)}`);
   } else if (e.type === 'handoff') {
     $('handoffReason').textContent = e.reason;
+    const ask = e.kind === 'confirm';                    // a guardrail wants your OK, not your hands on the page
+    $('handoffGo').textContent = ask ? 'Allow it' : "I'm done, continue";
+    $('handoffNo').textContent = ask ? 'Don’t allow' : 'Give up';
     $('handoff').hidden = false;
     setControl(true, false);                         // the backend already gave you the browser
   } else if (e.type === 'control') {
@@ -520,7 +523,7 @@ async function startRun(prompt, title) {
   try {
     const { id } = await post('/runs', {
       prompt: prompt + (useInfo ? sharedNote() : ''), ...modelRequest(), review_mode: $('review').value,
-      sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(),
+      sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(), ...guardSettings(),
     });
     beginRun(id, null, false, title || prompt);
   } catch (err) {
@@ -638,6 +641,7 @@ try { const saved = localStorage.getItem('sb.reviewmode'); if (['off', 'flagged'
 function setReviewMode(mode) {
   $('review').value = mode;
   $('reviewHead').value = mode;
+  if ($('gReview')) $('gReview').value = mode;
   try { localStorage.setItem('sb.reviewmode', mode); } catch (_) { /* fine */ }
   if (R.running) post(`/runs/${R.id}/review`, { mode }).catch(() => {});
 }

@@ -376,3 +376,18 @@ summary.pill::-webkit-details-marker{display:none}
 .turnmark{display:flex;gap:8px;align-items:baseline;padding:10px 10px 4px;margin-top:4px;border-top:1px dashed var(--line);font-size:12px;color:var(--muted)}
 .turnmark b{color:var(--ink);font-weight:600;white-space:nowrap}
 .turnmark span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- guardrails ---------- */
+#guards{grid-template-columns:1fr}
+.gsummary{font-weight:600;margin:0 0 14px}
+.gcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:0 0 14px;display:grid;gap:10px;max-width:760px}
+.gcard h3{font-size:15px;margin:0}
+.gcard .why{color:var(--muted);font-size:13px;margin:-6px 0 0}
+.gcard .foot{margin:-4px 0 2px 42px}
+.gcard label.field{display:grid;gap:4px}
+.gcard textarea{width:100%;min-height:64px;resize:vertical;font-family:var(--mono);font-size:13px}
+.gcard .row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.gcard .row label.field{flex:1 1 140px}
+.gcard .kinds{display:flex;gap:16px;flex-wrap:wrap}
+.gcard .kinds label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.gcard input[type=number]{width:100%}

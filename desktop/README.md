@@ -43,6 +43,18 @@ The agent drives its own Chromium (headless by default). The backend mirrors it 
 - Playwright's synchronous API only delivers frames while its thread is inside a Playwright call, so `backend/live.py` runs the model call in a helper thread and pumps the browser every 50 ms meanwhile.
 - Known limits: a little lag, no native scrolling feel or IME, and the frame is a picture of the page, not the browser's own chrome (tabs, address bar).
 
+## Guardrails
+
+The Guardrails screen sets every limit the library offers, once, for all runs (kept in the app's local storage):
+
+- **Sites:** web pages only, an allow list, a block list. Checked on every page, including after a redirect.
+- **Actions:** ask before risky clicks, uploads and dialogs (the run pauses with Allow / Don't allow); watch for instructions hidden in pages.
+- **Personal data in pages:** mask emails, phones, SSNs and card numbers (and, with Presidio installed, names) before the model reads the page; type them back or mask for good.
+- **Limits:** most steps, tokens, seconds and dollars (a dollar limit needs your model's prices).
+- **Messages to the model:** review before sending and show My info values in the answer, the same controls as on the Run screen.
+
+They apply to agent runs, including follow-ups, not to replaying a saved flow.
+
 ## Security model
 
 - The backend listens on `127.0.0.1` only, on a random port, and every call needs a one-time token in the `Authorization` header (no token in URLs). Requests whose `Host` is not a loopback name are refused (DNS rebinding), and only the app's own `file://` origin may read responses.

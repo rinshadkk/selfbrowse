@@ -136,6 +136,7 @@ function go(id) {
   if (id === 'run' && typeof refreshSuggestions === 'function') refreshSuggestions();
   if (id === 'history' && typeof loadHistory === 'function') loadHistory();
   if (id === 'vault' && typeof renderVault === 'function') renderVault();
+  if (id === 'guards' && typeof drawGuards === 'function') drawGuards();
 }
 document.querySelector('.rail').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
