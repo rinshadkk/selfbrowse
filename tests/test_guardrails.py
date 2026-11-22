@@ -88,3 +88,14 @@ def test_budget_validation():
         Budget(max_usd=1.0)                             # needs a price
     with pytest.raises(ValueError):
         Budget()
+
+
+def test_a_value_the_person_supplied_can_be_typed_on_any_site():
+    from selfbrowse.guardrails import Vault
+    v = Vault()
+    seen = v.mint("email", "page@shop.example", "https://shop.example/cart")
+    given = v.mint("email", "me@home.example", anywhere=True)
+    assert v.restore(f"{seen} {given}", "https://shop.example/cart")[0] == "page@shop.example me@home.example"
+    text, refused = v.restore(f"{seen} {given}", "https://other.example/")
+    assert text == f"{seen} me@home.example" and refused == ["EMAIL_1"]        # a page's value stays on its own site
+    assert v.restore(given)[0] == "me@home.example"                             # no site (the final answer): restored
