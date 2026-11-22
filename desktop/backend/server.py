@@ -38,7 +38,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from live import Input, LiveView, MirrorLLM, Stopped
 from selfbrowse import Browser, BrowseAgent
 from selfbrowse.llm import make_llm
-from selfbrowse.guardrails import Budget, Guardrail, RedactPII, build_guards
+from selfbrowse.guardrails import Budget, ConfirmRisky, Guardrail, RedactPII, build_guards
 from selfbrowse.handoff import HandoffRequest
 from selfbrowse.flow import FlowError, FlowRunner, describe_step, load_flow, save_flow, validate_flow
 
@@ -102,6 +102,7 @@ class GuardSettings(BaseModel):
     allow: list[str] = Field(default_factory=list, max_length=100)    # only these sites (and their subdomains)
     block: list[str] = Field(default_factory=list, max_length=100)    # never these sites
     confirm_risky: bool = False          # ask before Buy, Pay, Delete, Send, Sign out, uploads and risky dialogs
+    risky_words: list[str] | None = Field(default=None, max_length=200)   # words that make a click "risky"; None = the library's list
     watch_injection: bool = False        # warn the model about instruction-like page text, ask before acting on it
     redact: list[Literal["email", "phone", "ssn", "card"]] = Field(default_factory=list)    # mask these in page text
     restore: bool = True                 # type masked values back where the model needs them (else mask for good)
@@ -125,6 +126,22 @@ class GuardSettings(BaseModel):
             out.append(d)
         return out
 
+    @field_validator("risky_words")
+    @classmethod
+    def _check_words(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        out: list[str] = []
+        for w in v:
+            w = " ".join(w.strip().lower().split())
+            if not w:
+                continue
+            if len(w) > 40:
+                raise ValueError("a word to ask about is too long")
+            if w not in out:
+                out.append(w)
+        return out
+
     @model_validator(mode="after")
     def _usd_needs_price(self) -> "GuardSettings":
         if self.max_usd and (self.price_in is None or self.price_out is None):
@@ -139,6 +156,9 @@ class GuardSettings(BaseModel):
         for g in guards:
             if isinstance(g, RedactPII):
                 g.kinds = tuple(k for k in RedactPII.ALL if k in self.redact)
+            if isinstance(g, ConfirmRisky) and self.risky_words is not None:
+                # whole words, so "pay" does not match "payment"; an empty list means only uploads and dialogs ask
+                g.pattern = re.compile(r"\b(" + "|".join(re.escape(w) for w in self.risky_words) + r")\b", re.I) if self.risky_words else re.compile(r"(?!x)x")
         if self.max_usd and self.price_in is not None and self.price_out is not None:
             guards.append(Budget(max_usd=self.max_usd, price=(self.price_in, self.price_out)))
         return guards
@@ -611,6 +631,36 @@ def presidio_install() -> dict[str, Any]:
 @app.get("/presidio/install", dependencies=[Depends(_auth)])
 def presidio_status() -> dict[str, Any]:
     return {"state": "done" if record.presidio_available() else PRESIDIO_JOB["state"], "error": PRESIDIO_JOB["error"]}
+
+
+# ── models installed on this computer ──────────────────────────────────────────────────────────
+def _local_base(kind: str) -> str:
+    """Where Ollama or LM Studio listens. OLLAMA_HOST may move Ollama, but only to this computer."""
+    default = {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234"}[kind]
+    host = os.environ.get("OLLAMA_HOST", "") if kind == "ollama" else ""
+    if host:
+        url = host if "://" in host else f"http://{host}"
+        if (urlparse(url).hostname or "") in ("127.0.0.1", "localhost", "::1"):
+            return url.rstrip("/")
+    return default
+
+
+@app.get("/local-models/{kind}", dependencies=[Depends(_auth)])
+def local_models(kind: Literal["ollama", "lmstudio"]) -> dict[str, Any]:
+    """What is installed in Ollama or LM Studio right now, so the person picks a model instead of typing its name."""
+    import urllib.request
+    base = _local_base(kind)
+    label = "Ollama" if kind == "ollama" else "LM Studio"
+    try:
+        with urllib.request.urlopen(f"{base}/api/tags" if kind == "ollama" else f"{base}/v1/models", timeout=2) as res:
+            data = json.loads(res.read(2_000_000))
+    except Exception:
+        return {"ok": False, "models": [], "error": f"{label} is not running at {base}. Start it, then refresh."}
+    if kind == "ollama":
+        items = [{"name": m["name"], "size": m.get("size", 0)} for m in data.get("models", []) if isinstance(m, dict) and m.get("name")]
+    else:
+        items = [{"name": m["id"], "size": 0} for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
+    return {"ok": True, "models": sorted(items, key=lambda m: m["name"])[:200], "error": ""}
 
 
 @app.get("/browser-info", dependencies=[Depends(_auth)])

@@ -391,3 +391,7 @@ summary.pill::-webkit-details-marker{display:none}
 .gcard .kinds{display:flex;gap:16px;flex-wrap:wrap}
 .gcard .kinds label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
 .gcard input[type=number]{width:100%}
+.gcard .foot{max-width:70ch}
+.gcard .btns+.foot{margin-left:0}
+.mhead{padding:4px 12px 2px;color:var(--muted);font-size:12px}
+#g_risky_words{min-height:120px}

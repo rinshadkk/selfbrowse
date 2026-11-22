@@ -27,6 +27,15 @@ async function persistModels() {
   try { await window.selfbrowse.saveModels(models); } catch (err) { toast(err.message); }
 }
 
+// What is installed in Ollama / LM Studio right now. null = not asked yet; { ok, models, error } once asked.
+const LOCAL = { ollama: null, lmstudio: null };
+async function fetchLocal(id) {
+  if (!(id in LOCAL)) return null;
+  try { LOCAL[id] = await call('GET', `/local-models/${id}`); } catch (err) { LOCAL[id] = { ok: false, models: [], error: err.message }; }
+  return LOCAL[id];
+}
+const gb = (n) => (n ? ` (${(n / 1e9).toFixed(1)} GB)` : '');
+
 const sourceOf = (id) => id.startsWith('custom:')
   ? models.custom.find((c) => `custom:${c.id}` === id)
   : PROVIDERS.find((p) => p.id === id);
@@ -80,10 +89,30 @@ function openModelSheet(start) {
       apiSel.addEventListener('change', () => { if (json) json.closest('label').hidden = apiSel.value === 'anthropic'; });
       rows.push(field('Name', name), field('API type', apiSel, 'Pick the one your server speaks. If http://…/v1/models answers with type, display_name and has_more, it is Anthropic style.'), field('Base URL', url, 'Any server that speaks the OpenAI chat API: vLLM, LiteLLM, a company gateway, a cloud endpoint. Page text and screenshots are sent to this address.'));
     }
-    model = h('input', { list: 'modelList', spellcheck: 'false', autocomplete: 'off', placeholder: custom ? 'The model name on that server' : 'Model name',
-      value: models.selected.source === source ? models.selected.model : lastModel(source) || (prov && prov.models[0]) || '' });
-    if (prov && prov.models.length) datalist = h('datalist', { id: 'modelList' }, prov.models.map((m) => h('option', { value: m })));
-    rows.push(field('Model', model), datalist);
+    const current = models.selected.source === source ? models.selected.model : lastModel(source) || (prov && prov.models[0]) || '';
+    const local = prov && source in LOCAL ? LOCAL[source] : undefined;
+    if (prov && source in LOCAL && LOCAL[source] === null) {
+      const asked = source;
+      fetchLocal(source).then(() => { if (source === asked && $('srcSel')) draw(); });     // fill the list in as soon as it arrives
+    }
+    if (local && local.ok && local.models.length) {
+      const names = local.models.map((m) => m.name);
+      model = h('select', { 'aria-label': 'Installed model', id: 'localModel' },
+        current && !names.includes(current) ? h('option', { value: current }, `${current} (not installed)`) : null,
+        local.models.map((m) => h('option', { value: m.name }, `${m.name}${gb(m.size)}`)));
+      model.value = current || names[0];
+      rows.push(field('Model', model, `${names.length} installed on this computer.`),
+        h('div', { class: 'btns' }, h('button', { class: 'btn small', type: 'button', onclick: async () => { LOCAL[source] = null; draw(); } }, 'Refresh the list')));
+    } else {
+      model = h('input', { list: 'modelList', spellcheck: 'false', autocomplete: 'off', placeholder: custom ? 'The model name on that server' : 'Model name', value: current });
+      if (prov && prov.models.length) datalist = h('datalist', { id: 'modelList' }, prov.models.map((m) => h('option', { value: m })));
+      const note = !prov || !(source in LOCAL) ? null
+        : local === null ? 'Looking for installed models…'
+        : local && !local.ok ? local.error
+        : local && local.ok ? 'Nothing is installed yet. Pull a model in Ollama, then refresh.' : null;
+      rows.push(field('Model', model, note), datalist);
+      if (local && !local.ok) rows.push(h('div', { class: 'btns' }, h('button', { class: 'btn small', type: 'button', onclick: () => { LOCAL[source] = null; draw(); } }, 'Try again')));
+    }
     if (!prov || prov.env) {
       const saved = custom ? (existing && existing.key) : models.keys[source];
       key = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false',
@@ -156,7 +185,21 @@ function drawModelMenu() {
         h('span', { class: 'mtick', 'aria-hidden': 'true' }, on ? '✓' : ''), h('span', { class: 'mname' }, sourceLabel(r.source)), h('span', { class: 'mmodel' }, r.model)),
       h('button', { class: 'medit', type: 'button', 'aria-label': `Edit ${sourceLabel(r.source)}`, title: 'Edit', onclick: () => { closeModelMenu(); openModelSheet(r.source); } }, 'Edit'));
   });
-  $('modelMenu').replaceChildren(...rows, h('div', { class: 'msep' }),
+  const have = new Set(savedModels().map((r) => `${r.source}|${r.model}`));
+  const installed = [];
+  for (const [id, label] of [['ollama', 'Ollama'], ['lmstudio', 'LM Studio']]) {
+    const l = LOCAL[id];
+    if (!l || !l.ok || !l.models.length || (models.selected.source !== id && !models.last[id])) continue;     // only for a source you use
+    installed.push(h('div', { class: 'msep' }), h('div', { class: 'mhead' }, `Installed in ${label}`));
+    for (const m of l.models) {
+      if (have.has(`${id}|${m.name}`)) continue;
+      installed.push(h('div', { class: 'mrow', role: 'none' },
+        h('button', { class: 'mpick', type: 'button', role: 'menuitemradio', 'aria-checked': 'false',
+          onclick: () => { models.selected = { source: id, model: m.name }; models.last[id] = m.name; persistModels(); renderModelBtn(); closeModelMenu(); } },
+          h('span', { class: 'mtick', 'aria-hidden': 'true' }), h('span', { class: 'mname' }, label), h('span', { class: 'mmodel' }, `${m.name}${gb(m.size)}`))));
+    }
+  }
+  $('modelMenu').replaceChildren(...rows, ...installed, h('div', { class: 'msep' }),
     h('button', { class: 'mact', type: 'button', role: 'menuitem', onclick: () => { closeModelMenu(); openModelSheet('custom:new'); } }, '+ Add a custom source'),
     h('button', { class: 'mact', type: 'button', role: 'menuitem', onclick: () => { closeModelMenu(); openModelSheet(); } }, 'Choose another provider or model…'));
 }
@@ -165,6 +208,7 @@ $('modelBtn').addEventListener('click', () => {
   drawModelMenu();
   $('modelMenu').hidden = false;
   $('modelBtn').setAttribute('aria-expanded', 'true');
+  Promise.all(Object.keys(LOCAL).map(fetchLocal)).then(() => { if (!$('modelMenu').hidden) drawModelMenu(); });   // refresh what is installed
 });
 document.addEventListener('click', (e) => { if (!e.target.closest('.menuwrap')) closeModelMenu(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelMenu(); });

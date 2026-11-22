@@ -953,3 +953,95 @@ def test_an_allowed_site_runs(client, monkeypatch):
     _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
     run = client.post("/runs", headers=H, json={"prompt": "go", "guards": {"allow": ["127.0.0.1"]}}).json()["id"]
     assert _events(client, run)[-1]["success"] is True
+
+
+# ---- models installed on this computer ----
+
+class _Reply:
+    def __init__(self, data):
+        self._d = json.dumps(data).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, n=-1):
+        return self._d
+
+
+def test_installed_ollama_models_are_listed(client, monkeypatch):
+    import urllib.request
+    seen = []
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: seen.append(url) or _Reply(
+        {"models": [{"name": "qwen3:latest", "size": 5}, {"name": "llama3.1:latest", "size": 4}, {"bad": 1}]}))
+    r = client.get("/local-models/ollama", headers=H).json()
+    assert r["ok"] and [m["name"] for m in r["models"]] == ["llama3.1:latest", "qwen3:latest"]
+    assert seen == ["http://127.0.0.1:11434/api/tags"]
+
+
+def test_lm_studio_models_are_listed(client, monkeypatch):
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: _Reply({"data": [{"id": "phi-4"}]}))
+    r = client.get("/local-models/lmstudio", headers=H).json()
+    assert r["ok"] and r["models"] == [{"name": "phi-4", "size": 0}]
+
+
+def test_ollama_not_running_says_so(client, monkeypatch):
+    import urllib.request
+
+    def refuse(url, timeout=0):
+        raise OSError("connection refused")
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    r = client.get("/local-models/ollama", headers=H).json()
+    assert r["ok"] is False and r["models"] == [] and "not running" in r["error"]
+
+
+def test_only_known_local_sources_are_listed(client):
+    assert client.get("/local-models/evil", headers=H).status_code == 422
+    assert client.get("/local-models/ollama").status_code == 401
+
+
+def test_ollama_host_may_only_point_at_this_computer(monkeypatch):
+    monkeypatch.setenv("OLLAMA_HOST", "10.0.0.5:11434")
+    assert server._local_base("ollama") == "http://127.0.0.1:11434"
+    monkeypatch.setenv("OLLAMA_HOST", "localhost:9999")
+    assert server._local_base("ollama") == "http://localhost:9999"
+
+
+# ---- the words that make a click risky ----
+
+def _ask(g, text):
+    from selfbrowse.guardrails import Action
+    c = [x for x in g.build() if x.name == "ConfirmRisky"][0]
+    return c.before_action(Action("click", {}, "http://x/", text=text)) is not None
+
+
+def test_the_default_words_apply_when_none_are_set():
+    g = server.GuardSettings(confirm_risky=True)
+    assert _ask(g, "Delete account") and not _ask(g, "Proceed to payment")
+
+
+def test_your_own_words_replace_the_defaults():
+    g = server.GuardSettings(confirm_risky=True, risky_words=["Payment", " close   account ", "payment"])
+    assert g.risky_words == ["payment", "close account"]
+    assert _ask(g, "Proceed to payment") and _ask(g, "Close account") and not _ask(g, "Delete account")
+
+
+def test_words_match_whole_words_and_are_not_patterns():
+    g = server.GuardSettings(confirm_risky=True, risky_words=["pay", "a.c"])
+    assert _ask(g, "Pay now") and not _ask(g, "Payment") and not _ask(g, "abc")
+
+
+def test_an_empty_word_list_leaves_only_uploads_and_dialogs():
+    from selfbrowse.guardrails import Action
+    g = server.GuardSettings(confirm_risky=True, risky_words=[])
+    assert not _ask(g, "Delete account")
+    c = [x for x in g.build() if x.name == "ConfirmRisky"][0]
+    assert c.before_action(Action("upload", {"file": "cv.pdf"}, "http://x/")) is not None
+
+
+def test_too_long_a_word_is_refused(client):
+    r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"confirm_risky": True, "risky_words": ["x" * 41]}})
+    assert r.status_code == 422
