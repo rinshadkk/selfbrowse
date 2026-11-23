@@ -133,4 +133,18 @@ function renderVault() {
   updateSiteNote();
 }
 
-$('newForm').addEventListener('click', () => addForm('New form', ['']));
+// New form lists the templates, so they stay available after the first form exists.
+function closeTemplates() { $('templateList').hidden = true; $('newForm').setAttribute('aria-expanded', 'false'); }
+$('newForm').addEventListener('click', () => {
+  const list = $('templateList');
+  if (!list.hidden) { closeTemplates(); return; }
+  const pick = (name, labels) => () => { closeTemplates(); addForm(name, labels); };
+  list.replaceChildren(
+    h('button', { class: 'listbtn', type: 'button', onclick: pick('New form', ['']) }, 'Blank form', h('small', {}, 'Start empty')),
+    ...Object.entries(TEMPLATES).map(([name, labels]) => h('button', { class: 'listbtn', type: 'button', onclick: pick(name, labels) },
+      name, h('small', {}, labels.map((l) => l.replace(/^!/, '')).join(', ')))));
+  list.hidden = false;
+  $('newForm').setAttribute('aria-expanded', 'true');
+  list.querySelector('button').focus();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('templateList').hidden) { closeTemplates(); $('newForm').focus(); } });
