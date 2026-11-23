@@ -37,6 +37,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from live import Input, LiveView, MirrorLLM, Stopped
 from selfbrowse import Browser, BrowseAgent
+from selfbrowse.agent import normalize_site
 from selfbrowse.llm import make_llm
 from selfbrowse.guardrails import Budget, ConfirmRisky, Guardrail, RedactPII, build_guards
 from selfbrowse.handoff import HandoffRequest
@@ -178,6 +179,7 @@ class RunRequest(BrowserOptions):
     guards: GuardSettings = Field(default_factory=GuardSettings)
     sensitive: dict[str, str] = Field(default_factory=dict)      # values from My info; typed locally, never sent
     labels: dict[str, str] = Field(default_factory=dict)         # what each is, "Form > Field"; given to the model only on request
+    sensitive_sites: dict[str, str] = Field(default_factory=dict)  # NAME -> the site it belongs to; typed only there
 
     @field_validator("labels")
     @classmethod
@@ -185,6 +187,18 @@ class RunRequest(BrowserOptions):
         if len(v) > 100 or any(not re.fullmatch(r"[A-Za-z0-9_]{1,64}", k) or len(x) > 120 for k, x in v.items()):
             raise ValueError("bad labels")
         return v
+
+    @field_validator("sensitive_sites")
+    @classmethod
+    def _check_sites(cls, v: dict[str, str]) -> dict[str, str]:
+        out = {}
+        for k, site in v.items():
+            if not re.fullmatch(r"[A-Za-z0-9_]{1,64}", k) or not normalize_site(site):
+                raise ValueError("bad site for a saved value")
+            out[k] = normalize_site(site)
+        if len(out) > 100:
+            raise ValueError("too many sites")
+        return out
 
     @field_validator("sensitive")
     @classmethod
@@ -466,6 +480,7 @@ def _execute(run: Run, task: str, *, first: bool) -> None:
             run.live.stop.clear()
         agent = BrowseAgent(task, llm=s.llm, browser=s.browser, max_steps=req.max_steps,
                             on_step=on_step, handoff=hand_off, sensitive=req.sensitive, sensitive_hints=req.labels or None,
+                            sensitive_sites=req.sensitive_sites or None,
                             save_flow=run.flow_path if first else None,        # a follow-up starts mid-way: not a replayable flow
                             safe_urls=req.guards.safe_urls,
                             guardrails=([HoldsValues()] if run.live.mode != "off" else []) + req.guards.build())

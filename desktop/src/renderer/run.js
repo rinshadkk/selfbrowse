@@ -523,7 +523,7 @@ async function startRun(prompt, title) {
   try {
     const { id } = await post('/runs', {
       prompt: prompt + (useInfo ? sharedNote() : ''), ...modelRequest(), review_mode: $('review').value,
-      sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(), ...guardSettings(),
+      sensitive: useInfo ? localValues() : {}, labels: useInfo ? savedLabels() : {}, sensitive_sites: useInfo ? savedSites() : {}, presidio: $('presidio').checked, history: keepHistory(), ...browserOptions(), ...guardSettings(),
     });
     beginRun(id, null, false, title || prompt);
   } catch (err) {

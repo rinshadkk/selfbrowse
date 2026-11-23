@@ -6,11 +6,12 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from selfbrowse import _about
 from selfbrowse.browser import dialog_note
 from selfbrowse.flow import FlowError, FlowRecorder, save_flow
-from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, RunState, SafeUrls
+from selfbrowse.guardrails import Action, Block, Confirm, Guardrail, Guards, RunState, SafeUrls, _host
 from selfbrowse.knowledge import SiteKnowledge, domain_of
 from selfbrowse.llm import LLM, LLMError, make_llm
 from selfbrowse.handoff import Handler, HandoffRequest, detect_block, terminal_handler
@@ -20,6 +21,22 @@ from selfbrowse.trace import Tracer, TracingLLM
 from selfbrowse.types import RunResult, Step, Usage
 
 _SECRET_RE = re.compile(r"<secret:([A-Za-z0-9_\-]+)>")
+_SITE_HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}|localhost|\d{1,3}(?:\.\d{1,3}){3}")
+
+
+def normalize_site(value: str) -> str:
+    """``https://www.Walgreens.com/login`` -> ``walgreens.com``. Empty when it is not a website address."""
+    v = str(value).strip().lower()
+    if not v:
+        return ""
+    host = (urlparse(v if "://" in v else "//" + v).hostname or "").removeprefix("www.")
+    return host if _SITE_HOST.fullmatch(host) else ""
+
+
+def site_allows(site: str, url: str) -> bool:
+    """Is ``url`` on ``site`` or one of its subdomains? (``www.`` and ports do not matter.)"""
+    host = _host(url)
+    return bool(site) and (host == site or host.endswith("." + site))
 _NOT_LEARNED = ("Error:", "Blocked", "The person declined")
 _DISMISS_RE = re.compile(r"\b(accept|agree|allow|close|dismiss|got it|no thanks|not now|reject|decline|ok|okay|continue)\b", re.I)
 _NUDGE = "Reply with exactly one tool call (tools: {tools}). To finish, call done with your answer."
@@ -69,6 +86,10 @@ class BrowseAgent:
             model is not shown the list of secrets. It is told that saved details exist and may ask for one with the
             ``find_saved_detail`` tool, which returns only the matching placeholders. Without it, every secret name is
             listed in the task.
+        sensitive_sites: ``{"NAME": "walgreens.com"}``, the site a secret belongs to. It is typed only on that site
+            or its subdomains; anywhere else the agent is told no and nothing is typed. ``find_saved_detail`` offers
+            only the secrets for the current page's site, plus those with no site. A secret not listed here can be
+            typed anywhere, as before.
         review_payload: stop and review the exact request before each model call. ``"always"``: every call stops.
             ``"when_flagged"`` (or ``True``): only when something looks personal (emails, phones, SSNs, cards, your
             ``sensitive`` values, and names too if Presidio is installed). Off by default. See :mod:`selfbrowse.review`.
@@ -99,6 +120,7 @@ class BrowseAgent:
         files: "list[str | Path] | None" = None,
         sensitive: dict[str, str] | None = None,
         sensitive_hints: dict[str, str] | None = None,
+        sensitive_sites: dict[str, str] | None = None,
         review_payload: "str | bool | None" = None,
         on_review: "Callable[[Any], Any] | None" = None,
         restore_answer: bool = True,
@@ -142,6 +164,7 @@ class BrowseAgent:
         self._review_mode = review_payload or None
         self._on_review = on_review
         self.hints = {k: str(v)[:120] for k, v in (sensitive_hints or {}).items() if k in self.sensitive}
+        self.sites = {k: site for k, v in (sensitive_sites or {}).items() if k in self.sensitive and (site := normalize_site(v))}
         self.restore_answer = restore_answer
         self.on_step = on_step
         self._notes_shown = False
@@ -767,18 +790,34 @@ class BrowseAgent:
     _STOP = {"the", "my", "your", "of", "and", "for", "number", "field", "please", "need", "needs"}
 
     def _find_saved(self, what: str) -> str:
-        """The placeholders that match what the model asked for. Only these descriptions reach the model."""
+        """The placeholders that match what the model asked for. Only these descriptions reach the model.
+        A detail saved for another site is not offered; one saved for this page's site ranks first."""
         words = [w for w in re.findall(r"[a-z0-9]+", what.lower()) if len(w) >= 3 and w not in self._STOP]
-        scored = []
+        url = getattr(getattr(self, "browser", None), "url", "") or ""
+        sites = getattr(self, "sites", {})
+        scored, elsewhere = [], False
         for name, desc in self.hints.items():
+            site = sites.get(name)
+            here = bool(site) and site_allows(site, url)
             hay = re.sub(r"[^a-z0-9]", "", f"{desc} {name}".lower())
             score = sum(1 for w in words if w in hay)
+            if site and not here:
+                elsewhere = elsewhere or score > 0
+                continue
+            score += 1 if here else 0
             if score:
                 scored.append((-score, name, desc))
         if not scored:
+            if elsewhere:
+                return (f'The detail that matches "{what[:60]}" is saved for a different site, so it is not offered on this page. '
+                        "If you need it, use ask_human.")
             return f'No saved detail matches "{what[:60]}". If you need it, use ask_human.'
         best = min(sc for sc, _, _ in scored)                # the closest matches only: "first name" is not "last name"
         return "\n".join(f"<secret:{n}> is {d}" for sc, n, d in sorted(scored)[:6] if sc == best)
+
+    def _wrong_site(self, text: str, url: str) -> "list[tuple[str, str]]":
+        """Secrets in ``text`` that are saved for a site other than the page at ``url``."""
+        return [(n, self.sites[n]) for n in dict.fromkeys(_SECRET_RE.findall(text)) if n in self.sites and not site_allows(self.sites[n], url)]
 
     def _substitute_secrets(self, text: str) -> str:
         def sub(m: re.Match) -> str:
@@ -796,6 +835,12 @@ class BrowseAgent:
             if name == "click":
                 return b.click_ref(int(a["ref"])), True
             if name == "type":
+                if wrong := self._wrong_site(str(a["text"]), b.url):
+                    names = ", ".join(f"<secret:{n}>" for n, _ in wrong)
+                    self._trace("guardrail", guardrail="SecretSite", decision="block",
+                                reason=f"{', '.join(n for n, _ in wrong)} is saved for {wrong[0][1]}, page is on {_host(b.url) or b.url}")
+                    return (f"Blocked: {names} is saved for {wrong[0][1]}, but this page is on {_host(b.url) or 'another site'}, so it is "
+                            "not typed here. Do not look for another way to type it. If the person should decide, use ask_human."), False
                 try:
                     text = self._substitute_secrets(str(a["text"]))
                 except KeyError as exc:

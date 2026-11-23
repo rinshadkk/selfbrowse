@@ -681,6 +681,39 @@ def test_saved_details_reach_the_model_only_when_it_asks(client, monkeypatch, pa
     assert "<secret:HOME_CITY> is Home › City" in later and "HOME_PHONE" not in later and "Springfield" not in later
 
 
+def _lookup_result(client, monkeypatch, page_url, sites):
+    seen = []
+
+    class Spy(Script):
+        def complete(self, *, system, messages, tools, max_tokens=2048):
+            seen.append(json.dumps(messages, ensure_ascii=False))
+            return super().complete(system=system, messages=messages, tools=tools, max_tokens=max_tokens)
+    _patch_agent(monkeypatch, Spy([("goto", {"url": page_url}), ("find_saved_detail", {"what": "password"}),
+                                   ("done", {"success": True, "answer": "ok"})]))
+    run = _start(client, sensitive={"SHOP_PASSWORD": "hunter2"}, labels={"SHOP_PASSWORD": "Shop › Password"}, sensitive_sites=sites)
+    assert _events(client, run)[-1]["success"] is True
+    return seen[-1]
+
+
+def test_a_value_saved_for_another_site_is_not_offered_on_this_page(client, monkeypatch, page_url):
+    later = _lookup_result(client, monkeypatch, page_url, {"SHOP_PASSWORD": "shop.example.com"})
+    assert "different site" in later and "SHOP_PASSWORD" not in later.split("different site")[-1] and "hunter2" not in later
+
+
+def test_a_value_saved_for_this_site_is_offered(client, monkeypatch, page_url):
+    later = _lookup_result(client, monkeypatch, page_url, {"SHOP_PASSWORD": "https://127.0.0.1:1/any/path"})
+    assert "<secret:SHOP_PASSWORD> is Shop › Password" in later and "hunter2" not in later
+
+
+def test_sites_are_written_in_any_common_form_and_bad_ones_are_refused(client):
+    ok = client.post("/runs", headers=H, json={"prompt": "x", "model": "scripted", "sensitive": {"A": "1"},
+                                                "sensitive_sites": {"A": "https://www.Walgreens.com/login"}})
+    assert ok.status_code != 422
+    for bad in ({"A": "not a site"}, {"A": ""}, {"bad name": "walgreens.com"}, {"A": "javascript:alert(1)"}):
+        r = client.post("/runs", headers=H, json={"prompt": "x", "model": "scripted", "sensitive_sites": bad})
+        assert r.status_code == 422, bad
+
+
 # ── a flow replay with optional model help ───────────────────────────────────────────────────
 def _save_flow_with_read(client, monkeypatch, page_url):
     _patch_agent(monkeypatch, Script([("goto", {"url": page_url}), ("read", {}), ("done", {"success": True, "answer": "ok"})]))
