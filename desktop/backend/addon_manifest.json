@@ -1,0 +1,9 @@
+{
+  "presidio": {
+    "version": "1",
+    "file": "presidio-addon-macos-arm64.zip",
+    "url": "https://github.com/rinshadkk/selfbrowse/releases/download/desktop-addons/presidio-addon-macos-arm64.zip",
+    "sha256": "",
+    "size": 0
+  }
+}

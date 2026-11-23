@@ -6,9 +6,47 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "backend:setup": "python3 -m venv backend/.venv && backend/.venv/bin/pip install -q -U pip setuptools && backend/.venv/bin/pip install -q -e .. -r backend/requirements.txt && backend/.venv/bin/playwright install chromium"
+    "backend:setup": "python3 -m venv backend/.venv && backend/.venv/bin/pip install -q -U pip setuptools && backend/.venv/bin/pip install -q -e .. -r backend/requirements.txt && backend/.venv/bin/playwright install chromium",
+    "backend:freeze": "scripts/freeze-backend.sh",
+    "dist": "npm run backend:freeze && electron-builder --mac --arm64"
   },
   "devDependencies": {
-    "electron": "^45.4.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "dev.selfbrowse.desktop",
+    "productName": "Selfbrowse",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend/selfbrowse-backend",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "Selfbrowse"
+    }
   }
 }

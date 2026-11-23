@@ -105,7 +105,7 @@ function drawGuards() {
     box.addEventListener('change', () => { GS.redact = ['email', 'phone', 'ssn', 'card'].filter((x) => (x === k ? box.checked : GS.redact.includes(x))); saveGuards(); });
     return h('label', {}, box, name);
   }));
-  const presidio = switchRow('page_presidio', 'Also find names and more with Presidio', 'Runs on this computer. Install it from the ⋯ menu on the Run screen first.');
+  const presidio = switchRow('page_presidio', 'Also find names and more with Presidio', 'Runs on this computer. Install it first from the ⋯ menu on the Run screen.');
   const review = h('select', { id: 'gReview', 'aria-label': 'Review before sending' },
     h('option', { value: 'off' }, 'Off'), h('option', { value: 'flagged' }, 'When something looks personal'), h('option', { value: 'always' }, 'Every model call'));
   review.value = $('review').value;

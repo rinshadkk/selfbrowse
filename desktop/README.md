@@ -32,6 +32,44 @@ The interface from `design/prototype.html` is built:
 
 Not yet: confirm dialogs for risky actions, importing a flow file, publishing or links, run history, settings, packaging and signing. The prototype's "Ask first" setting and the removed-bar redaction need library changes and are not built.
 
+## Build a distributable (macOS, Apple Silicon, unsigned)
+
+    cd desktop
+    npm install
+    backend/.venv/bin/pip install pyinstaller      # once
+    npm run dist                                   # dist/Selfbrowse-0.1.0-arm64.dmg
+
+`npm run dist` freezes the Python backend with PyInstaller (`scripts/freeze-backend.sh`) and packs it with Electron using
+electron-builder (the `build` section of `package.json`). The packaged app starts the frozen backend from its own `Resources/backend`
+folder, so it needs no Python.
+
+- **Unsigned.** macOS will warn on first launch. Open it with right-click > Open, or run `xattr -dr com.apple.quarantine /Applications/Selfbrowse.app`.
+  Signing and notarizing need a Developer ID Application certificate; set `mac.identity` and the notarization settings in `package.json` when you have one.
+- **Needs Google Chrome.** The packaged app drives the Chrome installed on the computer. It does not bundle a browser.
+- **Left out:** Patchright stealth mode (it says "Not included in this build"). Presidio is not inside the app but can be added from it, see below.
+- Apple Silicon only. An Intel build needs the backend frozen on an Intel Mac.
+
+### The Presidio add-on
+
+Presidio (names and ID numbers in page text) needs spaCy and a language model, and the packaged app has no pip. So it ships as a
+separate program that the app downloads when someone presses **Install** next to "Detect more personal data" (the ⋯ menu on the Run screen).
+
+- **What they see:** a sheet naming the file, its size and where it comes from, with Download and Cancel. Nothing is fetched before that yes.
+  Afterwards it shows progress, then "Installed", and a **Remove** button deletes it to get the space back. Cancel works while downloading.
+- **How it stays safe:** `backend/addon_manifest.json` (inside the app) pins the address, size and SHA-256 of the file. The app installs nothing
+  if the download differs, refuses files that would unpack outside their folder, and starts the program once to check it finds an email
+  address before it says "Installed". The program listens on `127.0.0.1` only, with a token the backend creates for each start, and quits after
+  ten idle minutes or when the app quits. Page text never leaves the computer. Address, size and checksum are all you ever download.
+- **Where it lives:** `<app data>/addons/presidio/`. About 95 MB unpacked, 50 MB downloaded.
+- **Publishing it** (once per Presidio or model change, by whoever releases):
+  1. Run the `desktop-addon` workflow in GitHub Actions. It builds on an Apple Silicon runner, checks the program starts, and attaches
+     `presidio-addon-macos-arm64.zip` to the `desktop-addons` release. The job summary prints the checksum and size.
+  2. Paste `sha256` and `size` into `backend/addon_manifest.json` and commit it.
+  3. Build the app (`npm run dist`). Until the manifest has a checksum, the app says "has not been published for this version yet".
+  Locally: `scripts/freeze-presidio.sh` builds the same zip into `build/` (needs Presidio, `en_core_web_sm` and PyInstaller in the backend venv).
+  To try the download without publishing, point `SB_ADDON_MANIFEST` at a manifest whose `url` is a `file://` address.
+- From source nothing changes: Install still pip-installs Presidio into the backend's own Python.
+
 ## Live view
 
 The agent drives its own Chromium (headless by default). The backend mirrors it into the window as JPEG frames (Chrome's screencast) and applies your clicks, scrolls and keys back to the page.

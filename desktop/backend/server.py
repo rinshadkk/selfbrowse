@@ -38,10 +38,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from live import Input, LiveView, MirrorLLM, Stopped
 from selfbrowse import Browser, BrowseAgent
 from selfbrowse.llm import make_llm
-from selfbrowse.guardrails import Budget, ConfirmRisky, Guardrail, RedactPII, build_guards
+from selfbrowse.guardrails import Budget, ConfirmRisky, Guardrail, PresidioRedact, RedactPII, build_guards
 from selfbrowse.handoff import HandoffRequest
 from selfbrowse.flow import FlowError, FlowRunner, describe_step, load_flow, save_flow, validate_flow
 
+import addons
+import atexit
 import record
 
 
@@ -154,6 +156,8 @@ class GuardSettings(BaseModel):
                               max_tokens=self.max_tokens, max_seconds=self.max_seconds,
                               presidio=self.page_presidio, restore=self.restore)
         for g in guards:
+            if isinstance(g, PresidioRedact) and not record.presidio_in_python():
+                g._analyzer = addons.RemoteAnalyzer()          # the packaged app: ask the downloaded add-on
             if isinstance(g, RedactPII):
                 g.kinds = tuple(k for k in RedactPII.ALL if k in self.redact)
             if isinstance(g, ConfirmRisky) and self.risky_words is not None:
@@ -213,6 +217,9 @@ def installed_chrome() -> bool:
         roots = [os.environ.get(k) for k in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
         return any(r and (Path(r) / "Google/Chrome/Application/chrome.exe").exists() for r in roots)
     return any(shutil.which(n) for n in ("google-chrome", "google-chrome-stable"))
+
+
+FROZEN = bool(getattr(sys, "frozen", False))    # the packaged app: no pip, so optional packages cannot be added
 
 
 def stealth_installed() -> bool:
@@ -283,6 +290,8 @@ def make_browser(o: BrowserOptions, headed: bool = False) -> Browser:
 
 
 def check_browser_options(o: BrowserOptions) -> None:
+    if o.stealth and FROZEN:
+        raise HTTPException(status_code=400, detail="Stealth mode is not included in the packaged app.")
     if o.stealth and not stealth_installed():
         raise HTTPException(status_code=400, detail="Stealth mode needs one more package. In the desktop folder run: "
                             "backend/.venv/bin/pip install 'patchright' and then 'backend/.venv/bin/patchright install chromium'.")
@@ -302,10 +311,18 @@ def build_llm(req: "RunRequest") -> Any:
 
 
 def check_presidio(req: "RunRequest") -> None:
-    if (req.presidio or getattr(getattr(req, "guards", None), "page_presidio", False)) and not record.presidio_available():
-        raise HTTPException(status_code=400, detail="Presidio is not installed. In the desktop folder run: "
-                            "Turn it on in the app and press Install, or run backend/.venv/bin/pip install presidio-analyzer "
-                            "and then backend/.venv/bin/python -m spacy download en_core_web_sm.")
+    if not (req.presidio or getattr(getattr(req, "guards", None), "page_presidio", False)):
+        return
+    if not record.presidio_available():
+        raise HTTPException(status_code=400, detail=(
+            "Presidio is not installed. Open the Run screen, press the ⋯ menu and choose Install next to Presidio." if FROZEN else
+            "Presidio is not installed. Turn it on in the app and press Install, or run backend/.venv/bin/pip install "
+            "presidio-analyzer and then backend/.venv/bin/python -m spacy download en_core_web_sm."))
+    if not record.presidio_in_python():                    # start the add-on now, so a broken one stops the run here
+        try:
+            addons.SIDECAR.ensure()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
 
 # ── history: a summary of each finished run, kept on this computer ─────────────────────────────────
@@ -598,6 +615,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+atexit.register(addons.SIDECAR.stop)             # the downloaded Presidio program quits with the backend
 PRESIDIO_JOB: dict[str, Any] = {"state": "idle", "error": ""}       # idle | running | done | error
 _PRESIDIO_STEPS = [["-m", "pip", "install", "--disable-pip-version-check", "presidio-analyzer"],
                    ["-m", "spacy", "download", record.PRESIDIO_MODEL]]
@@ -616,11 +634,24 @@ def _install_presidio() -> None:
         PRESIDIO_JOB.update(state="error", error=str(exc)[:300])
 
 
+class PresidioInstall(BaseModel):
+    consent: bool = False        # the person agreed to the download in the app
+
+
 @app.post("/presidio/install", dependencies=[Depends(_auth)])
-def presidio_install() -> dict[str, Any]:
-    """Install Presidio into this backend's own Python. Downloads from PyPI and spaCy's model host."""
+def presidio_install(body: PresidioInstall | None = None) -> dict[str, Any]:
+    """Make Presidio available. From source: pip install into this Python. Packaged: download the add-on program."""
     if record.presidio_available():
-        return {"state": "done", "error": ""}
+        return presidio_status()
+    if FROZEN:
+        if not (body and body.consent):
+            raise HTTPException(status_code=400, detail="Downloading the add-on needs the person's OK. Use the Install button in the app.")
+        try:
+            return addons.start_install()
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
     if PRESIDIO_JOB["state"] == "running":
         raise HTTPException(status_code=409, detail="Presidio is already being installed.")
     PRESIDIO_JOB.update(state="running", error="")
@@ -630,7 +661,21 @@ def presidio_install() -> dict[str, Any]:
 
 @app.get("/presidio/install", dependencies=[Depends(_auth)])
 def presidio_status() -> dict[str, Any]:
+    if FROZEN:
+        return addons.status()
     return {"state": "done" if record.presidio_available() else PRESIDIO_JOB["state"], "error": PRESIDIO_JOB["error"]}
+
+
+@app.delete("/presidio/install", dependencies=[Depends(_auth)])
+def presidio_remove() -> dict[str, Any]:
+    """Stop a download in progress, or delete the installed add-on to free its disk space."""
+    if not FROZEN:
+        raise HTTPException(status_code=400, detail="Presidio is installed in Python here. Remove it with pip uninstall.")
+    if addons.JOB["state"] == "running":
+        addons.cancel()
+    else:
+        addons.remove()
+    return addons.status()
 
 
 # ── models installed on this computer ──────────────────────────────────────────────────────────
@@ -667,7 +712,8 @@ def local_models(kind: Literal["ollama", "lmstudio"]) -> dict[str, Any]:
 def browser_info() -> dict[str, Any]:
     p = profile_dir()
     size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
-    return {"chrome": installed_chrome(), "stealth": stealth_installed(), "presidio": record.presidio_available(), "profile_bytes": size}
+    return {"chrome": installed_chrome(), "stealth": stealth_installed(), "presidio": record.presidio_available(),
+            "profile_bytes": size, "packaged": FROZEN}
 
 
 @app.post("/browser-data/clear", dependencies=[Depends(_auth)])
