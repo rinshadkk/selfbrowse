@@ -18,7 +18,19 @@ function setSaved(text, error = false) {
   V.saved.textContent = text;
   V.saved.className = error ? 'error' : '';
 }
+// Says which website this form is tied to, and updates as the Website field is edited.
+function updateSiteNote() {
+  const form = vault.forms.find((f) => f.id === V.sel), note = V.siteNote;
+  if (!form || !note || !note.isConnected) return;
+  const tag = siteField(form), site = formSite(form);
+  note.className = `sitebind${site ? ' on' : ''}`;
+  note.replaceChildren(...(site ? ['Typed only on ', h('strong', {}, site), ' and its subdomains. Never on any other site.']
+    : tag && tag.value.trim() ? ['That does not look like a website address, so these values can be typed on any site.']
+    : tag ? ['Add the website above to limit where these values are typed.']
+    : ['Not tied to a website, so these values can be typed on any site. Add a field named Website to tie them to one.']));
+}
 function persist() {
+  updateSiteNote();
   clearTimeout(V.timer);
   setSaved('Saving…');
   V.timer = setTimeout(async () => {
@@ -106,9 +118,11 @@ function renderVault() {
   const add = h('button', { class: 'btn', type: 'button', onclick: () => { form.fields.push({ id: uid(), label: '', value: '', policy: 'local' }); renderVault(); main.querySelector('.fieldrow:last-child input')?.focus(); } }, 'Add field');
   const addSecret = h('button', { class: 'btn', type: 'button', onclick: () => { form.fields.push({ id: uid(), label: 'Password', value: '', policy: 'local', kind: 'secret' }); ensureNames(); persist(); renderVault(); main.querySelector('.fieldrow:last-child input')?.focus(); } }, 'Add password or secret');
   V.saved = h('span', { id: 'saved' }, '');
+  V.siteNote = h('p', {}, '');
   main.replaceChildren(
     h('div', { class: 'titlerow' }, name, del),
     h('p', { class: 'lead' }, 'Fill this in once. Flows use it to complete forms for you. By default the model never sees these values, only the name of the field.'),
+    V.siteNote,
     h('div', { class: 'how', 'aria-label': 'How a value is used' },
       h('div', { class: 'box' }, h('small', {}, 'What the model sees'), h('code', {}, example ? `Type <secret:${example.secret}> into “${example.label}”` : 'Type <secret:NAME> into the field')),
       h('div', { class: 'arrow' }, '→'),
@@ -116,6 +130,21 @@ function renderVault() {
     h('div', { class: 'panel' }, form.fields.length ? form.fields.map((f) => fieldRow(form, f)) : h('p', { class: 'empty' }, 'No fields yet.')),
     h('div', { class: 'addrow' }, add, addSecret, V.saved),
     h('p', { class: 'foot' }, 'Encrypted with your computer’s keychain. Never uploaded, and never included when you share a flow. Passwords and secrets are masked, never shown to the model, and only revealed after you confirm it is you (Touch ID where available).'));
+  updateSiteNote();
 }
 
-$('newForm').addEventListener('click', () => addForm('New form', ['']));
+// New form lists the templates, so they stay available after the first form exists.
+function closeTemplates() { $('templateList').hidden = true; $('newForm').setAttribute('aria-expanded', 'false'); }
+$('newForm').addEventListener('click', () => {
+  const list = $('templateList');
+  if (!list.hidden) { closeTemplates(); return; }
+  const pick = (name, labels) => () => { closeTemplates(); addForm(name, labels); };
+  list.replaceChildren(
+    h('button', { class: 'listbtn', type: 'button', onclick: pick('New form', ['']) }, 'Blank form', h('small', {}, 'Start empty')),
+    ...Object.entries(TEMPLATES).map(([name, labels]) => h('button', { class: 'listbtn', type: 'button', onclick: pick(name, labels) },
+      name, h('small', {}, labels.map((l) => l.replace(/^!/, '')).join(', ')))));
+  list.hidden = false;
+  $('newForm').setAttribute('aria-expanded', 'true');
+  list.querySelector('button').focus();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('templateList').hidden) { closeTemplates(); $('newForm').focus(); } });

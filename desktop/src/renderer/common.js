@@ -103,6 +103,28 @@ function savedLabels() {
   for (const form of vault.forms) for (const f of form.fields) if (f.policy === 'local' && f.value && f.secret) out[f.secret] = `${form.name} › ${f.label}`;
   return out;
 }
+// A form is for one website when it has a field labelled Website (or Site, URL, Domain) with an address in it. Its values are
+// then typed only on that site and its subdomains. The same reading is done again by the backend.
+const SITE_LABEL = /^(web ?site|site|url|domain)$/i;
+const SITE_HOST = /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}|localhost|\d{1,3}(?:\.\d{1,3}){3})$/;
+function normalizeSite(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (!v) return '';
+  let host = '';
+  try { host = new URL(v.includes('://') ? v : `//${v}`, 'https://placeholder.invalid').hostname.replace(/^www\./, ''); } catch (_) { return ''; }
+  return SITE_HOST.test(host) ? host : '';
+}
+const siteField = (form) => form.fields.find((f) => SITE_LABEL.test((f.label || '').trim()));
+const formSite = (form) => { const f = siteField(form); return f ? normalizeSite(f.value) : ''; };
+// NAME -> site, for the values a run may type (the Website field itself is not tied to anything)
+function savedSites() {
+  const out = {};
+  for (const form of vault.forms) {
+    const site = formSite(form), tag = siteField(form);
+    if (site) for (const f of form.fields) if (f !== tag && f.policy === 'local' && f.value && f.secret) out[f.secret] = site;
+  }
+  return out;
+}
 // The model writes <secret:NAME> when it reports one of your saved values. Whether the answer you read shows the real value
 // is your choice. It is swapped in on this screen only: never stored, never sent anywhere, and never for protected fields
 // (passwords and other secrets).
