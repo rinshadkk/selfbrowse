@@ -192,10 +192,13 @@ The model is told only the names. `--allow-domain` means the values can be typed
 
 Selfbrowse is early software (0.1). What we know it does not do well yet, or have not checked:
 
-- **Not supported yet:** file uploads, drag and drop, closed shadow roots, custom dropdowns beyond clicking them, and vision (`--vision` is a stub).
+- **Not supported yet:** closed shadow roots, and vision (`--vision` is a stub, so canvas-only pages cannot be read).
+- **Partly supported:** a saved flow cannot replay an upload or a drag. Drag does not cover sliders, canvas drawing, or drop targets that a library listens for at the page root. Custom dropdowns match visible text only, and choices that need scrolling inside the list are found only once they exist in the page. Uploads use only the files you pass with `--file`.
 - **Learning helps routine jobs you repeat.** It gave no saving across different tasks on one site, and research-style tasks learn little.
 - **Hard forms vary.** The same Google Flights prompt took 7 steps in one run and more than 30 in two others.
 - **Guardrails reduce risk; they are not guarantees.** Pattern matching for personal data and injection misses things. A hosted model still sees any page text you do not mask. Only a local model keeps page content on your machine.
+- **Secrets tied to a site are only as strong as the tie.** In the desktop app, a My info form with a Website field types its values only on that site and its subdomains. A form without one still types anywhere, and replaying a saved flow does not check the site yet. The library's `sensitive_sites` is checked at typing time, and `--allow-domain` remains the stricter fence.
+- **The desktop app is unsigned.** The macOS build is for Apple Silicon only, needs Chrome installed, and macOS asks you to approve it on first open. The optional Presidio download works only after the add-on is published and its checksum is pinned in the app.
 - **Untested against live accounts:** the AgentCore adapter and the Azure and Bedrock model routes are tested with stand-ins.
 - **Benchmarks are small.** See the notes under the table above.
 
