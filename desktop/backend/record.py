@@ -63,14 +63,24 @@ PRESIDIO_ENTITIES = ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "
 PRESIDIO_MODEL = "en_core_web_sm"        # small (12 MB); Presidio's own default is the 400 MB large one
 
 
-def presidio_available() -> bool:
+def presidio_in_python() -> bool:
+    """Presidio and its language model can be imported (running from source)."""
     import importlib.util
     return all(importlib.util.find_spec(m) is not None for m in ("presidio_analyzer", PRESIDIO_MODEL))
+
+
+def presidio_available() -> bool:
+    """Presidio can be used: importable, or the downloaded add-on program is installed (packaged app)."""
+    import addons
+    return presidio_in_python() or addons.installed()
 
 
 def _presidio_scan(text: str) -> list[dict[str, str]]:
     """Personal data found by Microsoft Presidio (names, ID numbers, ...). Runs on this computer, loaded once."""
     global _PRESIDIO
+    if _PRESIDIO is None and not presidio_in_python():
+        import addons
+        _PRESIDIO = addons.RemoteAnalyzer()
     if _PRESIDIO is None:
         from presidio_analyzer import AnalyzerEngine
         from presidio_analyzer.nlp_engine import NlpEngineProvider

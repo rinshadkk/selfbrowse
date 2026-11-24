@@ -496,7 +496,8 @@ async function refreshBrowserInfo() {
     const i = await call('GET', '/browser-info');
     $('optChrome').disabled = !i.chrome;
     $('chromeNote').textContent = i.chrome ? 'A real Chrome looks less like automation than the bundled browser.' : 'Chrome was not found on this computer, so the bundled browser is used.';
-    $('stealthNote').textContent = i.stealth ? 'Hides common automation tells (Patchright).' : 'Needs one more package. If you turn it on, the next run tells you the install command.';
+    if (i.packaged) { $('optStealth').checked = false; $('optStealth').disabled = true; }
+    $('stealthNote').textContent = i.packaged ? 'Not included in this build.' : i.stealth ? 'Hides common automation tells (Patchright).' : 'Needs one more package. If you turn it on, the next run tells you the install command.';
     $('profileSize').textContent = i.profile_bytes ? `${(i.profile_bytes / 1048576).toFixed(1)} MB saved` : 'Nothing saved yet';
   } catch (_) { /* the backend is not ready yet */ }
 }
@@ -564,26 +565,50 @@ function refreshUseInfo() {
   $('useInfoLabel').title = any ? '' : 'Nothing is saved in My info yet.';
 }
 
-// Presidio is optional: the Install button downloads it into the backend's Python, then the checkbox works.
+// Presidio is optional. From source, Install adds it to the backend's Python. The packaged app has no Python, so it
+// downloads a ready-made add-on (after the person agrees) and can remove it again to free the disk space.
 let presidioTimer = null;
+const megabytes = (n) => `${Math.round(n / 1048576)} MB`;
 function showPresidio(i) {
-  const ready = i.state === 'done', busy = i.state === 'running';
+  const ready = i.state === 'done', busy = i.state === 'running', gone = i.state === 'unavailable', pk = !!i.packaged;
   $('presidio').disabled = !ready;
   if (!ready) $('presidio').checked = false;
-  $('presidioInstall').hidden = ready || busy;
+  $('presidioInstall').hidden = ready || busy || gone;
   $('presidioInstall').textContent = i.state === 'error' ? 'Try again' : 'Install';
-  $('presidioNote').textContent = ready ? '' : busy ? 'Installing, about 1 minute. It downloads from PyPI and spaCy.'
-    : i.state === 'error' ? `Install failed: ${i.error}` : 'Not installed. Downloads about 30 MB once.';
+  $('presidioRemove').hidden = !(pk && (ready || busy));
+  $('presidioRemove').textContent = busy ? 'Cancel' : 'Remove';
+  const phase = { download: `Downloading, ${Math.round((i.progress || 0) * 100)}%`, unpack: 'Unpacking', check: 'Checking that it works' }[i.phase] || 'Installing';
+  $('presidioNote').textContent = ready ? (pk ? 'Installed on this computer.' : '')
+    : gone ? (i.error || 'Not included in this build.')
+    : busy ? (pk ? `${phase}.` : 'Installing, about 1 minute. It downloads from PyPI and spaCy.')
+    : i.state === 'error' ? `Install failed: ${i.error}`
+    : pk ? `Not installed. Downloads ${megabytes(i.size)} once.` : 'Not installed. Downloads about 30 MB once.';
 }
 async function pollPresidio() {
   try {
     const i = await call('GET', '/presidio/install');
     showPresidio(i);
-    if (i.state === 'running') presidioTimer = setTimeout(pollPresidio, 2000);
+    if (i.state === 'running') presidioTimer = setTimeout(pollPresidio, i.packaged ? 500 : 2000);
   } catch (_) { /* backend not ready */ }
 }
+async function startPresidioInstall(body) {
+  try { showPresidio(await post('/presidio/install', body)); clearTimeout(presidioTimer); pollPresidio(); } catch (err) { toast(err.message); }
+}
 $('presidioInstall').addEventListener('click', async () => {
-  try { showPresidio(await post('/presidio/install')); clearTimeout(presidioTimer); pollPresidio(); } catch (err) { toast(err.message); }
+  let info;
+  try { info = await call('GET', '/presidio/install'); } catch (err) { toast(err.message); return; }
+  if (!info.packaged) { startPresidioInstall(); return; }
+  // Packaged app: say exactly what is downloaded, from where, and how big, and wait for a yes.
+  openSheet(h('div', { class: 'head' }, h('div', {}, h('h2', { id: 'sheetTitle' }, 'Add Presidio'),
+    h('p', { class: 'muted' }, 'Finds names and ID numbers in page text before the model sees it. It runs on this computer.'))),
+    h('p', {}, `This downloads one file, ${megabytes(info.size)}${info.host ? `, from ${info.host}` : ''}. Selfbrowse checks it against a fingerprint built into this app and installs nothing if it does not match.`),
+    h('p', { class: 'foot' }, 'Your pages and prompts are not sent anywhere. You can remove it at any time to get the space back.'),
+    h('div', { class: 'btns' },
+      h('button', { class: 'btn', type: 'button', onclick: closeSheet }, 'Cancel'),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => { closeSheet(); startPresidioInstall({ consent: true }); } }, `Download ${megabytes(info.size)}`)));
+});
+$('presidioRemove').addEventListener('click', async () => {
+  try { showPresidio(await call('DELETE', '/presidio/install')); clearTimeout(presidioTimer); pollPresidio(); } catch (err) { toast(err.message); }
 });
 
 // ---- after a run: run again, a new run, copy, follow up ----

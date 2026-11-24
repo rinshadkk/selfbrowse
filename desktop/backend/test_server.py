@@ -391,7 +391,7 @@ def test_browser_info_and_clearing_the_profile(client, monkeypatch, tmp_path):
     p.mkdir(parents=True)
     (p / "Cookies").write_bytes(b"x" * 100)
     info = client.get("/browser-info", headers=H).json()
-    assert info["profile_bytes"] == 100 and set(info) == {"chrome", "stealth", "presidio", "profile_bytes"}
+    assert info["profile_bytes"] == 100 and set(info) == {"chrome", "stealth", "presidio", "profile_bytes", "packaged"}
     assert client.post("/browser-data/clear", headers=H).json() == {"cleared": True}
     assert not p.exists()
     assert client.get("/browser-info", headers=H).json()["profile_bytes"] == 0
@@ -1078,3 +1078,163 @@ def test_an_empty_word_list_leaves_only_uploads_and_dialogs():
 def test_too_long_a_word_is_refused(client):
     r = client.post("/runs", headers=H, json={"prompt": "x", "guards": {"confirm_risky": True, "risky_words": ["x" * 41]}})
     assert r.status_code == 422
+
+
+# ---- the packaged app has no pip ----
+
+def test_the_packaged_app_says_optional_packages_are_not_included(client, monkeypatch):
+    monkeypatch.setattr(server, "FROZEN", True)
+    monkeypatch.setattr(server.record, "presidio_available", lambda: False)
+    assert client.get("/browser-info", headers=H).json()["packaged"] is True
+    monkeypatch.setattr(server.addons, "installed", lambda: False)
+    st = client.get("/presidio/install", headers=H).json()
+    assert st["state"] == "unavailable" and "not been published" in st["error"]      # the shipped manifest has no checksum yet
+    r = client.post("/presidio/install", headers=H, json={"consent": True})
+    assert r.status_code == 400 and "not been published" in r.json()["detail"]
+    r = client.post("/runs", headers=H, json={"prompt": "x", "stealth": True})
+    assert r.status_code == 400 and "Stealth" in r.json()["detail"]
+
+
+# ---- the Presidio add-on the packaged app downloads ----
+
+import hashlib
+import io
+import json as _json
+import zipfile
+
+import addons
+
+
+def _zip(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in files.items():
+            info = zipfile.ZipInfo(name)
+            info.external_attr = 0o755 << 16
+            z.writestr(info, data)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def addon_env(tmp_path, monkeypatch):
+    """A packaged app whose add-on file is a local zip, with its own data folder."""
+    monkeypatch.setenv("SB_DESKTOP_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr(server, "FROZEN", True)
+    monkeypatch.setattr(server.record, "presidio_in_python", lambda: False)
+    monkeypatch.setattr(addons.sys, "platform", "darwin")
+    monkeypatch.setattr(addons.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(addons, "_smoke_test", lambda: None)
+    monkeypatch.setattr(addons, "SIDECAR", addons.Sidecar())
+
+    def publish(payload: bytes, **over):
+        f = tmp_path / "addon.zip"
+        f.write_bytes(payload)
+        m = {"url": f.as_uri(), "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload), "version": "1", **over}
+        (tmp_path / "manifest.json").write_text(_json.dumps({"presidio": m}))
+        monkeypatch.setenv("SB_ADDON_MANIFEST", str(tmp_path / "manifest.json"))
+        addons.JOB.update(state="idle", error="", phase="", progress=0.0)
+    return publish
+
+
+def _wait_install(client):
+    for _ in range(200):
+        st = client.get("/presidio/install", headers=H).json()
+        if st["state"] != "running":
+            return st
+        time.sleep(0.05)
+    raise AssertionError("install did not finish")
+
+
+def test_addon_downloads_checks_unpacks_and_can_be_removed(client, addon_env, tmp_path):
+    addon_env(_zip({"presidio-sidecar/presidio-sidecar": b"#!/bin/sh\n", "presidio-sidecar/_internal/x.txt": b"x"}))
+    st = client.get("/presidio/install", headers=H).json()
+    assert st["state"] == "idle" and st["size"] > 0 and st["packaged"] is True
+    assert client.post("/presidio/install", headers=H).status_code == 400            # no consent, no download
+    assert client.post("/presidio/install", headers=H, json={"consent": False}).status_code == 400
+    assert client.post("/presidio/install", headers=H, json={"consent": True}).status_code == 200
+    assert _wait_install(client)["state"] == "done"
+    program = tmp_path / "data" / "addons" / "presidio" / "presidio-sidecar" / "presidio-sidecar"
+    assert program.is_file() and program.stat().st_mode & 0o111                        # runnable
+    assert server.record.presidio_available() is True
+    assert client.delete("/presidio/install", headers=H).json()["state"] == "idle"
+    assert not program.exists()
+
+
+def test_addon_with_the_wrong_checksum_is_not_installed(client, addon_env, tmp_path):
+    addon_env(_zip({"presidio-sidecar/presidio-sidecar": b"x"}), sha256="0" * 64)
+    client.post("/presidio/install", headers=H, json={"consent": True})
+    st = _wait_install(client)
+    assert st["state"] == "error" and "checksum" in st["error"]
+    assert not (tmp_path / "data" / "addons" / "presidio").exists()
+    assert not list((tmp_path / "data" / "addons").glob("*.part"))                    # the bad file is deleted
+
+
+def test_addon_bigger_than_the_manifest_says_is_stopped(client, addon_env):
+    payload = _zip({"presidio-sidecar/presidio-sidecar": b"x" * 5000})
+    addon_env(payload, size=len(payload) - 10)
+    client.post("/presidio/install", headers=H, json={"consent": True})
+    assert "larger than expected" in _wait_install(client)["error"]
+
+
+def test_addon_that_would_write_outside_its_folder_is_refused(client, addon_env, tmp_path):
+    addon_env(_zip({"../evil.txt": b"x", "presidio-sidecar/presidio-sidecar": b"x"}))
+    client.post("/presidio/install", headers=H, json={"consent": True})
+    assert "not safe" in _wait_install(client)["error"]
+    assert not (tmp_path / "data" / "evil.txt").exists() and not (tmp_path / "evil.txt").exists()
+
+
+def test_addon_without_its_program_is_refused(client, addon_env):
+    addon_env(_zip({"presidio-sidecar/other": b"x"}))
+    client.post("/presidio/install", headers=H, json={"consent": True})
+    assert "does not contain the program" in _wait_install(client)["error"]
+
+
+def test_addon_must_be_fetched_over_https(client, addon_env, monkeypatch):
+    addon_env(_zip({"presidio-sidecar/presidio-sidecar": b"x"}), url="http://example.com/a.zip")
+    client.post("/presidio/install", headers=H, json={"consent": True})
+    assert "https" in _wait_install(client)["error"]
+    monkeypatch.delenv("SB_ADDON_MANIFEST")
+    # a file:// address is only allowed together with a local manifest (tests, local builds)
+    with pytest.raises(RuntimeError):
+        addons._check_url("file:///etc/passwd")
+
+
+def test_a_run_with_presidio_uses_the_addon_when_python_has_none(client, addon_env, monkeypatch):
+    addon_env(_zip({"presidio-sidecar/presidio-sidecar": b"x"}))
+    monkeypatch.setattr(addons, "installed", lambda: True)
+    started = []
+    monkeypatch.setattr(addons.SIDECAR, "ensure", lambda: started.append(1))
+    monkeypatch.setattr(addons.SIDECAR, "analyze", lambda text, ents, thr: [{"entity_type": "PERSON", "start": 8, "end": 16, "score": 0.9}])
+    guards = server.GuardSettings(page_presidio=True).build()
+    mask = [g for g in guards if g.__class__.__name__ == "PresidioRedact"][0]
+    assert mask.on_page("Ship to Jane Doe now", "http://x/").startswith("Ship to <PERSON_")
+    server.check_presidio(server.RunRequest(prompt="x", presidio=True))
+    assert started == [1]
+
+
+def test_a_broken_addon_stops_the_run_with_a_clear_message(client, addon_env, monkeypatch):
+    addon_env(_zip({"presidio-sidecar/presidio-sidecar": b"x"}))
+    monkeypatch.setattr(addons, "installed", lambda: True)
+
+    def boom():
+        raise RuntimeError("The Presidio add-on did not start. Remove it and install it again.")
+    monkeypatch.setattr(addons.SIDECAR, "ensure", boom)
+    r = client.post("/runs", headers=H, json={"prompt": "x", "presidio": True})
+    assert r.status_code == 400 and "did not start" in r.json()["detail"]
+
+
+def test_the_addon_program_refuses_calls_without_its_token(tmp_path):
+    import os, subprocess, sys, urllib.error, urllib.request
+    from pathlib import Path
+    p = subprocess.Popen([sys.executable, str(Path(server.__file__).parent / "presidio_sidecar.py")], stdout=subprocess.PIPE,
+                         env={**os.environ, "SB_ADDON_TOKEN": "t" * 24}, text=True)
+    try:
+        port = int(p.stdout.readline())
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5)
+        assert e.value.code == 401
+        ok = urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/health", headers={"X-Addon-Token": "t" * 24}), timeout=5)
+        assert _json.loads(ok.read())["status"] == "ok"
+    finally:
+        p.terminate()
+        p.wait(timeout=5)

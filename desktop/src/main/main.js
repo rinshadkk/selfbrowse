@@ -21,9 +21,20 @@ function pythonPath() {
   throw new Error('Backend not set up. Run "npm run backend:setup" in the desktop folder.');
 }
 
+// From source: the venv's Python runs backend/server.py. Packaged: the frozen backend shipped inside the app.
+function backendCommand() {
+  if (app.isPackaged) {
+    const exe = path.join(process.resourcesPath, 'backend', 'selfbrowse-backend');
+    if (!fs.existsSync(exe)) throw new Error('This copy of Selfbrowse is missing its backend. Reinstall it.');
+    return [exe, []];
+  }
+  return [pythonPath(), [path.join(ROOT, 'backend', 'server.py')]];
+}
+
 function startBackend() {
   return new Promise((resolve, reject) => {
-    backend = spawn(pythonPath(), [path.join(ROOT, 'backend', 'server.py')], {
+    const [cmd, args] = backendCommand();
+    backend = spawn(cmd, args, {
       env: { ...process.env, SB_DESKTOP_TOKEN: TOKEN, SB_DESKTOP_DATA: app.getPath('userData') },
     });
     let buf = '';

@@ -1,0 +1,51 @@
+name: desktop-addon
+# Builds the Presidio add-on the packaged desktop app downloads, and attaches it to a GitHub release.
+# Run by hand: Actions > desktop-addon > Run workflow. The job summary prints the checksum and size;
+# paste them into desktop/backend/addon_manifest.json, then build the app. The app refuses a file that
+# does not match, so the manifest and the release file must always be updated together.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the file to (it is created if missing)"
+        default: "desktop-addons"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14            # Apple Silicon, like the app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: Install Presidio, the language model and PyInstaller
+        run: |
+          python -m venv .addon-venv
+          .addon-venv/bin/pip install --upgrade pip
+          .addon-venv/bin/pip install presidio-analyzer spacy pyinstaller
+          .addon-venv/bin/python -m spacy download en_core_web_sm
+      - name: Build the add-on
+        working-directory: desktop
+        run: PY=../.addon-venv/bin/python scripts/freeze-presidio.sh | tee build/summary.txt
+      - name: Check that the program starts and finds personal data
+        working-directory: desktop
+        run: |
+          mkdir -p /tmp/addon-check && unzip -q build/presidio-addon-macos-arm64.zip -d /tmp/addon-check
+          export SB_ADDON_TOKEN=check-token-check-token-12345
+          /tmp/addon-check/presidio-sidecar/presidio-sidecar > /tmp/addon-port.txt &
+          sleep 15
+          PORT=$(head -1 /tmp/addon-port.txt)
+          curl -sf -H "X-Addon-Token: $SB_ADDON_TOKEN" -d '{"text":"mail jane@example.com","threshold":0.4}' "http://127.0.0.1:$PORT/analyze" | tee /dev/stderr | grep -q EMAIL_ADDRESS
+          kill %1
+      - name: Attach to the release
+        working-directory: desktop
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release view "${{ inputs.tag }}" >/dev/null 2>&1 || gh release create "${{ inputs.tag }}" --title "Desktop add-ons" --notes "Optional downloads for the Selfbrowse desktop app."
+          gh release upload "${{ inputs.tag }}" build/presidio-addon-macos-arm64.zip --clobber
+      - name: Print what goes into addon_manifest.json
+        working-directory: desktop
+        run: |
+          { echo '### Presidio add-on'; echo '```'; cat build/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
