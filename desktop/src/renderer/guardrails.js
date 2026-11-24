@@ -4,7 +4,7 @@
 const RISKY_DEFAULT = ['buy', 'purchase', 'pay', 'checkout', 'check out', 'place order', 'order now', 'confirm', 'delete', 'remove', 'cancel',
   'unsubscribe', 'send', 'submit', 'post', 'publish', 'sign out', 'log out', 'logout', 'subscribe', 'donate', 'transfer', 'withdraw'];
 const G_DEFAULT = {
-  safe_urls: true, allow: '', block: '', confirm_risky: false, risky_words: RISKY_DEFAULT.join('\n'), watch_injection: false,
+  safe_urls: true, allow: '', block: '', phish_on: false, phish_hosts: [], phish_at: '', confirm_risky: false, risky_words: RISKY_DEFAULT.join('\n'), watch_injection: false,
   redact: [], restore: true, page_presidio: false,
   max_steps: '40', max_tokens: '', max_seconds: '', max_usd: '',
 };
@@ -22,13 +22,20 @@ function riskyWords() {
   return same ? null : mine;
 }
 
+// Your own list, plus the downloaded phishing list when it is switched on.
+function blockList() {
+  const mine = lines(GS.block);
+  return GS.phish_on ? [...new Set([...mine, ...GS.phish_hosts])] : mine;
+}
+const phishing = () => GS.phish_on && GS.phish_hosts.length;
+
 // The `guards` and `max_steps` a run sends.
 function guardSettings() {
   const p = loadPrices(), usd = num(GS.max_usd);
   if (usd && (num(p.in) === null && p.in !== '0' || num(p.out) === null && p.out !== '0')) throw new Error('A dollar limit needs your model’s prices. Enter them under Guardrails > Limits.');
   return {
     guards: {
-      safe_urls: GS.safe_urls, allow: lines(GS.allow), block: lines(GS.block),
+      safe_urls: GS.safe_urls, allow: lines(GS.allow), block: blockList(),
       confirm_risky: GS.confirm_risky, risky_words: riskyWords(), watch_injection: GS.watch_injection,
       redact: GS.redact, restore: GS.restore, page_presidio: GS.page_presidio,
       max_tokens: num(GS.max_tokens) && Math.round(num(GS.max_tokens)), max_seconds: num(GS.max_seconds) && Math.round(num(GS.max_seconds)),
@@ -43,6 +50,7 @@ function activeGuards() {
   if (GS.safe_urls) on.push('web pages only');
   if (lines(GS.allow).length) on.push('allowed sites');
   if (lines(GS.block).length) on.push('blocked sites');
+  if (phishing()) on.push('known phishing sites blocked');
   if (GS.confirm_risky) on.push('ask before risky actions');
   if (GS.watch_injection) on.push('watch for injected instructions');
   if (GS.redact.length || GS.page_presidio) on.push('mask personal data on pages');
@@ -82,6 +90,32 @@ function numberRow(key, label, placeholder) {
   inp.value = GS[key];
   inp.addEventListener('input', () => { GS[key] = inp.value; saveGuards(); });
   return h('label', { class: 'field' }, label, inp);
+}
+// A public list of phishing sites (OpenPhish), downloaded when you ask and kept here. It sits beside your own list.
+function phishRow() {
+  const note = h('p', { class: 'foot', id: 'phishNote', role: 'status' });
+  const say = () => {
+    const n = GS.phish_hosts.length;
+    note.textContent = n ? `${n} sites, downloaded ${new Date(GS.phish_at).toLocaleDateString()}. ${GS.phish_on ? 'Blocked on every run.' : 'Switched off.'}`
+      : 'Not downloaded yet. Contacts openphish.com once; nothing about you or your runs is sent.';
+  };
+  const sw = switchRow('phish_on', 'Also block known phishing sites', null, () => { renderGuardSummary(); say(); });
+  const box = sw[0].querySelector('input');
+  const btn = h('button', { class: 'btn small', type: 'button', id: 'phishGet' }, GS.phish_hosts.length ? 'Update the list' : 'Download the list');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; note.textContent = 'Downloading from openphish.com…';
+    try {
+      const r = await post('/blocklists/openphish');
+      GS.phish_hosts = r.hosts; GS.phish_at = r.fetched; GS.phish_on = true; box.checked = true;
+      saveGuards(); btn.textContent = 'Update the list'; say();
+      toast(`Blocking ${r.count} known phishing sites${r.skipped ? ` (${r.skipped} shared sites left out so normal pages keep working)` : ''}.`);
+    } catch (err) { say(); toast(err.message); }
+    btn.disabled = false;
+  });
+  say();
+  return h('div', { class: 'field' }, sw[0], note,
+    h('p', { class: 'foot' }, 'From the OpenPhish community feed. Sites are blocked by name, and the big shared ones (such as docs.google.com or github.io) are left out. Your own list above is never changed.'),
+    h('div', { class: 'btns' }, btn));
 }
 const card = (title, why, ...kids) => h('section', { class: 'gcard' }, h('h3', {}, title), why ? h('p', { class: 'why' }, why) : null, ...kids);
 
@@ -126,7 +160,8 @@ function drawGuards() {
     card('Sites', 'Where the agent may go. Each page it lands on is checked, including after a redirect.',
       switchRow('safe_urls', 'Web pages only', 'Blocks file:, chrome:, data: and javascript: addresses. Leave this on unless you are testing a local file.'),
       textRow('allow', 'Only these sites', 'One per line. A site includes its subdomains. Empty means any site.', 'example.com'),
-      textRow('block', 'Never these sites', 'One per line.', 'ads.example.net')),
+      textRow('block', 'Never these sites', 'One per line.', 'ads.example.net'),
+      phishRow()),
     card('Actions', 'What the agent must ask you about first.',
       switchRow('confirm_risky', 'Ask before risky actions', 'The run pauses before a click on a control whose label has one of the words below, before any file upload, and before a dialog that looks irreversible.'),
       riskyRow(),

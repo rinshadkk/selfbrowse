@@ -1238,3 +1238,77 @@ def test_the_addon_program_refuses_calls_without_its_token(tmp_path):
     finally:
         p.terminate()
         p.wait(timeout=5)
+
+
+# ── the OpenPhish list for "Never these sites" ──────────────────────────────────────────────────
+def _serve_feed(body: bytes, status: int = 200):
+    import http.server, threading
+
+    class H_(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(status); self.end_headers(); self.wfile.write(body)
+        def log_message(self, *a): pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H_)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_port}/feed.txt"
+
+
+FEED = b"""https://Login-Bank.example.com/verify?id=1
+http://login-bank.example.com/again
+https://203.0.113.9/paypal
+https://docs.google.com/forms/d/evil
+https://scam.weebly.com/a
+not a url at all
+https://user:pw@secure.pay-check.example.net:8443/x#y
+"""
+
+
+def test_the_feed_is_cut_down_to_site_names(client, monkeypatch):
+    srv, url = _serve_feed(FEED)
+    monkeypatch.setenv("SB_OPENPHISH_URL", url)
+    try:
+        r = client.post("/blocklists/openphish", headers=H)
+    finally:
+        srv.shutdown()
+    assert r.status_code == 200
+    body = r.json()
+    assert body["hosts"] == ["login-bank.example.com", "scam.weebly.com", "secure.pay-check.example.net"]
+    assert body["skipped"] == 1                         # docs.google.com is a shared site
+    assert body["count"] == 3 and body["fetched"]
+
+
+def test_a_shared_site_is_left_out_but_a_page_under_it_is_kept():
+    import blocklists
+    hosts, skipped = blocklists.parse("https://github.io/x\nhttps://evil.github.io/y\nhttps://203.0.113.9/z\n")
+    assert hosts == ["evil.github.io"] and skipped == 1
+
+
+def test_a_failed_download_says_so_and_changes_nothing(client, monkeypatch):
+    srv, url = _serve_feed(b"", status=500)
+    monkeypatch.setenv("SB_OPENPHISH_URL", url)
+    try:
+        r = client.post("/blocklists/openphish", headers=H)
+    finally:
+        srv.shutdown()
+    assert r.status_code == 502 and "OpenPhish" in r.json()["detail"]
+    srv, url = _serve_feed(b"# nothing here\n")
+    monkeypatch.setenv("SB_OPENPHISH_URL", url)
+    try:
+        assert client.post("/blocklists/openphish", headers=H).status_code == 502
+    finally:
+        srv.shutdown()
+
+
+def test_the_download_needs_the_app_token(client):
+    assert client.post("/blocklists/openphish").status_code in (401, 403)
+
+
+def test_a_long_block_list_is_accepted_and_still_blocks():
+    from selfbrowse.guardrails import BlockedDomains
+    g = server.GuardSettings(block=[f"site{i}.example.test" for i in range(3000)] + ["bad.example.org"])
+    assert len(g.block) == 3001
+    rule = BlockedDomains(g.block)
+    assert rule.check_url("https://login.bad.example.org/x") is not None
+    assert rule.check_url("https://site2999.example.test/") is not None
+    assert rule.check_url("https://example.org/") is None
