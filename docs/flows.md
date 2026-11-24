@@ -8,8 +8,11 @@ Learning (see [How learning works](tools.md#how-learning-works)) replays only th
 
 Add `--save-flow` to any task. The file is written only if the run succeeds.
 
+Give it a bare name and the flow is kept in `~/.selfbrowse/flows/` (or `$SELFBROWSE_HOME/flows/`), next to the learned `sites` and the `traces`. Give it a path, meaning anything with a folder or `.json`, and it goes exactly there.
+
 ```bash
-selfbrowse "Find the cheapest flight from COK to SFO" --save-flow fare.json
+selfbrowse "Find the cheapest flight from COK to SFO" --save-flow fare         # ~/.selfbrowse/flows/fare.json
+selfbrowse "Find the cheapest flight from COK to SFO" --save-flow ./fare.json   # this folder
 ```
 
 From Python:
@@ -23,9 +26,11 @@ print(agent.flow_path)
 ## Look at it, then run it
 
 ```bash
-selfbrowse flow show fare.json
-selfbrowse flow run fare.json
-selfbrowse flow run fare.json --param from=BLR --param to=LHR
+selfbrowse flow list                       # the flows saved by name
+selfbrowse flow show fare
+selfbrowse flow run fare
+selfbrowse flow run fare --param from=BLR --param to=LHR
+selfbrowse flow run ./fare.json            # a file anywhere
 ```
 
 `flow show` lists the sites, the parameters, the secrets and every step, so you can read what a flow will do before you run it. From Python, `run_flow("fare.json", params={"from": "BLR"})`.
@@ -56,7 +61,7 @@ Rules for repair:
 
 ## Parameters
 
-Anything that was typed or chosen becomes a parameter, named after the field (`from`, `to`), with the recorded value as its default. Pass `--param NAME=VALUE` to change it. A flow with an unknown or missing parameter stops before opening a browser.
+Anything that was typed or chosen becomes a parameter, named after the field (`from`, `to`), with the recorded value as its default. Pass `--param NAME=VALUE` to change it. An unknown parameter name stops the run. A required parameter (one with no default) that you did not pass is asked for when you run in a terminal; in a script or cron job, where nobody can answer, the run stops with an error naming the parameter instead of hanging.
 
 ## What is never written to the file
 
