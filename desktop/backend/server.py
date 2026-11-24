@@ -45,6 +45,7 @@ from selfbrowse.flow import FlowError, FlowRunner, describe_step, load_flow, sav
 
 import addons
 import atexit
+import blocklists
 import record
 
 
@@ -103,7 +104,7 @@ class GuardSettings(BaseModel):
     """Every guardrail the library offers, as the person set them under Guardrails. Off or empty means not applied."""
     safe_urls: bool = True               # only http(s) pages: no file:, chrome:, data:, javascript:
     allow: list[str] = Field(default_factory=list, max_length=100)    # only these sites (and their subdomains)
-    block: list[str] = Field(default_factory=list, max_length=100)    # never these sites
+    block: list[str] = Field(default_factory=list, max_length=5000)   # never these sites (the person's own, plus a downloaded list)
     confirm_risky: bool = False          # ask before Buy, Pay, Delete, Send, Sign out, uploads and risky dialogs
     risky_words: list[str] | None = Field(default=None, max_length=200)   # words that make a click "risky"; None = the library's list
     watch_injection: bool = False        # warn the model about instruction-like page text, ask before acting on it
@@ -691,6 +692,15 @@ def presidio_remove() -> dict[str, Any]:
     else:
         addons.remove()
     return addons.status()
+
+
+@app.post("/blocklists/openphish", dependencies=[Depends(_auth)])
+def blocklist_openphish() -> dict[str, Any]:
+    """Download the OpenPhish community feed and return its sites. The person's lists are not changed here."""
+    try:
+        return blocklists.fetch_openphish()
+    except blocklists.FeedError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 # ── models installed on this computer ──────────────────────────────────────────────────────────
