@@ -13,7 +13,7 @@ from selfbrowse import __version__, _about
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog=_about.NAME, description="Run a browser task described in plain language.")
-    p.add_argument("task", nargs="*", help='the task, or "sites" / "forget <domain>" / "flow run|show <file>"')
+    p.add_argument("task", nargs="*", help='the task, or "sites" / "forget <domain>" / "flow list|run|show <name or file>"')
     p.add_argument("-m", "--model", default=os.environ.get(f"{_about.ENV_PREFIX}MODEL", "anthropic:claude-haiku-4-5"),
                    help="provider:model (default: anthropic:claude-haiku-4-5), or your own model as module:Name or ./file.py:Name")
     p.add_argument("--headed", action="store_true", help="show the browser window")
@@ -78,15 +78,16 @@ def main(argv: list[str] | None = None) -> int:
                    help="JavaScript alert/confirm/prompt: auto accepts alerts and declines choices (default)")
     p.add_argument("--no-handoff", action="store_true", help="never pause for a person (CAPTCHA, login, 2FA)")
     p.add_argument("--no-learn", action="store_true", help="do not read or write site knowledge")
-    p.add_argument("--save-flow", metavar="FILE",
-                   help="when the run succeeds, save every step to FILE as a flow that 'selfbrowse flow run FILE' replays with no model")
+    p.add_argument("--save-flow", metavar="NAME|FILE",
+                   help="when the run succeeds, save every step as a flow that 'selfbrowse flow run NAME' replays with no model. "
+                        "A bare NAME is kept in ~/.selfbrowse/flows/; a path (with a folder or .json) is used as given")
     fg = p.add_argument_group("flow run: optional model steps (off unless you pass them; both use -m)")
     fg.add_argument("--answer-with-model", action="store_true",
                     help="after the last step, send the text the flow read to the model (one call) and print its answer to the task")
     fg.add_argument("--repair-with-model", action="store_true",
                     help="if a step cannot find its element, let the model carry on from that page and finish the task")
     fg.add_argument("--repair-max-steps", type=int, default=15, metavar="N", help="with --repair-with-model: at most N actions (default 15)")
-    fg.add_argument("--save-repaired", metavar="FILE", help="with --repair-with-model: save the flow, updated with what the model did, to FILE (never overwrites the original)")
+    fg.add_argument("--save-repaired", metavar="NAME|FILE", help="with --repair-with-model: save the flow, updated with what the model did, to FILE (never overwrites the original)")
     fg.add_argument("--ask", metavar="TEXT", help="with --answer-with-model or --repair-with-model: the question or task to give the model (default: the flow's description)")
     p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE",
                    help="with 'flow run': set a flow parameter (repeatable); see 'flow show' for the names")
@@ -111,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.task and args.task[0] == "flow":
         explicit_model = bool(os.environ.get(f"{_about.ENV_PREFIX}MODEL")) or any(
             a in ("-m", "--model") or a.startswith("--model=") for a in (argv if argv is not None else sys.argv[1:]))
-        return _flow_command(args, p, explicit_model)
+        return _flow_command(args, p, explicit_model, home)
     if args.task and args.task[0] == "trace":
         return _trace_command(args.task[1:], home / "traces", args.full, p)
     if not args.task:
@@ -184,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         if agent.trace_path:
             print(f"[trace: {agent.trace_path}]", file=sys.stderr)
         if agent.flow_path:
-            print(f"[flow saved: {agent.flow_path}  replay it with no model: selfbrowse flow run {agent.flow_path}]", file=sys.stderr)
+            print(f"[flow saved: {agent.flow_path}  replay it with no model: selfbrowse flow run {args.save_flow}]", file=sys.stderr)
         elif args.save_flow and result.success:
             print("[no flow saved: the run had nothing worth replaying]", file=sys.stderr)
         if agent.screenshots_dir:
@@ -195,15 +196,31 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if result.success else 1
 
 
-def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser, explicit_model: bool = False) -> int:
-    """``selfbrowse flow show FILE`` and ``selfbrowse flow run FILE [--param NAME=VALUE]``: no model involved."""
+def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser, explicit_model: bool = False,
+                  home: "Path | None" = None) -> int:
+    """``selfbrowse flow list | show NAME | run NAME [--param NAME=VALUE]``: no model unless you ask for one.
+
+    NAME is a flow saved by name (``<home>/flows/NAME.json``) or a path to a flow file."""
+    home = home or Path(os.environ.get(f"{_about.ENV_PREFIX}HOME") or Path.home() / _about.HOME_DIRNAME)
     from selfbrowse import flow as fl
 
     rest = args.task[1:]
+    if rest == ["list"]:
+        found = fl.list_flows(home)
+        if not found:
+            print(f"No saved flows yet. Record one with --save-flow NAME (kept in {fl.flows_dir(home)}).")
+        for path in found:
+            try:
+                d = fl.load_flow(path)
+                print(f"{path.stem}  {d.get('description', '')[:70]}")
+            except fl.FlowError:
+                print(f"{path.stem}  (not a valid flow file)")
+        return 0
     if len(rest) != 2 or rest[0] not in ("run", "show"):
-        parser.error("usage: selfbrowse flow show FILE | selfbrowse flow run FILE [--param NAME=VALUE] [--headed]")
+        parser.error("usage: selfbrowse flow list | flow show NAME|FILE | flow run NAME|FILE [--param NAME=VALUE] [--headed]")
+    flow_file = fl.resolve_flow_path(rest[1], home)
     try:
-        data = fl.load_flow(rest[1])
+        data = fl.load_flow(flow_file)
     except fl.FlowError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -225,6 +242,9 @@ def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser, exp
         if not eq:
             parser.error(f"--param {item!r}: use NAME=VALUE")
         given[name] = value
+    for name, spec in data.get("params", {}).items():       # a value the flow needs and has no default for: ask
+        if name not in given and "default" not in spec and sys.stdin.isatty():
+            given[name] = input(f"Value for parameter '{name}': ")
     secrets = {k[len(f"{_about.ENV_PREFIX}SECRET_"):]: v for k, v in os.environ.items()
                if k.startswith(f"{_about.ENV_PREFIX}SECRET_") and len(k) > len(f"{_about.ENV_PREFIX}SECRET_")}
 
@@ -276,10 +296,10 @@ def _flow_command(args: argparse.Namespace, parser: argparse.ArgumentParser, exp
 
     saved = None
     if args.save_repaired and result.repaired_flow:
-        if Path(args.save_repaired).expanduser().resolve() == Path(rest[1]).expanduser().resolve():
+        if fl.resolve_flow_path(args.save_repaired, home).resolve() == flow_file.resolve():
             print("error: --save-repaired will not overwrite the original flow; give another file name", file=sys.stderr)
         else:
-            saved = fl.save_flow(result.repaired_flow, args.save_repaired)
+            saved = fl.save_flow(result.repaired_flow, fl.resolve_flow_path(args.save_repaired, home))
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
