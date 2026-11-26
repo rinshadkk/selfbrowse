@@ -1,0 +1,5 @@
+{"lib": "selfbrowse", "task": "T1-read-text", "rep": 1, "call": 1, "path": "/v1/messages", "seconds": 0.611, "status": 200, "sent_tokens": 1458, "cache_read": 0, "prompt_eval": 2299, "eval_count": 59}
+{"lib": "selfbrowse", "task": "T1-read-text", "rep": 1, "call": 2, "path": "/v1/messages", "seconds": 0.406, "status": 200, "sent_tokens": 1665, "cache_read": 2114, "prompt_eval": 2452, "eval_count": 24}
+{"lib": "selfbrowse", "task": "T1-read-text", "rep": 1, "call": 3, "path": "/v1/messages", "seconds": 0.763, "status": 200, "sent_tokens": 1936, "cache_read": 2114, "prompt_eval": 2712, "eval_count": 129}
+{"lib": "browser-use", "task": "T1-read-text", "rep": 1, "call": 1, "path": "/v1/messages", "seconds": 1.568, "status": 200, "sent_tokens": 10279, "cache_read": 0, "prompt_eval": 15356, "eval_count": 369}
+{"lib": "browser-use", "task": "T1-read-text", "rep": 1, "call": 2, "path": "/v1/messages", "seconds": 2.053, "status": 200, "sent_tokens": 1967, "cache_read": 0, "prompt_eval": 3194, "eval_count": 395}
