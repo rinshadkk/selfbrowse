@@ -15,4 +15,6 @@ Keep prompts and tool schemas small — they are sent on every step. If you chan
 
 Planned work and priorities live in [ROADMAP.md](ROADMAP.md). Pick an item, say so in an issue, and use its "Done when" line as the acceptance test. A feature that claims to save tokens or raise success needs a benchmark result to back it up.
 
+Please follow the [code of conduct](CODE_OF_CONDUCT.md). Report security problems privately, as described in [SECURITY.md](SECURITY.md).
+
 Maintainers: see [RELEASING.md](RELEASING.md) for how a version is published to PyPI.

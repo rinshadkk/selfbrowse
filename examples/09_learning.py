@@ -1,4 +1,4 @@
-"""Site learning: notes and click paths that make repeat runs cheaper.
+"""Site learning: notes and click paths kept for later runs.
 
 A path is only trusted after it worked for two different tasks (or twice for the same one),
 risky clicks are never recorded, and notes expire after 90 days.

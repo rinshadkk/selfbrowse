@@ -8,6 +8,13 @@
 <meta property="og:title" content="Selfbrowse: the browser agent that tells the model less">
 <meta property="og:description" content="Less page, less of your data, less repetition. An open-source Python browser agent that runs on local models.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://selfbrowse.ai/">
+<meta property="og:image" content="https://selfbrowse.ai/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Selfbrowse: the browser agent that tells the model less">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://selfbrowse.ai/">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -227,13 +234,7 @@ table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nu
 caption { text-align: left; color: var(--ink-2); font-size: 0.95rem; padding-bottom: 12px; }
 th, td { text-align: left; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: middle; }
 thead th { font-size: 0.88rem; font-weight: 700; color: var(--ink-2); border-bottom: 2px solid var(--ink); }
-.runs td:first-child, .runs th:first-child { width: 6.5em; }
-.runs tr.on td { font-weight: 700; }
-.runs tr.sep td { border-bottom: 2px solid var(--ink); }
-.runs .no { color: var(--stop); font-weight: 700; }
-.tbar { display: flex; align-items: center; gap: 8px; min-width: 150px; }
-.tbar i { display: block; height: 16px; width: var(--w); background: var(--other); border-radius: 0 3px 3px 0; flex: none; max-width: calc(100% - 4.2em); }
-tr.on .tbar i, .bar.us i { background: var(--tag); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 35%, transparent); }
+.bar.us i { background: var(--tag); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 35%, transparent); }
 .bench { margin-top: 1.6em; }
 .bench tbody th { font-weight: 700; width: 22%; vertical-align: top; padding-top: 14px; }
 .bench tbody th small { display: block; font-weight: 400; color: var(--ink-2); font-size: 0.85rem; }
@@ -327,9 +328,6 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
   .bench td.pair { display: flex; gap: 8px; white-space: normal; }
   .bench td.pair::before { content: attr(data-label); color: var(--ink-2); min-width: 7em; }
   .bench td.pair small { display: inline; }
-  .runs th, .runs td { padding-right: 8px; font-size: 0.9rem; }
-  .runs .secs { display: none; }
-  .tbar { min-width: 96px; }
   .reader { top: auto; height: 62vh; width: 100vw; border-left: 0; border-top: 2px solid var(--ink); }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -372,7 +370,7 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
   <div class="wrap hero-grid">
     <div>
       <h1 id="hero-title"><span class="tag" aria-hidden="true">#1</span>The browser agent that tells the model less.</h1>
-      <p class="lede">Selfbrowse is an open-source Python agent that does tasks in a real browser. The model gets a short numbered list in place of the page, placeholders in place of your data, and no call at all for clicks that worked before. That makes it cheap enough for a model on your laptop.</p>
+      <p class="lede">Selfbrowse is an open-source Python agent that does tasks in a real browser. The model gets a short numbered list in place of the page, placeholders in place of your data, and can replay clicks that worked before. That makes it cheap enough for a model on your laptop.</p>
       <div class="actions">
         <div class="install">
           <code id="install-cmd">pip install selfbrowse</code>
@@ -380,7 +378,7 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
         </div>
         <button type="button" class="btn-tag" id="read-toggle" aria-expanded="false" aria-controls="reader">Read this page as the model would</button>
       </div>
-      <p class="after small">Python 3.10+, MIT licence, version 0.1. Works with any model that can call tools.</p>
+      <p class="after small">Python 3.10+, MIT licence, version 0.3. Works with any model that can call tools.</p>
     </div>
 
     <figure class="scale" id="scale" aria-label="Size of the first model call: browser-use 13,467 tokens, Selfbrowse 1,128 tokens">
@@ -418,9 +416,9 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
     </article>
     <article>
       <h2>Less repetition</h2>
-      <p>Clicks that worked before on a site are replayed without asking the model, once they have earned trust.</p>
-      <div class="proof"><b>3 model calls, not 7 to 9</b><span>on the third run of the same multi-page lookup.</span></div>
-      <a href="#repeat">See the four runs</a>
+      <p>Clicks that worked before on a site can be replayed without asking the model, once they have earned trust.</p>
+      <div class="proof"><b>Experimental</b><span>No reliable saving measured yet.</span></div>
+      <a href="#repeat">See how it works</a>
     </article>
   </div>
 </section>
@@ -533,31 +531,16 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
 <section class="block" id="repeat" aria-labelledby="repeat-title">
   <div class="wrap split">
     <div>
-      <h2 id="repeat-title">The third visit costs a third as much</h2>
+      <h2 id="repeat-title">Clicks it can replay</h2>
       <p class="lede">After a successful run, Selfbrowse keeps the clicks that led there, filed by page type. Once a path is trusted it is replayed with no model call.</p>
       <p class="quiet">A path is trusted after it worked for two different tasks, or twice for the same one. Risky clicks such as Buy, Pay and Delete are never recorded, and neither is anything you typed. A replay still passes every guardrail, a path that stops working is dropped, and unused ones expire after 90 days.</p>
-      <p class="quiet">Learning helps routine jobs you repeat. Across different tasks in the same shop it gave no saving.</p>
+      <p class="quiet">In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Treat it as experimental.</p>
+    </div>
+    <div>
 <pre><code><span class="c"># what it has learned, clearing one site, turning it off</span>
 selfbrowse sites
 selfbrowse forget example.com
 selfbrowse --no-learn "..."</code></pre>
-    </div>
-    <div>
-      <table class="runs">
-        <caption>The same task four times in a demo shop: find part ZX-4471 across several pages. qwen3.8 running locally, one run per row.</caption>
-        <thead><tr><th scope="col">Run</th><th scope="col">Calls</th><th scope="col">Tokens sent</th><th scope="col" class="secs">Seconds</th><th scope="col">Correct</th></tr></thead>
-        <tbody>
-          <tr><td>1, off</td><td>6</td><td><span class="tbar"><i style="--w:59.2%"></i>9,239</span></td><td class="secs">66</td><td class="no">no</td></tr>
-          <tr><td>2, off</td><td>5</td><td><span class="tbar"><i style="--w:47.7%"></i>7,441</span></td><td class="secs">48</td><td class="no">no</td></tr>
-          <tr><td>3, off</td><td>9</td><td><span class="tbar"><i style="--w:100%"></i>15,597</span></td><td class="secs">79</td><td>yes</td></tr>
-          <tr class="sep"><td>4, off</td><td>7</td><td><span class="tbar"><i style="--w:73.7%"></i>11,490</span></td><td class="secs">55</td><td>yes</td></tr>
-          <tr class="on"><td>1, on</td><td>7</td><td><span class="tbar"><i style="--w:71.8%"></i>11,197</span></td><td class="secs">43</td><td>yes</td></tr>
-          <tr class="on"><td>2, on</td><td>7</td><td><span class="tbar"><i style="--w:72.6%"></i>11,331</span></td><td class="secs">36</td><td>yes</td></tr>
-          <tr class="on"><td>3, on</td><td>3</td><td><span class="tbar"><i style="--w:25.8%"></i>4,026</span></td><td class="secs">12</td><td>yes</td></tr>
-          <tr class="on"><td>4, on</td><td>3</td><td><span class="tbar"><i style="--w:25.8%"></i>4,025</span></td><td class="secs">11</td><td>yes</td></tr>
-        </tbody>
-      </table>
-      <p class="small" style="margin-top:12px">“Off” and “on” are learning. From the third run with learning on, four clicks were replayed from the saved flow. Raw rows are in <code>benchmarks/compare/results/learning-qwen3.8-fix</code>.</p>
     </div>
   </div>
 </section>

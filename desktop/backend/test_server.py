@@ -707,9 +707,9 @@ def test_a_value_saved_for_this_site_is_offered(client, monkeypatch, page_url):
 
 def test_sites_are_written_in_any_common_form_and_bad_ones_are_refused(client):
     ok = client.post("/runs", headers=H, json={"prompt": "x", "model": "scripted", "sensitive": {"A": "1"},
-                                                "sensitive_sites": {"A": "https://www.Walgreens.com/login"}})
+                                                "sensitive_sites": {"A": "https://www.Shop.example/login"}})
     assert ok.status_code != 422
-    for bad in ({"A": "not a site"}, {"A": ""}, {"bad name": "walgreens.com"}, {"A": "javascript:alert(1)"}):
+    for bad in ({"A": "not a site"}, {"A": ""}, {"bad name": "shop.example"}, {"A": "javascript:alert(1)"}):
         r = client.post("/runs", headers=H, json={"prompt": "x", "model": "scripted", "sensitive_sites": bad})
         assert r.status_code == 422, bad
 

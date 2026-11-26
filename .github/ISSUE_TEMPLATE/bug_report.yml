@@ -1,0 +1,32 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Remove passwords, API keys and personal data first. Security problems go in the private report form, not here.
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got.
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: Command or code
+      render: shell
+    validations: { required: true }
+  - type: input
+    attributes:
+      label: Model
+      placeholder: for example anthropic:claude-haiku-4-5 or ollama:llama3.1
+    validations: { required: true }
+  - type: input
+    attributes:
+      label: Version and system
+      placeholder: output of `selfbrowse --version`, your Python version and operating system
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: Trace or log
+      description: Optional. Check it for private data before pasting.
+      render: text

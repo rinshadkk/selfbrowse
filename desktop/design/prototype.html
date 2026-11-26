@@ -211,7 +211,7 @@ td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top}
   <!-- ================= RUN ================= -->
   <section class="screen on" id="run" aria-label="Run">
     <div class="promptbar">
-      <div class="field">Reorder my usual Dove shampoo from Walgreens and ship it to my home address</div>
+      <div class="field">Reorder my usual shampoo from Demo Store and ship it to my home address</div>
       <div><button class="btn primary" id="runbtn">Run again</button></div>
       <div class="opts">
         <span>Model <b style="color:var(--ink)">Claude Sonnet 5.5</b> · Anthropic</span>
@@ -233,7 +233,7 @@ td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top}
           <div style="display:flex;gap:8px"><button class="btn">Skip</button><button class="btn primary" id="sendBtn">Send this call</button></div>
         </div>
         <div class="browser">
-          <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">walgreens.com/checkout/shipping</div><span class="chip local">Filled on this computer</span></div>
+          <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">shop.example/checkout/shipping</div><span class="chip local">Filled on this computer</span></div>
           <div class="pagebody">
             <h4>Shipping address</h4>
             <div class="form">
@@ -341,20 +341,20 @@ td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top}
       </div>
       <div class="cards">
         <div class="card">
-          <h3>Reorder Dove shampoo</h3>
-          <div class="muted">Walgreens · 6 steps · saved 2 days ago</div>
+          <h3>Reorder shampoo</h3>
+          <div class="muted">Demo Store · 6 steps · saved 2 days ago</div>
           <div class="meta"><span class="chip local">Uses: Shipping address</span><span class="chip sent">0 tokens to replay</span></div>
           <div class="acts"><button class="btn primary">Run</button><button class="btn share-open">Share…</button><button class="btn quiet">Edit</button></div>
         </div>
         <div class="card">
           <h3>Compare shampoo prices</h3>
-          <div class="muted">Walgreens, CVS · 11 steps · saved last week</div>
+          <div class="muted">Demo Store, Corner Shop · 11 steps · saved last week</div>
           <div class="meta"><span class="chip sent">0 tokens to replay</span><span class="chip">No personal info</span></div>
           <div class="acts"><button class="btn primary">Run</button><button class="btn share-open">Share…</button><button class="btn quiet">Edit</button></div>
         </div>
         <div class="card">
           <h3>Refill a prescription</h3>
-          <div class="muted">Walgreens · 8 steps · saved 3 weeks ago</div>
+          <div class="muted">Demo Store · 8 steps · saved 3 weeks ago</div>
           <div class="meta"><span class="chip local">Uses: Contact</span><span class="chip local">Uses: Insurance card</span></div>
           <div class="acts"><button class="btn primary">Run</button><button class="btn share-open">Share…</button><button class="btn quiet">Edit</button></div>
         </div>
@@ -371,10 +371,10 @@ td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top}
 <div class="sheetwrap" id="sheetwrap" aria-hidden="true">
   <div class="sheet" role="dialog" aria-label="Share a flow">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
-      <div><h2>Share “Reorder Dove shampoo”</h2><p class="muted" style="margin:4px 0 14px">Checked just now. Here is everything that goes in the file.</p></div>
+      <div><h2>Share “Reorder shampoo”</h2><p class="muted" style="margin:4px 0 14px">Checked just now. Here is everything that goes in the file.</p></div>
       <button class="btn quiet" id="closeSheet" aria-label="Close">Close</button>
     </div>
-    <div class="check"><span class="ic yes">✓</span><div><b>The 6 steps</b><div class="muted">Open walgreens.com, search, open the product, add to cart, check out, fill the shipping form.</div></div></div>
+    <div class="check"><span class="ic yes">✓</span><div><b>The 6 steps</b><div class="muted">Open shop.example, search, open the product, add to cart, check out, fill the shipping form.</div></div></div>
     <div class="check"><span class="ic yes">✓</span><div><b>Notes Selfbrowse learned about the site</b><div class="muted">For example, where the search box is. No page content.</div></div></div>
     <div class="check"><span class="ic yes">✓</span><div><b>5 placeholders instead of your info</b><div class="muted">Whoever opens it will see a form asking them to fill in their own details.</div>
       <div class="codebox">{{full_name}}  {{phone}}  {{street}}  {{city}}  {{zip}}</div></div></div>
@@ -398,16 +398,16 @@ document.addEventListener('click',e=>{const g=e.target.closest('[data-go]');if(g
 const PH=(k,was)=>`<span class="ph" data-tip="Placeholder for ${was}, which stays on this computer">{{${k}}}<s>${was}</s></span>`;
 const BAR=(label,was)=>`<span class="rx" data-tip="Removed: ${label}"><i>${'x'.repeat(Math.max(4,Math.min(12,was.length)))}</i><em>${was}</em></span>`;
 const calls=[
- {n:1,tool:'Open walgreens.com',url:'walgreens.com',inT:2140,cache:0,out:96,ms:1.4,
-  page:()=>`[1] link "Walgreens"\n[2] searchbox "Search products" (focused)\n[3] link "Pharmacy"\n[4] link "Photo"\n[5] button "Sign in"`,reply:'goto https://www.walgreens.com',kept:[]},
- {n:2,tool:'Search "dove shampoo"',url:'walgreens.com/search',inT:2904,cache:1900,out:88,ms:1.6,
-  page:()=>`[2] searchbox "Search products" (focused)\n[6] button "Search"\n[7] link "Trending: vitamins"`,reply:'type ref=2 "dove shampoo" + Enter',kept:[]},
- {n:3,tool:'Open the product',url:'walgreens.com/store/c/dove-shampoo',inT:3210,cache:2650,out:71,ms:1.5,
-  page:()=>`[11] link "Dove Nutritive Solutions Shampoo, 12 fl oz"  $5.99\n[12] link "Dove Daily Moisture, 25.4 fl oz"  $8.49\n[13] button "Add to cart" (Dove Nutritive...)`,reply:'click ref=11',kept:[]},
- {n:4,tool:'Add to cart',url:'walgreens.com/cart',inT:3642,cache:3100,out:102,ms:1.9,
-  page:()=>`[1] link "Walgreens"\n[5] link "Hi, ${BAR('email address','ava.moreno@mail.com')}"  \n[20] button "Add to cart"\n[21] button "Checkout"`,
+ {n:1,tool:'Open shop.example',url:'shop.example',inT:2140,cache:0,out:96,ms:1.4,
+  page:()=>`[1] link "Demo Store"\n[2] searchbox "Search products" (focused)\n[3] link "Pharmacy"\n[4] link "Photo"\n[5] button "Sign in"`,reply:'goto https://www.shop.example',kept:[]},
+ {n:2,tool:'Search "shampoo"',url:'shop.example/search',inT:2904,cache:1900,out:88,ms:1.6,
+  page:()=>`[2] searchbox "Search products" (focused)\n[6] button "Search"\n[7] link "Trending: vitamins"`,reply:'type ref=2 "shampoo" + Enter',kept:[]},
+ {n:3,tool:'Open the product',url:'shop.example/store/c/shampoo',inT:3210,cache:2650,out:71,ms:1.5,
+  page:()=>`[11] link "Nutritive Solutions Shampoo, 12 fl oz"  $5.99\n[12] link "Daily Moisture, 25.4 fl oz"  $8.49\n[13] button "Add to cart" (Nutritive...)`,reply:'click ref=11',kept:[]},
+ {n:4,tool:'Add to cart',url:'shop.example/cart',inT:3642,cache:3100,out:102,ms:1.9,
+  page:()=>`[1] link "Demo Store"\n[5] link "Hi, ${BAR('email address','ava.moreno@mail.com')}"  \n[20] button "Add to cart"\n[21] button "Checkout"`,
   reply:'click ref=21',kept:[{what:'Email in the page header',saw:'(removed)',why:'Looks like an email address'}],redacted:1},
- {n:5,tool:'Fill the shipping form',url:'walgreens.com/checkout/shipping',inT:3812,cache:3300,out:214,ms:2.1,
+ {n:5,tool:'Fill the shipping form',url:'shop.example/checkout/shipping',inT:3812,cache:3300,out:214,ms:2.1,
   page:()=>`[30] textbox "Full name"   value: ${PH('full_name','Ava Moreno')}\n[31] textbox "Phone"   value: ${PH('phone','(312) 555-0148')}\n[32] textbox "Street address"   value: ${PH('street','418 Larch Street, Apt 3')}\n[33] textbox "City"   value: ${PH('city','Chicago')}\n[34] textbox "ZIP"   value: ${PH('zip','60614')}\n[35] radio "Saved card: ${BAR('card number','Visa ending 4421')}" (selected)\n[36] button "Continue to payment"`,
   reply:'click ref=36',
   kept:[{what:'Full name',saw:'{{full_name}}',why:'Matches My info › Shipping address'},{what:'Phone',saw:'{{phone}}',why:'Matches My info › Shipping address'},{what:'Street address',saw:'{{street}}',why:'Matches My info › Shipping address'},{what:'City',saw:'{{city}}',why:'Matches My info › Shipping address'},{what:'ZIP',saw:'{{zip}}',why:'Matches My info › Shipping address'},{what:'Saved card',saw:'(removed)',why:'Looks like a card number'}],redacted:1}
@@ -430,7 +430,7 @@ function select(i){
   $('#keptCount').textContent=c.kept.length;
   $('#payload').innerHTML=
    `<div class="blk sys"><b>Instructions (same every call)</b>You control a web browser. Use the numbered list of page elements to choose one action at a time. Fill forms using {{placeholders}}; never ask for the real value. …</div>`+
-   `<div class="blk task"><b>Your task</b>Reorder my usual Dove shampoo from Walgreens and ship it to my home address</div>`+
+   `<div class="blk task"><b>Your task</b>Reorder my usual shampoo from Demo Store and ship it to my home address</div>`+
    `<div class="blk page"><b>Page as the model sees it · ${c.url}</b>${c.page()}</div>`+
    `<div class="blk reply"><b>Model's reply</b>${c.reply}</div>`;
   $('#keptRows').innerHTML=c.kept.length?c.kept.map(k=>`<tr><td>${k.what}</td><td>${k.saw.startsWith('{{')?`<span class="ph">${k.saw}</span>`:`<span class="chip ink">removed</span>`}</td><td class="muted">${k.why}</td></tr>`).join(''):`<tr><td colspan="3" class="muted">Nothing on this page needed hiding.</td></tr>`;

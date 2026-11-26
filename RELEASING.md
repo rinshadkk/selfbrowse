@@ -24,7 +24,7 @@ Do this once per index. Nothing here is stored in the repository.
    ```
 2. **Pick the version** (`MAJOR.MINOR.PATCH`: fixes bump the last number, new features the middle one) and set it in one place, `src/selfbrowse/__init__.py`:
    ```python
-   __version__ = "0.1.1"
+   __version__ = "0.3.1"
    ```
 3. **Update the docs that name a version or an install route** (README status line, `docs/getting-started.md`, the website's install box), and anything in `ROADMAP.md` that this release completes.
 4. **Build and inspect locally** (optional but quick):
@@ -32,7 +32,7 @@ Do this once per index. Nothing here is stored in the repository.
    rm -rf dist && .venv/bin/python -m build
    .venv/bin/twine check dist/*
    ```
-5. **Commit and push** `Release 0.1.1`, and wait for CI to pass.
+5. **Commit and push** `Release 0.3.1`, and wait for CI to pass.
 6. **Dry run on TestPyPI.** GitHub → Actions → *release* → "Run workflow". Then, in a clean environment:
    ```bash
    python3 -m venv /tmp/try && /tmp/try/bin/pip install \
@@ -40,8 +40,8 @@ Do this once per index. Nothing here is stored in the repository.
    /tmp/try/bin/selfbrowse --version
    ```
    A TestPyPI version also cannot be reused. If you re-run the dry run for the same version it will fail with "File already exists"; bump to the next patch number, or skip the dry run once it has passed.
-7. **Publish.** GitHub → Releases → "Draft a new release" → create the tag `v0.1.1` (it must match `__version__`; the workflow stops if it does not) → write the notes → "Publish release". If you set required reviewers, approve the `pypi` deployment when it asks.
-8. **Verify.** In a clean environment: `pip install selfbrowse==0.1.1` and `selfbrowse --version`.
+7. **Publish.** GitHub → Releases → "Draft a new release" → create the tag `v0.3.1` (it must match `__version__`; the workflow stops if it does not) → write the notes → "Publish release". If you set required reviewers, approve the `pypi` deployment when it asks.
+8. **Verify.** In a clean environment: `pip install selfbrowse==0.3.1` and `selfbrowse --version`.
 
 ## After the release
 

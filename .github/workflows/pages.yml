@@ -5,9 +5,9 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["site/**", "docs/**", "mkdocs.yml", ".github/workflows/pages.yml"]
+    paths: ["site/**", "docs/**", "mkdocs.yml", "overrides/**", ".github/workflows/pages.yml"]
   pull_request:
-    paths: ["site/**", "docs/**", "mkdocs.yml"]
+    paths: ["site/**", "docs/**", "mkdocs.yml", "overrides/**"]
   workflow_dispatch:
 
 permissions:
