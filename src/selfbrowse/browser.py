@@ -148,13 +148,15 @@ _POPUP_OPTIONS_JS = "([want, near]) => {" + _JS_HELPERS + _FLOATING_NEAR_JS + r"
     if (st.visibility === 'hidden' || st.display === 'none') continue;
     found.push({ el, text, selected: el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-checked') === 'true' });
   }
+  // an option and the element holding its text are one choice, not two: keep the outer one
+  const choices = found.filter(f => !found.some(o => o !== f && o.text === f.text && o.el.contains(f.el)));
   const label = f => f.text + (f.selected ? ' (selected)' : '');
-  if (want === null) return { options: found.map(label) };
+  if (want === null) return { options: choices.map(label) };
   const w = norm(want).toLowerCase();
-  let hit = found.filter(f => f.text.toLowerCase() === w);
-  if (hit.length !== 1) hit = hit.length ? hit : found.filter(f => w && f.text.toLowerCase().includes(w));
+  let hit = choices.filter(f => f.text.toLowerCase() === w);
+  if (hit.length !== 1) hit = hit.length ? hit : choices.filter(f => w && f.text.toLowerCase().includes(w));
   if (hit.length !== 1) {
-    return { error: hit.length ? 'more than one option matches' : 'no option matches', options: found.map(label) };
+    return { error: hit.length ? 'more than one option matches' : 'no option matches', options: choices.map(label) };
   }
   const el = hit[0].el;
   el.scrollIntoView({ block: 'nearest' });
@@ -162,7 +164,7 @@ _POPUP_OPTIONS_JS = "([want, near]) => {" + _JS_HELPERS + _FLOATING_NEAR_JS + r"
   const cx = Math.round(Math.min(Math.max(r.left + r.width / 2, 0), vw - 1));
   const cy = Math.round(Math.min(Math.max(r.top + r.height / 2, 0), vh - 1));
   const top = deepFromPoint(cx, cy);
-  if (top && !(el.contains(top) || top.contains(el))) return { error: 'that option is hidden behind something else', options: found.map(label) };
+  if (top && !(el.contains(top) || top.contains(el))) return { error: 'that option is hidden behind something else', options: choices.map(label) };
   return { chosen: hit[0].text, cx, cy };
 }
 """
@@ -1040,9 +1042,11 @@ class Browser:
             raise BrowserError(f"#{ref} is not a dropdown. Click it, then click the option you want.")
         frame = self._frame_of(el)
         dx, dy = el["cx"] - el["lx"], el["cy"] - el["ly"]        # where this frame sits on the page
-        res = self._eval_in(frame, _POPUP_OPTIONS_JS, [option, [el["lx"], el["ly"]]]) or {}
+        # A dropdown that says it is closed is opened first: options showing elsewhere on the page are not its choices.
+        closed = el.get("expanded") is False
+        res = {} if closed else self._eval_in(frame, _POPUP_OPTIONS_JS, [option, [el["lx"], el["ly"]]]) or {}
         opened = False
-        if "chosen" not in res and not res.get("options") and el.get("expanded") is not True:
+        if closed or ("chosen" not in res and not res.get("options") and el.get("expanded") is not True):
             opened = True
             self._eval_in(frame, _MARK_VISIBLE_JS, None)            # so the choices can be told from the rest of the page
             self.page.mouse.click(el["cx"], el["cy"])              # nothing is showing: open it, then look again

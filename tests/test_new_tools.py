@@ -171,6 +171,32 @@ def test_select_picks_from_an_aria_dropdown_in_one_call(site):
         assert b.page.inner_text("#fruit-out") == "fruit=Banana"
 
 
+def test_select_opens_a_closed_dropdown_when_other_options_are_on_the_page(site):
+    with Browser() as b:
+        b.goto(site("dropdowns.html"))
+        # items elsewhere on the page that are marked as options, as a site's navigation or a filled-in field can be
+        b.page.evaluate("""() => document.body.insertAdjacentHTML('beforeend',
+            '<div role="menu"><div role="menuitem">Flights</div></div><div role="listbox"><div role="option">Banana bread</div></div>')""")
+        ref = ref_of(b.snapshot().text, "Pick a fruit")
+        assert b.select_ref(ref, "banana") == f'selected "Banana" in #{ref}'
+        assert b.page.inner_text("#fruit-out") == "fruit=Banana"
+
+
+def test_an_option_with_its_text_in_a_child_element_is_one_choice(site):
+    with Browser() as b:
+        b.goto(site("dropdowns.html"))
+        b.page.evaluate("""() => document.querySelectorAll('#fruit-list li')
+            .forEach(li => li.innerHTML = '<span>' + li.textContent + '</span>')""")
+        ref = ref_of(b.snapshot().text, "Pick a fruit")
+        assert "Options: Apple | Banana | Cherry" == _err(lambda: b.select_ref(ref, "Durian")).split(". ", 1)[1]
+        b.page.reload()
+        b.page.evaluate("""() => document.querySelectorAll('#fruit-list li')
+            .forEach(li => li.innerHTML = '<span>' + li.textContent + '</span>')""")
+        ref = ref_of(b.snapshot().text, "Pick a fruit")
+        assert b.select_ref(ref, "Banana") == f'selected "Banana" in #{ref}'
+        assert b.page.inner_text("#fruit-out") == "fruit=Banana"
+
+
 def test_select_picks_from_a_dropdown_with_no_aria(site):
     with Browser() as b:
         b.goto(site("dropdowns.html"))
