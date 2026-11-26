@@ -28,6 +28,6 @@ Each page type keeps up to eight distinct click sequences (*variants*), and trus
 
 Replaying goes by page type and element label: the agent finds the stored control again by role and text on a fresh page list (an exact text match, or a single partial match). If it is missing or ambiguous the flow records a miss and the model takes over, and every replayed click still passes the guardrails.
 
-**How much it saves:** not shown yet. In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. When a model moves between pages by address instead of clicking, there is nothing to replay. You can run the comparison yourself with `benchmarks/compare/learning_eval.py`.
+**How much it saves:** not shown yet. In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. When a model moves between pages by address instead of clicking, there is nothing to replay. The qwen3.8 runs are in `benchmarks/compare/results/qwen3.8-learning/`; run the comparison yourself with `benchmarks/compare/learning_eval.py`.
 
 Known limit: research-style tasks learn little, because most of their clicks are specific to the question. Learning is aimed at generic steps and routine jobs you repeat.

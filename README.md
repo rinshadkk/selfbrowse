@@ -50,7 +50,7 @@ selfbrowse "Open news.ycombinator.com and tell me the title of the top story."
 #8 button "Accept"
 ```
 
-The model replies `click {"ref": 7}`. On 13 tasks with a local qwen3.8, the first model call averaged 1,128 tokens with Selfbrowse and 13,467 with browser-use.
+The model replies `click {"ref": 7}`. On 13 tasks with Claude Haiku 5.5, the first model call averaged 2,306 tokens with Selfbrowse and 17,703 with browser-use.
 
 **Less of your data.** Passwords, emails, phone numbers, card numbers and (with Presidio) names reach the model as placeholders such as `<secret:pw>` and `<EMAIL_1>`. The model types the placeholder and Selfbrowse swaps in the real value at the keyboard, on the same site only. In a check with a local model, the form was filled with the real values in 5 of 5 runs and the model saw them in 0 of 5.
 
@@ -132,26 +132,20 @@ There are fourteen runnable scripts in [examples/](https://github.com/rinshadkk/
 
 ## Measured against other agents
 
-The same tasks, model and browser for each library, behind one proxy that counts every token. Code judges success (the demo shop's state, or a fact from the site's own API), never the agent's own claim.
+Selfbrowse and browser-use ran the same 13 tasks (a demo shop and real sites) on Claude Haiku 5.5 through the Anthropic API, 2 runs per task, with the same browser and limits. Code judges success (the demo shop's state, or a fact from the site's own API), never the agent's own claim. Tokens are what the model itself reported for every call, input plus output, added up over the run. Measured on 25 November 2026.
 
-| Model and tasks | Library | Passed | Tokens sent per task | Seconds per task |
-|---|---|---|---|---|
-| qwen3.8, local, 13 tasks (demo shop and real sites) | **Selfbrowse** | 12/13 | **11,810** | **54** |
-| | browser-use 0.13.14 | 12/13 | 34,613 | 167 |
-| Claude Haiku 4.5, 6 demo-shop tasks, 2 runs each | **Selfbrowse** | **11/12** | **11,452** | **11** |
-| | browser-use | 7/12 | 70,133 | 47 |
-| qwen3.8, local, 6 real sites | **Selfbrowse** | **6/6** | **66,195** | **84** |
-| | Fastbrowse 0.10.0 | 4/6 | 160,574 | 171 |
-| Claude Sonnet 5.5, 6 real sites | **Selfbrowse** | 5/6 | 22,474 | 22 |
-| | browser-use | **6/6** | 27,311 | 22 |
+| Library | Passed | Tokens per task | Input | Output | First model call | Model calls | Seconds per task |
+|---|---|---|---|---|---|---|---|
+| **Selfbrowse** | 26/26 | **19,520** | 18,931 | 589 | **2,306** | 5.3 | **7** |
+| browser-use 0.13.14 | 26/26 | 66,661 | 64,768 | 1,893 | 17,703 | **4.5** | 14 |
 
 What this does and does not show:
 
-- **The gap is largest on small and local models**, where Selfbrowse sent 3 to 6 times fewer tokens than browser-use. On Claude Sonnet 5.5 the two were close, and browser-use passed one more task.
-- **These are small samples.** Most rows are one run per task, so a single flaky result moves a row. Treat them as measurements, not a ranking.
-- Selfbrowse makes more model calls per task than browser-use and sends far less per call.
-- Some of browser-use's failures on Haiku 4.5 were output-format errors, not wrong answers. It ran with default settings.
-- Fastbrowse picks actions with a hosted decision model whose tokens are not counted here.
+- **Selfbrowse used 3.4 times fewer tokens**, and fewer on all 13 tasks, from 1.3 to 6.6 times. It was also faster on 12 of the 13.
+- **Each Selfbrowse call is small, but it makes more of them** (5.3 against 4.5), which is why the gap in total tokens is smaller than the gap in the first call.
+- **Both passed every run.** This run does not separate them on success.
+- **Tokens are not cost.** Much of the input for both libraries was served from the prompt cache, which is billed at a lower rate.
+- **This is a small sample:** one model, 2 runs per task, one machine. Treat it as a measurement, not a ranking.
 
 The harness, per-run data and versions are in [benchmarks/compare](https://github.com/rinshadkk/selfbrowse/tree/main/benchmarks/compare), so you can rerun it on your own models. More detail, and three showcase tasks on live sites with their cost per run, are in [Tests and benchmarks](https://github.com/rinshadkk/selfbrowse/blob/main/docs/benchmarks.md).
 

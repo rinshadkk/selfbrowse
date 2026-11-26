@@ -19,10 +19,10 @@ python benchmarks/step_tokens.py
 
 ### Comparing with other agents
 
-`benchmarks/compare/` runs the same tasks through each library with the same model and browser, behind a counting proxy so tokens are measured one way for all of them. Success is judged by code (the demo shop's state, or a fact looked up from the site's own API), never by the agent's claim.
+`benchmarks/compare/` runs the same tasks through each library with the same model and browser, behind a counting proxy so tokens are measured one way for all of them (the model's own reported counts). Success is judged by code (the demo shop's state, or a fact looked up from the site's own API), never by the agent's claim.
 
 ```bash
-python benchmarks/compare/run.py --suite usecases --libs selfbrowse,browser-use --model qwen3.8-bench --reps 1
+bash benchmarks/compare/run-haiku-baseline.sh   # the baseline below; asks for an Anthropic API key
 python benchmarks/compare/run.py --suite usecases --libs selfbrowse,fastbrowse --model qwen3.8-bench   # Fastbrowse needs its own venv and OPENROUTER_API_KEY
 python benchmarks/compare/run.py --suite kayak --libs selfbrowse,browser-use --model qwen3.8-bench       # a flight search on Kayak, judged by hand
 python benchmarks/compare/learning_eval.py --model qwen3.8-bench                                         # learning on vs off
@@ -30,21 +30,52 @@ python benchmarks/compare/learning_eval.py --model qwen3.8-bench                
 
 Add `--record-video --terminal` to record each run's browser and terminal side by side. Results, per-run data and versions are in `benchmarks/compare/results/`.
 
-| Run | Success | Model calls | Tokens sent (avg) | Seconds (avg) |
-|---|---|---|---|---|
-| qwen3.8, 13 tasks (demo shop and real sites): Selfbrowse | 12/13 | 5.7 | 11,810 | 54 |
-| qwen3.8, 13 tasks: browser-use 0.13.14 | 12/13 | 3.4 | 34,613 | 167 |
-| qwen3.8, 6 real sites: Selfbrowse | 6/6 | 5.0 | 66,195 | 84 |
-| qwen3.8, 6 real sites: Fastbrowse 0.10.0 | 4/6 | 5.0 | 160,574 | 171 |
-| Claude Sonnet 5.5, 6 real sites: Selfbrowse | 5/6 | 7.2 | 22,474 | 22 |
-| Claude Sonnet 5.5, 6 real sites: browser-use | 6/6 | 2.8 | 27,311 | 22 |
+### Baseline: Claude Haiku 5.5
 
-Read these with care:
+13 tasks (the demo shop and live sites), 2 runs per task, at most 30 steps and 900 seconds per run, the same for both libraries, run on 25 November 2026 against the Anthropic API directly. Selfbrowse is the library source at commit `479ac09`; browser-use is 0.13.14. Both ran headless in the same Chromium, with vision off. Averages per run:
 
-- One run per task, so a single flaky result moves a row. These are small samples, not a ranking.
-- Selfbrowse makes more model calls per task than browser-use but sends far fewer tokens per call (its page list is short), which is where the token and time difference comes from.
-- With Fastbrowse, a hosted decision model chooses each action and its tokens are not counted here; only its language-model part (start page, field values, answer) ran on qwen3.8, with reasoning switched off. Fastbrowse used an installed Google Chrome and the others used Playwright's Chromium.
-- The local model's results depend on the model and settings in `benchmarks/compare/Modelfile.*`.
+| Library | Passed | Model calls | Input tokens | Output tokens | Total tokens | First call | Seconds |
+|---|---|---|---|---|---|---|---|
+| Selfbrowse | 26/26 | 5.3 | 18,931 | 589 | **19,520** | 2,306 | 7 |
+| browser-use | 26/26 | 4.5 | 64,768 | 1,893 | 66,661 | 17,703 | 14 |
+
+Over all 26 runs: Selfbrowse 507,524 tokens in 139 calls, browser-use 1,733,186 tokens in 117 calls.
+
+**How tokens are counted.** Each figure is what the model reported for each call: the full prompt (cached text included) plus everything it generated, summed over the run. The harness writes one record per call to `calls.jsonl`, so every total can be checked by adding them up. No call in this run was missing its usage.
+
+The results are in `benchmarks/compare/results/haiku5.5-baseline/`: `runs.jsonl`, `calls.jsonl`, `meta.json` and `summary.md`.
+
+### Per task
+
+Average total tokens over 2 runs, and passes. The ratio is browser-use tokens divided by Selfbrowse tokens.
+
+| Task | Selfbrowse | browser-use | Ratio |
+|---|---|---|---|
+| T1 read text | 7,845 (2/2) | 19,238 (2/2) | 2.5 |
+| T2 search | 14,050 (2/2) | 51,779 (2/2) | 3.7 |
+| T3 navigate | 16,276 (2/2) | 50,820 (2/2) | 3.1 |
+| T4 cart | 19,680 (2/2) | 74,804 (2/2) | 3.8 |
+| T5 login | 16,926 (2/2) | 35,191 (2/2) | 2.1 |
+| T6 paginate | 20,650 (2/2) | 102,132 (2/2) | 4.9 |
+| T7 live: Hacker News | 7,869 (2/2) | 26,216 (2/2) | 3.3 |
+| T8 live: Wikipedia fact | 15,384 (2/2) | 71,206 (2/2) | 4.6 |
+| U1 live: GitHub | 49,732 (2/2) | 63,204 (2/2) | 1.3 |
+| U2 live: PyPI | 27,180 (2/2) | 38,377 (2/2) | 1.4 |
+| U3 live: Wikipedia | 14,770 (2/2) | 96,964 (2/2) | 6.6 |
+| U4 live: books | 28,153 (2/2) | 151,892 (2/2) | 5.4 |
+| U5 live: Python docs | 15,248 (2/2) | 84,770 (2/2) | 5.6 |
+
+### How much to trust the numbers
+
+- **Small sample.** One model and 2 runs per task. A single odd run moves a row, and the live sites change over time.
+- **Tokens are not cost.** The totals include text served from the prompt cache (about 60% of Selfbrowse's input and 75% of browser-use's), which is billed at a lower rate.
+- **Both passed everything here**, so this run says nothing about which is more reliable. In earlier runs with other models, Selfbrowse sometimes answered "not found" on a paginated list without opening every page (task T6).
+- **Selfbrowse makes more calls** and sends much less in each one. It was slower on one task, U1.
+- **Default settings.** browser-use ran as installed. Selfbrowse ran with learning and hand-off off, so runs are independent.
+
+### Earlier runs
+
+Runs made before this baseline, with other models and harness versions, are kept on the [`benchmark-archive` branch](https://github.com/rinshadkk/selfbrowse/tree/benchmark-archive/benchmarks/compare/results). Many of them estimated the tokens sent instead of using the model's counts, so they are not comparable with the figures above.
 
 ## Showcase
 
@@ -87,4 +118,4 @@ What came back:
 
 The flight search is the one to expect variation on. Two runs took more than 30 steps and one took 7, for the same prompt and model, so its cost varied by a factor of nine. The other two tasks were steady. In an earlier set of five runs of a similar flight prompt (COK to ORD), the same model finished in 5 to 8 steps each time. Five runs of one prompt are not enough to promise that, so treat the step count as a range.
 
-The runs are in `benchmarks/compare/results/showcase-haiku5.5/` with the answers and token counts. The browser recordings are not kept in git; `python benchmarks/compare/run.py --suite showcase --libs selfbrowse --record-video --terminal` makes them (needs `asciinema`, `agg` and `ffmpeg` for the terminal view).
+The runs, with the answers and token counts, are in [`showcase-haiku5.5`](https://github.com/rinshadkk/selfbrowse/tree/benchmark-archive/benchmarks/compare/results/showcase-haiku5.5) on the `benchmark-archive` branch. The browser recordings are not kept in git; `python benchmarks/compare/run.py --suite showcase --libs selfbrowse --record-video --terminal` makes them (needs `asciinema`, `agg` and `ffmpeg` for the terminal view).

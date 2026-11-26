@@ -60,7 +60,7 @@ Done from this list: **O1** (harness and results committed) and **L1** (learning
 
 ## L. Learning (per-site memory)
 
-- [x] **L1 Measure it** (P0) — run a task sequence with learning on and off in the benchmark and compare calls, tokens, time and success. *Done when:* a table in the README shows the result, good or bad. *Done: `benchmarks/compare/learning_eval.py`, results in `benchmarks/compare/results/learning-qwen3.8-fix`, table in `docs/tools.md`. Helps a repeated task from the third run; no saving across different tasks.*
+- [x] **L1 Measure it** (P0) — run a task sequence with learning on and off in the benchmark and compare calls, tokens, time and success. *Done when:* a table in the README shows the result, good or bad. *Done: `benchmarks/compare/learning_eval.py`, latest runs in `benchmarks/compare/results/qwen3.8-learning/`. A rerun did not reproduce the earlier saving: replay rarely triggered. The README says so in words rather than a table.*
 - [ ] **L2 Keep only useful steps** (P1) — record only clicks on the path to the final success, not exploration. Today incidental clicks ("History", "(Top)") get saved.
 - [ ] **L3 Self-healing flows** (P2) — verify a flow still works, repair or drop it when the site changes.
 - [ ] **L4 Export and import knowledge** (P2) — share site notes and flows between machines, opt-in, and pull community site packs (`selfbrowse pull <domain>`). Flows hold clicks only, never typed text, so they are safe to share; an imported flow starts untrusted until it works locally. *Done when:* a flow exported on one data folder is imported into another and replayed after it earns trust.
