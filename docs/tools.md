@@ -28,14 +28,6 @@ Each page type keeps up to eight distinct click sequences (*variants*), and trus
 
 Replaying goes by page type and element label: the agent finds the stored control again by role and text on a fresh page list (an exact text match, or a single partial match). If it is missing or ambiguous the flow records a miss and the model takes over, and every replayed click still passes the guardrails.
 
-**Measured** (local model qwen3.8, a local demo shop, one run per cell, success judged by the shop's own state; `benchmarks/compare/learning_eval.py`):
+**How much it saves:** not shown yet. In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. When a model moves between pages by address instead of clicking, there is nothing to replay. You can run the comparison yourself with `benchmarks/compare/learning_eval.py`.
 
-| Scenario | Learning off | Learning on |
-|---|---|---|
-| The same multi-page lookup, 4 runs in a row | 2/4 correct, 6.8 calls, 10,942 tokens on average | 4/4 correct, 5.0 calls, 7,645 tokens on average |
-| Once trusted (runs 3 and 4) | 7 to 9 calls, 55 to 79 s | 3 calls, about 4,000 tokens, 10 to 12 s |
-| Different tasks on one site (add-to-cart, different SKUs) | no change | no change: no shared start was found |
-
-Learning helps routine jobs you repeat, from the third run, and did not help across different tasks in these tests. Details and the earlier results that led to the in-place-click rule are in `benchmarks/compare/results/learning-qwen3.8*`.
-
-Known limit: research-style tasks learn little, because most of their clicks are specific to the question. The biggest wins are generic steps and routine jobs you repeat.
+Known limit: research-style tasks learn little, because most of their clicks are specific to the question. Learning is aimed at generic steps and routine jobs you repeat.

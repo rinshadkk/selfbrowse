@@ -61,7 +61,7 @@ The model replies   type {"ref": 2, "text": "<EMAIL_1>"}
 The page receives   priya.raman@acme.com
 ```
 
-**Less repetition.** Selfbrowse remembers the clicks that worked on each site and replays the trusted ones without calling the model. On a multi-page lookup repeated four times, the third and fourth runs took 3 model calls and about 11 seconds, against 7 to 9 calls and 55 to 79 seconds without learning.
+**Less repetition.** Selfbrowse remembers the clicks that worked on each site and can replay the trusted ones without calling the model. In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Treat it as experimental.
 
 ```
    1. goto {"url": "https://shop.example.com"}  [845 in / 65 out]
@@ -200,7 +200,7 @@ Selfbrowse is early software (0.3). What we know it does not do well yet, or hav
 
 - **Not supported yet:** closed shadow roots, and vision (`--vision` is a stub, so canvas-only pages cannot be read).
 - **Partly supported:** a saved flow cannot replay an upload or a drag. Drag does not cover sliders, canvas drawing, or drop targets that a library listens for at the page root. Custom dropdowns match visible text only, and choices that need scrolling inside the list are found only once they exist in the page. Uploads use only the files you pass with `--file`.
-- **Learning helps routine jobs you repeat.** It gave no saving across different tasks on one site, and research-style tasks learn little.
+- **Learning has no measured saving yet.** In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Research-style tasks learn little.
 - **Hard forms vary.** The same Google Flights prompt took 7 steps in one run and more than 30 in two others.
 - **Guardrails reduce risk; they are not guarantees.** Pattern matching for personal data and injection misses things. A hosted model still sees any page text you do not mask. Only a local model keeps page content on your machine.
 - **Secrets tied to a site are only as strong as the tie.** In the desktop app, a My info form with a Website field types its values only on that site and its subdomains. A form without one still types anywhere, and replaying a saved flow does not check the site yet. The library's `sensitive_sites` is checked at typing time, and `--allow-domain` remains the stricter fence.

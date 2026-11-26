@@ -255,37 +255,7 @@ print(result.usage)        # input/output/cache tokens and number of model calls
       </ul>
     </article>
 
-    <article class="bench" aria-labelledby="learn-title">
-      <h3 id="learn-title">Learning on a repeated multi-page task</h3>
-      <p class="bench-sub">The same task four times in the demo shop: find part ZX-4471 across pages. Once with learning off, once with it on.</p>
-
-      <div class="learn">
-        <table>
-          <caption class="sr">Per run: model calls, tokens sent, seconds and whether the task succeeded</caption>
-          <thead>
-            <tr><th scope="col">Run</th><th scope="col">Learning</th><th scope="col">Calls</th><th scope="col">Tokens sent</th><th scope="col">Seconds</th><th scope="col">Correct</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>1</td><td>off</td><td>6</td><td class="tbar"><i style="--w:59.2%"></i>9,239</td><td>66.1</td><td class="no">no</td></tr>
-            <tr><td>2</td><td>off</td><td>5</td><td class="tbar"><i style="--w:47.7%"></i>7,441</td><td>47.6</td><td class="no">no</td></tr>
-            <tr><td>3</td><td>off</td><td>9</td><td class="tbar"><i style="--w:100%"></i>15,597</td><td>79.4</td><td>yes</td></tr>
-            <tr class="gap"><td>4</td><td>off</td><td>7</td><td class="tbar"><i style="--w:73.7%"></i>11,490</td><td>54.6</td><td>yes</td></tr>
-            <tr class="on"><td>1</td><td>on</td><td>7</td><td class="tbar"><i style="--w:71.8%"></i>11,197</td><td>42.8</td><td>yes</td></tr>
-            <tr class="on"><td>2</td><td>on</td><td>7</td><td class="tbar"><i style="--w:72.6%"></i>11,331</td><td>36.4</td><td>yes</td></tr>
-            <tr class="on hi"><td>3</td><td>on</td><td>3</td><td class="tbar"><i style="--w:25.8%"></i>4,026</td><td>11.9</td><td>yes</td></tr>
-            <tr class="on hi"><td>4</td><td>on</td><td>3</td><td class="tbar"><i style="--w:25.8%"></i>4,025</td><td>10.5</td><td>yes</td></tr>
-          </tbody>
-        </table>
-        <dl class="learn-sum">
-          <div><dt>Correct</dt><dd><span>2/4</span> without learning, <span>4/4</span> with it</dd></div>
-          <div><dt>Model calls, mean</dt><dd><span>6.8</span> to <span>5.0</span></dd></div>
-          <div><dt>Tokens sent, mean</dt><dd><span>10,942</span> to <span>7,645</span></dd></div>
-        </dl>
-      </div>
-      <p class="bench-read">From the third run the saved flow was trusted, and a repeat took 3 model calls, about 4,000 tokens and 10 to 12 seconds, against 7 to 9 calls and 55 to 79 seconds for the successful runs without it. Across different tasks in the same shop, learning gave no saving. It helps routine jobs you repeat.</p>
-    </article>
-
-    <p class="fine">Harness and raw results: <code>benchmarks/compare</code> in the repository, including <code>results/qwen3.8-fastbrowse</code> and <code>results/learning-qwen3.8-fix</code>.</p>
+    <p class="fine">Harness and raw results: <code>benchmarks/compare</code> in the repository, including <code>results/qwen3.8-fastbrowse</code>.</p>
   </div>
 </section>
 
@@ -297,7 +267,7 @@ print(result.usage)        # input/output/cache tokens and number of model calls
       <p>Selfbrowse is early software. These are the things we know it does not do well yet, or have not checked.</p>
     </div>
     <ul class="limits">
-      <li><b>Research-style tasks learn little.</b> Most of their clicks are specific to the question. A harder task in the demo shop, the cheapest item in each category, failed in all eight runs, with learning on or off.</li>
+      <li><b>Learning has no measured saving yet.</b> In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Research-style tasks learn little.</li>
       <li><b>One run per cell.</b> All benchmark figures come from single runs on one local model, so a single difference is anecdotal.</li>
       <li><b>AgentCore is unverified on real AWS.</b> The adapter is tested against a stand-in for the AWS SDK and a local browser only.</li>
       <li><b>Your own model routes</b> for Azure OpenAI and AWS Bedrock are tested with a fake model, not live accounts.</li>
