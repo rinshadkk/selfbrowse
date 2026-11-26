@@ -13,19 +13,19 @@ selfbrowse "Open news.ycombinator.com and tell me the title of the top story."
 
 ## Docs
 
-- [Get started](https://rinshadkk.github.io/selfbrowse/docs/getting-started/): install, first run, Python API
-- [Features](https://rinshadkk.github.io/selfbrowse/docs/features/): what Selfbrowse does and why
-- [Command line reference](https://rinshadkk.github.io/selfbrowse/docs/cli/): every option
-- [What the agent can do](https://rinshadkk.github.io/selfbrowse/docs/tools/): the tools the model can call
-- [Models](https://rinshadkk.github.io/selfbrowse/docs/models/): providers, local models, bring your own model
-- [MCP server](https://rinshadkk.github.io/selfbrowse/docs/mcp/): use Selfbrowse from MCP clients
-- [Remote browsers](https://rinshadkk.github.io/selfbrowse/docs/remote-browsers/): CDP and Amazon Bedrock AgentCore
-- [Guardrails](https://rinshadkk.github.io/selfbrowse/docs/guardrails/): domain limits, risky-action confirmation, injection warnings
-- [Personal data](https://rinshadkk.github.io/selfbrowse/docs/personal-data/): placeholders and redaction of emails, phones, cards, names
-- [Passwords and secrets](https://rinshadkk.github.io/selfbrowse/docs/secrets/): secrets the model never sees
-- [Traces, prompts and screenshots](https://rinshadkk.github.io/selfbrowse/docs/observability/): tracing, OpenTelemetry, screenshots as evidence
-- [Architecture](https://rinshadkk.github.io/selfbrowse/docs/architecture/): how the agent loop, browser and model fit together
-- [Tests and benchmarks](https://rinshadkk.github.io/selfbrowse/docs/benchmarks/): token and cost comparisons, with their limits
+- [Get started](https://selfbrowse.ai/docs/getting-started/): install, first run, Python API
+- [Features](https://selfbrowse.ai/docs/features/): what Selfbrowse does and why
+- [Command line reference](https://selfbrowse.ai/docs/cli/): every option
+- [What the agent can do](https://selfbrowse.ai/docs/tools/): the tools the model can call
+- [Models](https://selfbrowse.ai/docs/models/): providers, local models, bring your own model
+- [MCP server](https://selfbrowse.ai/docs/mcp/): use Selfbrowse from MCP clients
+- [Remote browsers](https://selfbrowse.ai/docs/remote-browsers/): CDP and Amazon Bedrock AgentCore
+- [Guardrails](https://selfbrowse.ai/docs/guardrails/): domain limits, risky-action confirmation, injection warnings
+- [Personal data](https://selfbrowse.ai/docs/personal-data/): placeholders and redaction of emails, phones, cards, names
+- [Passwords and secrets](https://selfbrowse.ai/docs/secrets/): secrets the model never sees
+- [Traces, prompts and screenshots](https://selfbrowse.ai/docs/observability/): tracing, OpenTelemetry, screenshots as evidence
+- [Architecture](https://selfbrowse.ai/docs/architecture/): how the agent loop, browser and model fit together
+- [Tests and benchmarks](https://selfbrowse.ai/docs/benchmarks/): token and cost comparisons, with their limits
 
 ## Project
 

@@ -1,6 +1,6 @@
 """Fewer bot blocks: real Chrome, a saved profile, and optional Patchright.
 
-Sites like Target and Walgreens score headless, cookie-less browsers harshly. Visible, installed
+Large retail sites score headless, cookie-less browsers harshly. Visible, installed
 Chrome with a profile that keeps cookies between runs gets through far more often.
 
     pip install 'selfbrowse[stealth]' && patchright install chromium     # only for stealth=True

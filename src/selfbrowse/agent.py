@@ -25,7 +25,7 @@ _SITE_HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}
 
 
 def normalize_site(value: str) -> str:
-    """``https://www.Walgreens.com/login`` -> ``walgreens.com``. Empty when it is not a website address."""
+    """``https://www.Shop.example/login`` -> ``shop.example``. Empty when it is not a website address."""
     v = str(value).strip().lower()
     if not v:
         return ""
@@ -86,7 +86,7 @@ class BrowseAgent:
             model is not shown the list of secrets. It is told that saved details exist and may ask for one with the
             ``find_saved_detail`` tool, which returns only the matching placeholders. Without it, every secret name is
             listed in the task.
-        sensitive_sites: ``{"NAME": "walgreens.com"}``, the site a secret belongs to. It is typed only on that site
+        sensitive_sites: ``{"NAME": "shop.example"}``, the site a secret belongs to. It is typed only on that site
             or its subdomains; anywhere else the agent is told no and nothing is typed. ``find_saved_detail`` offers
             only the secrets for the current page's site, plus those with no site. A secret not listed here can be
             typed anywhere, as before.

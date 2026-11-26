@@ -47,8 +47,8 @@ selfbrowse-mcp = "selfbrowse.mcp_server:main"
 path = "src/selfbrowse/__init__.py"
 
 [project.urls]
-Homepage = "https://rinshadkk.github.io/selfbrowse/"
-Documentation = "https://rinshadkk.github.io/selfbrowse/docs/"
+Homepage = "https://selfbrowse.ai/"
+Documentation = "https://selfbrowse.ai/docs/"
 Source = "https://github.com/rinshadkk/selfbrowse"
 Repository = "https://github.com/rinshadkk/selfbrowse"
 Issues = "https://github.com/rinshadkk/selfbrowse/issues"

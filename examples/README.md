@@ -1,6 +1,6 @@
 # Examples
 
-Each file runs on its own. Most need a model key (`ANTHROPIC_API_KEY`), or a local model for 02.
+Each file runs on its own. `04` and `10` use the demo shop in `benchmarks/compare/store.py`. Most need a model key (`ANTHROPIC_API_KEY`), or a local model for 02.
 `12`, `13` and `14` need no key; `14` needs the `presidio` extra.
 
 | File | Shows |

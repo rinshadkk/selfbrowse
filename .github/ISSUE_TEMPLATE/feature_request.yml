@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest something Selfbrowse should do
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: The task you are trying to do
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: What you would like Selfbrowse to do
+    validations: { required: true }
+  - type: textarea
+    attributes:
+      label: Roadmap item or workaround
+      description: Optional. Link the ROADMAP.md item if there is one, or say how you manage today.

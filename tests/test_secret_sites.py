@@ -15,8 +15,8 @@ DONE = ("done", {"success": True, "answer": "ok"})
 # ---- reading a site name ----
 
 @pytest.mark.parametrize("raw,site", [
-    ("walgreens.com", "walgreens.com"), ("https://www.Walgreens.com/login?x=1", "walgreens.com"),
-    ("www.walgreens.com:8443/a", "walgreens.com"), ("localhost:8000", "localhost"), ("http://127.0.0.1:8765/x", "127.0.0.1"),
+    ("shop.example", "shop.example"), ("https://www.Shop.example/login?x=1", "shop.example"),
+    ("www.shop.example:8443/a", "shop.example"), ("localhost:8000", "localhost"), ("http://127.0.0.1:8765/x", "127.0.0.1"),
     ("not a site", ""), ("com", ""), ("javascript:alert(1)", ""), ("", ""), ("   ", ""),
 ])
 def test_normalize_site(raw, site):
@@ -24,11 +24,11 @@ def test_normalize_site(raw, site):
 
 
 def test_a_site_covers_its_subdomains_and_nothing_that_only_looks_like_it():
-    ok = lambda url: site_allows("walgreens.com", url)       # noqa: E731
-    assert ok("https://www.walgreens.com/x") and ok("https://secure.walgreens.com:8443/") and ok("http://walgreens.com")
-    assert not ok("https://evilwalgreens.com") and not ok("https://walgreens.com.evil.io/")
-    assert not ok("https://evil.com/@walgreens.com") and not ok("https://user@evil.com/walgreens.com") and not ok("about:blank")
-    assert not site_allows("", "https://walgreens.com")
+    ok = lambda url: site_allows("shop.example", url)       # noqa: E731
+    assert ok("https://www.shop.example/x") and ok("https://secure.shop.example:8443/") and ok("http://shop.example")
+    assert not ok("https://evilshop.example") and not ok("https://shop.example.evil.io/")
+    assert not ok("https://evil.com/@shop.example") and not ok("https://user@evil.com/shop.example") and not ok("about:blank")
+    assert not site_allows("", "https://shop.example")
 
 
 # ---- in the browser ----

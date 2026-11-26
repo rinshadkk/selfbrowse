@@ -8,6 +8,12 @@
 <h3 align="center">The browser agent that tells the model less.</h3>
 
 <p align="center">
+  <a href="https://selfbrowse.ai/">selfbrowse.ai</a> ·
+  <a href="https://selfbrowse.ai/docs/">Documentation</a> ·
+  <a href="https://pypi.org/project/selfbrowse/">PyPI</a>
+</p>
+
+<p align="center">
   <a href="https://pypi.org/project/selfbrowse/"><img src="https://img.shields.io/pypi/v/selfbrowse" alt="PyPI version"></a>
   <a href="https://pypi.org/project/selfbrowse/"><img src="https://img.shields.io/pypi/pyversions/selfbrowse" alt="Python versions"></a>
   <a href="https://github.com/rinshadkk/selfbrowse/actions/workflows/ci.yml"><img src="https://github.com/rinshadkk/selfbrowse/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -190,7 +196,7 @@ The model is told only the names. `--allow-domain` means the values can be typed
 
 ## Limits
 
-Selfbrowse is early software (0.1). What we know it does not do well yet, or have not checked:
+Selfbrowse is early software (0.3). What we know it does not do well yet, or have not checked:
 
 - **Not supported yet:** closed shadow roots, and vision (`--vision` is a stub, so canvas-only pages cannot be read).
 - **Partly supported:** a saved flow cannot replay an upload or a drag. Drag does not cover sliders, canvas drawing, or drop targets that a library listens for at the page root. Custom dropdowns match visible text only, and choices that need scrolling inside the list are found only once they exist in the page. Uploads use only the files you pass with `--file`.

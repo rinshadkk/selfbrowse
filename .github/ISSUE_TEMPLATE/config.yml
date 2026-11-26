@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://selfbrowse.ai/docs/
+    about: Setup, options and guardrails
+  - name: Report a security problem
+    url: https://github.com/rinshadkk/selfbrowse/security/advisories/new
+    about: Private; do not open a public issue
