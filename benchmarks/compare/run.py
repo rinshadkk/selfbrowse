@@ -146,13 +146,22 @@ def run_one(lib: str, task, base: str, proxy_url: str, model: str, max_steps: in
                 result_file.unlink(missing_ok=True)
     calls = px.REC.snapshot()
     ok = bool(task.check(str(res.get("answer") or ""), state))
+    in_tok = sum(c.get("prompt_eval") or 0 for c in calls)
+    out_tok = sum(c.get("eval_count") or 0 for c in calls)
     return {
+        "_calls": calls,
         "lib": lib, "task": task.id, "success": ok, "agent_claimed_success": bool(res.get("agent_success")),
         "answer": str(res.get("answer") or "")[:200], "steps": res.get("steps"), "error": res.get("error"),
         "model_calls": len(calls), "sent_tokens": sum(c.get("sent_tokens", 0) for c in calls),
         "first_call_tokens": calls[0].get("sent_tokens") if calls else None,
         "billed_input": sum(c.get("prompt_eval") or 0 for c in calls), "cache_read": sum(c.get("cache_read") or 0 for c in calls),
-        "out_tokens": sum(c.get("eval_count") or 0 for c in calls),
+        "out_tokens": out_tok,
+        # What the model itself reported for every call: the full prompt (cached text included) and everything it
+        # generated (reasoning included). This is the number to quote. sent_tokens above is a generic-tokenizer
+        # estimate that also counts JSON schemas, which a local model reads as a grammar, not as prompt text.
+        "input_tokens": in_tok, "total_tokens": in_tok + out_tok,
+        "first_call_input": (calls[0].get("prompt_eval") if calls else None),
+        "calls_without_usage": sum(1 for c in calls if c.get("prompt_eval") is None or c.get("eval_count") is None),
         "model_seconds": round(sum(c["seconds"] for c in calls), 1), "wall_seconds": round(wall, 1),
         "video": video_file,
     }
@@ -200,19 +209,22 @@ def main() -> None:
     _, proxy_url = px.serve()
     print(f"store {base or '(real sites)'}  proxy {proxy_url}  model {args.model}  -> {out_dir}", flush=True)
 
-    (out_dir / "meta.json").write_text(json.dumps(versions(args.model), indent=2))
+    (out_dir / "meta.json").write_text(json.dumps(versions(args.model, args.max_steps, args.timeout), indent=2))
     rows = []
-    with open(out_dir / "runs.jsonl", "w") as fh:
+    with open(out_dir / "runs.jsonl", "w") as fh, open(out_dir / "calls.jsonl", "w") as calls_fh:
         for rep in range(1, args.reps + 1):
             for task in tasks:
                 for lib in libs:                       # interleaved: libraries see the same conditions
                     r = run_one(lib, task, base, proxy_url, args.model, args.max_steps, args.timeout, video_dir, args.terminal)
                     r["rep"] = rep
+                    for n, c in enumerate(r.pop("_calls", []), 1):       # every model call, for auditing the totals
+                        calls_fh.write(json.dumps({"lib": lib, "task": task.id, "rep": rep, "call": n, **c}) + "\n")
+                    calls_fh.flush()
                     rows.append(r)
                     fh.write(json.dumps(r) + "\n")
                     fh.flush()
                     print(f"rep{rep} {task.id:<14} {lib:<12} {'PASS' if r['success'] else 'FAIL'} "
-                          f"calls={r['model_calls']:>2} sent={r['sent_tokens']:>6} wall={r['wall_seconds']:>6}s "
+                          f"calls={r['model_calls']:>2} in={r['input_tokens']:>7} out={r['out_tokens']:>6} wall={r['wall_seconds']:>6}s "
                           f"{(r['error'] or '')[:70]}", flush=True)
     (out_dir / "summary.md").write_text(summarize(rows, args))
     if video_dir:
@@ -220,7 +232,7 @@ def main() -> None:
     print(f"\nwrote {out_dir/'summary.md'}")
 
 
-def versions(model: str) -> dict:
+def versions(model: str, max_steps: int = 15, timeout: int = 300) -> dict:
     def sh(cmd):
         try:
             return subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=30).stdout.strip()
@@ -240,7 +252,8 @@ def versions(model: str) -> dict:
         "ollama": sh(["ollama", "--version"]), "model": model, "model_digest": digest,
         "model_settings": settings, "anthropic_upstream": upstream or "https://api.anthropic.com",
         "browser": "Playwright Chromium 1208, headless, same binary for both", "vision": "off for both",
-        "date": time.strftime("%Y-%m-%d %H:%M"), "max_steps": 15,
+        "date": time.strftime("%Y-%m-%d %H:%M"), "max_steps": max_steps, "timeout_seconds_per_run": timeout,
+        "token_counting": "model-reported prompt and completion tokens for every call, summed (calls.jsonl has each one)",
     }
 
 
@@ -289,22 +302,46 @@ def summarize(rows: list[dict], args) -> str:
         return st.mean(vals) if vals else float("nan")
 
     lines = [f"# Benchmark: model `{args.model}`, {args.reps} runs per task, "
-             f"max {args.max_steps} steps\n", "## Overall\n",
-             "| Library | Success | Model calls (avg) | Sent tokens (avg, est.) | API input tokens (avg, billed) | First-call tokens (avg) | Wall s (avg) |",
-             "|---|---|---|---|---|---|---|"]
+             f"max {args.max_steps} steps, {args.timeout} s per run\n",
+             "Tokens are what the model itself reported for every call: input is the full prompt (cached text included), "
+             "output is everything it generated (reasoning included). Per-call records are in `calls.jsonl`.\n",
+             "## Overall (averages per run)\n",
+             "| Library | Success | Model calls | Input tokens | Output tokens | Total tokens | First-call input | Wall s |",
+             "|---|---|---|---|---|---|---|---|"]
     for lib in libs:
         rs = [r for r in rows if r["lib"] == lib]
         ok = sum(r["success"] for r in rs)
         lines.append(f"| {lib} | {ok}/{len(rs)} ({100*ok/len(rs):.0f}%) | {agg(lib,'model_calls'):.1f} | "
-                     f"{agg(lib,'sent_tokens'):,.0f} | {agg(lib,'billed_input'):,.0f} | {agg(lib,'first_call_tokens'):,.0f} | {agg(lib,'wall_seconds'):.0f} |")
-    lines += ["\n## Per task (successes / runs, avg sent tokens)\n", "| Task | " + " | ".join(libs) + " |", "|---|" + "---|" * len(libs)]
+                     f"{agg(lib,'input_tokens'):,.0f} | {agg(lib,'out_tokens'):,.0f} | {agg(lib,'total_tokens'):,.0f} | "
+                     f"{agg(lib,'first_call_input'):,.0f} | {agg(lib,'wall_seconds'):.0f} |")
+    lines += ["\n## Totals across all runs\n", "| Library | Runs | Model calls | Input tokens | Output tokens | Total tokens |", "|---|---|---|---|---|---|"]
+    for lib in libs:
+        rs = [r for r in rows if r["lib"] == lib]
+        lines.append(f"| {lib} | {len(rs)} | {sum(r['model_calls'] for r in rs):,} | {sum(r['input_tokens'] for r in rs):,} | "
+                     f"{sum(r['out_tokens'] for r in rs):,} | {sum(r['total_tokens'] for r in rs):,} |")
+    both = [t for t in tasks if all(any(r["lib"] == lib and r["task"] == t.id and r["success"] for r in rows) for lib in libs)]
+    if len(libs) > 1 and both:
+        lines += [f"\n## Only the {len(both)} tasks every library passed (averages per run)\n",
+                  "| Library | Model calls | Input tokens | Output tokens | Total tokens | Wall s |", "|---|---|---|---|---|---|"]
+        for lib in libs:
+            rs = [r for r in rows if r["lib"] == lib and r["task"] in {t.id for t in both} and r["success"]]
+            lines.append(f"| {lib} | {st.mean(r['model_calls'] for r in rs):.1f} | {st.mean(r['input_tokens'] for r in rs):,.0f} | "
+                         f"{st.mean(r['out_tokens'] for r in rs):,.0f} | {st.mean(r['total_tokens'] for r in rs):,.0f} | "
+                         f"{st.mean(r['wall_seconds'] for r in rs):.0f} |")
+    lines += ["\n## Per task (successes / runs, average total tokens, model calls)\n", "| Task | " + " | ".join(libs) + " |", "|---|" + "---|" * len(libs)]
     for t in tasks:
         cells = []
         for lib in libs:
             rs = [r for r in rows if r["lib"] == lib and r["task"] == t.id]
-            cells.append(f"{sum(r['success'] for r in rs)}/{len(rs)} · {st.mean(r['sent_tokens'] for r in rs):,.0f} tok · "
+            cells.append(f"{sum(r['success'] for r in rs)}/{len(rs)} · {st.mean(r['total_tokens'] for r in rs):,.0f} tok · "
                          f"{st.mean(r['model_calls'] for r in rs):.1f} calls")
         lines.append(f"| {t.id}{' (live)' if t.live else ''} | " + " | ".join(cells) + " |")
+    lines += ["\n## How the tokens were counted\n",
+              "| Library | Calls | Calls with no usage reported | Generic-tokenizer estimate of what was sent (not used above) |", "|---|---|---|---|"]
+    for lib in libs:
+        rs = [r for r in rows if r["lib"] == lib]
+        lines.append(f"| {lib} | {sum(r['model_calls'] for r in rs):,} | {sum(r['calls_without_usage'] for r in rs)} | {sum(r['sent_tokens'] for r in rs):,} |")
+    lines += ["", "The estimate uses one generic tokenizer over each request body, JSON schemas included, so it is not the model's own count: a local model may read a response schema as a grammar rather than as prompt text, and a hosted model has its own tokenizer. Any call with no usage reported would make the totals too low; the column above should be 0."]
     lines += ["\n## Failures\n"]
     for r in rows:
         if not r["success"]:

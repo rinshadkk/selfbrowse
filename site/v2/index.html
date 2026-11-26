@@ -223,39 +223,39 @@ print(result.usage)        # input/output/cache tokens and number of model calls
 <section class="band" id="benchmarks" aria-labelledby="bench-title">
   <div class="wrap">
     <h2 id="bench-title">Benchmarks</h2>
-    <p class="lede narrow">Small, early numbers. Every run used one local model, qwen3.8 through Ollama, on real public sites and a local demo shop. Each cell is one run. Code checked the result of every task; the agent's own claim of success was never counted.</p>
+    <p class="lede narrow">Small, early numbers. Code checked the result of every task; the agent's own claim of success was never counted.</p>
 
-    <article class="bench" aria-labelledby="fb-title">
-      <h3 id="fb-title">Selfbrowse and Fastbrowse on six real-site tasks</h3>
-      <p class="bench-sub">Tasks on GitHub, PyPI, Wikipedia, books.toscrape.com, the Python docs and Hacker News.</p>
-      <div class="bars" role="table" aria-label="Selfbrowse and Fastbrowse results">
+    <article class="bench" aria-labelledby="bu-title">
+      <h3 id="bu-title">Selfbrowse and browser-use on 13 tasks</h3>
+      <p class="bench-sub">Claude Haiku 5.5, a local demo shop and real sites, two runs per task. Tokens are the model's own counts, input plus output.</p>
+      <div class="bars" role="table" aria-label="Selfbrowse and browser-use results">
         <div class="bars-row bars-head" role="row">
           <span role="columnheader">Tool</span>
           <span role="columnheader">Correct</span>
-          <span role="columnheader">Tokens sent per task, average</span>
+          <span role="columnheader">Tokens per task, average</span>
           <span role="columnheader">Time per task, average</span>
         </div>
         <div class="bars-row us" role="row">
           <span role="rowheader">Selfbrowse</span>
-          <span role="cell"><b>6/6</b></span>
-          <span role="cell" class="bar"><i style="--w:41.2%"></i><b>66,195</b></span>
-          <span role="cell" class="bar"><i style="--w:49.1%"></i><b>84 s</b></span>
+          <span role="cell"><b>26/26</b></span>
+          <span role="cell" class="bar"><i style="--w:29.3%"></i><b>19,520</b></span>
+          <span role="cell" class="bar"><i style="--w:50%"></i><b>7 s</b></span>
         </div>
         <div class="bars-row" role="row">
-          <span role="rowheader">Fastbrowse</span>
-          <span role="cell"><b>4/6</b></span>
-          <span role="cell" class="bar"><i style="--w:100%"></i><b>160,574</b></span>
-          <span role="cell" class="bar"><i style="--w:100%"></i><b>171 s</b></span>
+          <span role="rowheader">browser-use</span>
+          <span role="cell"><b>26/26</b></span>
+          <span role="cell" class="bar"><i style="--w:100%"></i><b>66,661</b></span>
+          <span role="cell" class="bar"><i style="--w:100%"></i><b>14 s</b></span>
         </div>
       </div>
       <ul class="caveats">
-        <li>Fastbrowse picks its actions with a separate, hosted decision model whose tokens are not counted here. Only its language-model part ran on qwen3.8.</li>
-        <li>One task, Wikipedia, took 353,787 of Selfbrowse's 397,168 tokens across the six, so the average leans on it.</li>
-        <li>Both tools averaged 5 model calls per task.</li>
+        <li>Selfbrowse used fewer tokens on all 13 tasks and made more model calls: 5.3 against 4.5 per task.</li>
+        <li>Tokens are not cost: cached input is billed at a lower rate.</li>
+        <li>One model and two runs per task, so this is not a ranking.</li>
       </ul>
     </article>
 
-    <p class="fine">Harness and raw results: <code>benchmarks/compare</code> in the repository, including <code>results/qwen3.8-fastbrowse</code>.</p>
+    <p class="fine">Harness and raw results: <code>benchmarks/compare</code> in the repository, including <code>results/haiku5.5-baseline</code>.</p>
   </div>
 </section>
 
@@ -268,10 +268,11 @@ print(result.usage)        # input/output/cache tokens and number of model calls
     </div>
     <ul class="limits">
       <li><b>Learning has no measured saving yet.</b> In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Research-style tasks learn little.</li>
-      <li><b>One run per cell.</b> All benchmark figures come from single runs on one local model, so a single difference is anecdotal.</li>
+      <li><b>Benchmarks are small.</b> 13 tasks, 2 runs each, on one model (Claude Haiku 5.5), so a single task's difference is anecdotal.</li>
       <li><b>AgentCore is unverified on real AWS.</b> The adapter is tested against a stand-in for the AWS SDK and a local browser only.</li>
       <li><b>Your own model routes</b> for Azure OpenAI and AWS Bedrock are tested with a fake model, not live accounts.</li>
-      <li><b>Not supported yet:</b> closed shadow roots, drag and drop, file uploads, and custom dropdowns beyond clicking them.</li>
+      <li><b>Not supported yet:</b> closed shadow roots, and vision, so canvas-only pages cannot be read.</li>
+      <li><b>Partly supported:</b> a saved flow cannot replay an upload or a drag. Drag does not cover sliders, canvas drawing or some drop targets. Custom dropdowns match visible text only. Uploads use only the files you pass in.</li>
       <li><b>Guardrails reduce risk; they are not guarantees.</b> Pattern matching for personal data and injection misses things. A hosted model still sees any page text you do not mask.</li>
     </ul>
   </div>

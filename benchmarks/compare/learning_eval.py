@@ -2,12 +2,13 @@
 Does Selfbrowse's site learning pay off? Same tasks, learning on vs off, on the local demo shop.
 
     python benchmarks/compare/learning_eval.py --model qwen3.8-bench --out results/learning-qwen3.8
+    python benchmarks/compare/learning_eval.py --model claude-haiku-5-5 --out results/learning   # needs ANTHROPIC_API_KEY
 
 Scenarios (each runs once with learn=False and once with learn=True on a fresh knowledge folder):
   repeat    one navigation task, run N times in a row           (does a routine job get cheaper?)
   transfer  different tasks that share a step (cookie banner)   (does one task's learning help another?)
 
-Per run: model calls and tokens sent (counted by the proxy, the same way for every arm), seconds, replayed
+Per run: model calls and tokens (what the model reported for each call, input plus output), seconds, replayed
 steps, and success judged by the shop's own state, never by the agent's claim. Writes runs.jsonl, summary.md
 and the knowledge files each arm ended with.
 """
@@ -80,7 +81,10 @@ def state(base: str) -> dict:
 def one_run(base, proxy_url, model, learn, home, prompt, check, max_steps):
     urllib.request.urlopen(base + "/__reset", timeout=10).read()
     px.REC.reset()
-    llm = make_llm(f"ollama:{model}", base_url=proxy_url + "/v1")
+    if model.startswith("claude"):
+        llm = make_llm(f"anthropic:{model}", base_url=proxy_url)          # key comes from ANTHROPIC_API_KEY
+    else:
+        llm = make_llm(f"ollama:{model}", base_url=proxy_url + "/v1")
     browser = Browser(headless=True, executable_path=str(CHROME) if CHROME.exists() else None)
     t0 = time.perf_counter()
     try:
@@ -98,6 +102,9 @@ def one_run(base, proxy_url, model, learn, home, prompt, check, max_steps):
     calls = px.REC.snapshot()
     return {
         "calls": len(calls), "sent_tokens": sum(c.get("sent_tokens", 0) for c in calls),
+        "input_tokens": sum(c.get("prompt_eval") or 0 for c in calls), "out_tokens": sum(c.get("eval_count") or 0 for c in calls),
+        "total_tokens": sum((c.get("prompt_eval") or 0) + (c.get("eval_count") or 0) for c in calls),
+        "calls_without_usage": sum(1 for c in calls if c.get("prompt_eval") is None or c.get("eval_count") is None),
         "seconds": seconds, "steps": steps, "replayed": replayed,
         "success": bool(check(answer, state(base))), "agent_success": ok_agent, "error": err, "answer": (answer or "")[:160],
     }
@@ -126,22 +133,23 @@ def main() -> None:
                 with (out / "runs.jsonl").open("a") as fh:
                     fh.write(json.dumps(r) + "\n")
                 print(f"{scen:8} learn={'on ' if learn else 'off'} #{i} {label:20} calls={r['calls']:>2} "
-                      f"tok={r['sent_tokens']:>6} replayed={r['replayed']} {r['seconds']:>5}s ok={r['success']}", flush=True)
+                      f"tok={r['total_tokens']:>6} replayed={r['replayed']} {r['seconds']:>5}s ok={r['success']}", flush=True)
     write_summary(out, rows, args.model)
 
 
 def write_summary(out: Path, rows: list[dict], model: str) -> None:
-    md = [f"# Selfbrowse learning evaluation ({model})", "", "One run per cell. Success is judged by the shop's state.", ""]
+    md = [f"# Selfbrowse learning evaluation ({model})", "", "One run per cell. Success is judged by the shop's state. Tokens are the model's own counts, input plus output.",
+          f"Calls with no usage reported: {sum(r['calls_without_usage'] for r in rows)}.", ""]
     for scen in dict.fromkeys(r["scenario"] for r in rows):
-        md += [f"## {scen}", "", "| # | task | learn | calls | tokens sent | replayed | seconds | ok |", "|---|---|---|---|---|---|---|---|"]
+        md += [f"## {scen}", "", "| # | task | learn | calls | tokens | replayed | seconds | ok |", "|---|---|---|---|---|---|---|---|"]
         for r in (x for x in rows if x["scenario"] == scen):
-            md.append(f"| {r['index']} | {r['label']} | {'on' if r['learn'] else 'off'} | {r['calls']} | {r['sent_tokens']} | "
+            md.append(f"| {r['index']} | {r['label']} | {'on' if r['learn'] else 'off'} | {r['calls']} | {r['total_tokens']} | "
                       f"{r['replayed']} | {r['seconds']} | {'yes' if r['success'] else 'NO'} |")
         for learn in (False, True):
             sel = [x for x in rows if x["scenario"] == scen and x["learn"] == learn]
             if sel:
                 md.append(f"\nlearn={'on' if learn else 'off'}: mean calls {st.mean(x['calls'] for x in sel):.1f}, "
-                          f"mean tokens {st.mean(x['sent_tokens'] for x in sel):,.0f}, success {sum(x['success'] for x in sel)}/{len(sel)}")
+                          f"mean tokens {st.mean(x['total_tokens'] for x in sel):,.0f}, success {sum(x['success'] for x in sel)}/{len(sel)}")
         md.append("")
     (out / "summary.md").write_text("\n".join(md))
     print("\n".join(md))

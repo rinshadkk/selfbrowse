@@ -381,21 +381,21 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
       <p class="after small">Python 3.10+, MIT licence, version 0.3. Works with any model that can call tools.</p>
     </div>
 
-    <figure class="scale" id="scale" aria-label="Size of the first model call: browser-use 13,467 tokens, Selfbrowse 1,128 tokens">
+    <figure class="scale" id="scale" aria-label="Size of the first model call: browser-use 17,703 tokens, Selfbrowse 2,306 tokens">
       <p class="scale-title">The first model call, drawn to scale</p>
       <div class="scale-cols">
         <div>
-          <div class="units" data-n="135" aria-hidden="true"></div>
-          <p class="scale-n">13,467</p>
+          <div class="units" data-n="177" aria-hidden="true"></div>
+          <p class="scale-n">17,703</p>
           <p class="scale-who">tokens, browser-use</p>
         </div>
         <div>
-          <div class="units us" data-n="11" aria-hidden="true"></div>
-          <p class="scale-n">1,128</p>
+          <div class="units us" data-n="23" aria-hidden="true"></div>
+          <p class="scale-n">2,306</p>
           <p class="scale-who">tokens, Selfbrowse</p>
         </div>
       </div>
-      <figcaption>One square is 100 tokens. Averages over 13 tasks with qwen3.8 running locally, counted by the same proxy for both.</figcaption>
+      <figcaption>One square is 100 tokens. Averages over 13 tasks with Claude Haiku 5.5, as reported by the model itself for both.</figcaption>
     </figure>
   </div>
 </section>
@@ -405,7 +405,7 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
     <article>
       <h2>Less page</h2>
       <p>The model reads a numbered list of what a person could click or type into, and answers with a number. No screenshots and no HTML.</p>
-      <div class="proof"><b>3 to 6× fewer tokens</b><span>than browser-use on small and local models. About even on Claude Sonnet 5.5.</span></div>
+      <div class="proof"><b>3.4× fewer tokens</b><span>than browser-use over 13 tasks on Claude Haiku 5.5.</span></div>
       <a href="#page">See what the model reads</a>
     </article>
     <article>
@@ -548,25 +548,26 @@ selfbrowse --no-learn "..."</code></pre>
 <section class="block" id="measured" aria-labelledby="measured-title">
   <div class="wrap">
     <h2 id="measured-title">Measured against browser&#8209;use</h2>
-    <p class="lede">The same tasks, model and browser for both, behind one proxy that counts every token. Code checks each result, using the demo shop's state or a fact from the site's own API. The agent's own claim of success is never counted.</p>
+    <p class="lede">The same 13 tasks, model (Claude Haiku 5.5) and browser for both, behind one proxy that logs every call. Tokens are the model's own counts for each call, input and output added up. Code checks each result, using the demo shop's state or a fact from the site's own API. The agent's own claim of success is never counted.</p>
     <table class="bench">
-      <thead><tr><th scope="col">Model and tasks</th><th scope="col">Tokens sent per task, average</th><th scope="col">Passed</th><th scope="col">Time per task</th></tr></thead>
+      <thead><tr><th scope="col">Model and tasks</th><th scope="col">Tokens per task, average</th><th scope="col">Passed</th><th scope="col">Time per task</th></tr></thead>
       <tbody id="bench-body"></tbody>
     </table>
     <div class="notes">
       <div>
         <h3>What this shows</h3>
         <ul>
-          <li>The gap is widest on small and local models, where every token costs time. On those, Selfbrowse also finished each task 3 to 4 times sooner.</li>
-          <li>Selfbrowse makes more model calls than browser-use and sends far less in each one.</li>
-          <li>On Claude Sonnet 5.5 the two were close, and browser-use passed one more task.</li>
+          <li>Selfbrowse used fewer tokens on all 13 tasks, from 1.3 to 6.6 times fewer, and finished 12 of them sooner.</li>
+          <li>Selfbrowse makes more model calls than browser-use (5.3 against 4.5) and sends far less in each one. Its first call is about 2,300 tokens, against about 17,700.</li>
+          <li>Both passed all 26 runs.</li>
         </ul>
       </div>
       <div>
         <h3>What it does not show</h3>
         <ul>
-          <li>These are small samples, mostly one run per task. A single flaky result moves a row, so this is not a ranking.</li>
-          <li>browser-use ran with default settings. Its three muse-glimmer failures were 300-second timeouts, and some of its Haiku 4.5 failures were output-format errors, not wrong answers.</li>
+          <li>One model and two runs per task. This is a small sample, so it is not a ranking.</li>
+          <li>Tokens are not cost. Much of the input for both was served from the prompt cache, which is billed at a lower rate.</li>
+          <li>It does not show which is more reliable. Both ran with learning off, and browser-use with its default settings.</li>
           <li>The harness and raw results are in <code>benchmarks/compare</code>, so you can rerun it on your own models.</li>
         </ul>
       </div>
@@ -611,7 +612,8 @@ selfbrowse --no-learn "..."</code></pre>
       <p class="lede">Selfbrowse is early software. These are the things we know it does not do well, or have not checked.</p>
     </div>
     <ul class="limits">
-      <li><b>Not supported yet:</b> file uploads, drag and drop, closed shadow roots, custom dropdowns beyond clicking them, and vision.</li>
+      <li><b>Not supported yet:</b> closed shadow roots, and vision, so canvas-only pages cannot be read.</li>
+      <li><b>Partly supported:</b> a saved flow cannot replay an upload or a drag. Drag does not cover sliders, canvas drawing or some drop targets. Custom dropdowns match visible text only. Uploads use only the files you pass in.</li>
       <li><b>Hard forms vary.</b> The same Google Flights prompt took 7 steps in one run and more than 30 in two others, so its cost ranged ninefold.</li>
       <li><b>Research-style tasks learn little.</b> Most of their clicks are specific to the question.</li>
       <li><b>Guardrails reduce risk; they are not guarantees.</b> Pattern matching for personal data and injection misses things, and a hosted model still sees any page text you do not mask.</li>
@@ -689,13 +691,9 @@ print(result.output, result.usage)</code></pre>
 </aside>
 
 <script>
-// Benchmark rows: average tokens sent per task, from benchmarks/compare/results/<dir>/summary.md
+// Benchmark rows: average tokens per task as reported by the model (input plus output), from benchmarks/compare/results/haiku5.5-baseline/summary.md
 const BENCH = [
-  { model: "Claude Haiku 4.5", note: "6 demo-shop tasks, 2 runs each", sb: 11452, bu: 70133, pass: ["11/12", "7/12"], secs: [11, 47] },
-  { model: "muse-glimmer, local", note: "6 demo-shop tasks", sb: 7563, bu: 36075, pass: ["6/6", "3/6"], secs: [75, 250] },
-  { model: "qwen3.6, local", note: "6 demo-shop tasks", sb: 9040, bu: 39490, pass: ["6/6", "6/6"], secs: [15, 52] },
-  { model: "qwen3.8, local", note: "13 tasks, demo shop and real sites", sb: 11810, bu: 34613, pass: ["12/13", "12/13"], secs: [54, 167] },
-  { model: "Claude Sonnet 5.5", note: "6 real sites", sb: 22474, bu: 27311, pass: ["5/6", "6/6"], secs: [22, 22] },
+  { model: "Claude Haiku 5.5", note: "13 tasks, demo shop and real sites, 2 runs each", sb: 19520, bu: 66661, pass: ["26/26", "26/26"], secs: [7, 14] },
 ];
 (function renderBench() {
   const body = document.getElementById("bench-body");
