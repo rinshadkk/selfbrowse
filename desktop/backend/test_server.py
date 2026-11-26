@@ -565,48 +565,104 @@ def test_a_bad_edit_is_refused_with_a_reason(client, monkeypatch, page_url):
     assert r.status_code == 400 and client.get("/flows", headers=H).json() == []
 
 
-# ── asking a model which values should be inputs ─────────────────────────────────────────────
-def _suggest_body(steps, **extra):
-    return {"model": "scripted", "steps": steps, "sensitive": {"HOME_CITY": "Springfield"}, **extra}
+# ── cleaning up a recorded flow with a model ─────────────────────────────────────────────────
+def _t(role, text):
+    return {"role": role, "text": text, "nth": 0, "of": 1}
 
 
-STEPS = [{"do": "goto", "url": "https://shop.example.com/search?email=jane@example.com&q=1"},
-         {"do": "type", "target": {"role": "textbox", "text": "City"}, "text": "Springfield"},
-         {"do": "type", "target": {"role": "textbox", "text": "Email"}, "text": "jane@example.com"},
-         {"do": "type", "target": {"role": "textbox", "text": "Search"}, "text": "{{already}}"},
-         {"do": "click", "target": {"role": "button", "text": "Go"}}]
+STEPS = [
+    {"do": "goto", "url": "https://shop.example.com/search?email=jane@example.com&q=1"},   # 1
+    {"do": "scroll", "direction": "down"},                                                 # 2
+    {"do": "click", "target": _t("combobox", "Trip")},                                     # 3
+    {"do": "click", "target": _t("option", "One way")},                                    # 4
+    {"do": "type", "target": _t("textbox", "City"), "text": "Springfield"},                # 5
+    {"do": "type", "target": _t("textbox", "Email"), "text": "jane@example.com"},          # 6
+    {"do": "type", "target": _t("textbox", "Date"), "text": "Dec 8"},                      # 7
+    {"do": "pause", "reason": "sign in as jane@example.com"},                              # 8
+    {"do": "click", "target": _t("button", "Go")},                                         # 9
+    {"do": "read"},                                                                        # 10
+]
+CLEAN = [{"do": "goto", "from": 1},
+         {"do": "select", "from": 3, "value_from": 4, "why": "one step for the dropdown"},
+         {"do": "type", "from": 5},                                  # no value_from: the step has its own value
+         {"do": "type", "from": 6, "value_from": 6},
+         {"do": "type", "from": 7, "value_from": 7, "input": "Date"},
+         {"do": "pause", "from": 8},
+         {"do": "click", "from": 9},
+         {"do": "read", "from": 10}]
 
 
-def test_suggestion_preview_hides_personal_data_and_query_strings(client, monkeypatch, page_url):
+def _clean_body():
+    return {"model": "scripted", "steps": STEPS, "params": {}, "sensitive": {"HOME_CITY": "Springfield"}}
+
+
+def _clean_run(client, monkeypatch):
     _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
     run = _start(client)
     _events(client, run)
-    pre = client.post(f"/runs/{run}/suggest-inputs/preview", headers=H, json=_suggest_body(STEPS)).json()
-    assert "jane@example.com" not in pre["text"] and "Springfield" not in pre["text"] and "q=1" not in pre["text"]
-    assert "[removed: email address]" in pre["text"] and "(already an input)" in pre["text"]
-    assert set(pre["hidden"]) == {"HOME_CITY", "email address"}
+    return run
 
 
-def test_suggestions_are_checked_before_they_are_returned(client, monkeypatch, page_url):
-    _patch_agent(monkeypatch, Script([("done", {"success": True, "answer": "ok"})]))
-    run = _start(client)
-    _events(client, run)
-    asked = {}
-
+def _model_answers(monkeypatch, steps, asked=None):
     class Fake:
         def complete(self, **kw):
-            asked.update(kw)
-            return LLMResponse(content=[{"type": "tool_use", "id": "1", "name": "suggest_inputs", "input": {"inputs": [
-                {"step": 2, "label": "City", "reason": "changes"},
-                {"step": 4, "label": "Already"},        # already an input: refused
-                {"step": 5, "label": "Go"},             # a click has no value: refused
-                {"step": 99, "label": "Nowhere"},       # no such step: refused
-                {"step": 2, "label": "Duplicate"}]}}], stop_reason="tool_use", usage=Usage())
+            if asked is not None:
+                asked.update(kw)
+            return LLMResponse(content=[{"type": "tool_use", "id": "1", "name": "clean_flow",
+                                         "input": {"description": "Search for jane@example.com", "steps": steps}}],
+                               stop_reason="tool_use", usage=Usage())
     monkeypatch.setattr(server, "build_llm", lambda req: Fake())
-    r = client.post(f"/runs/{run}/suggest-inputs", headers=H, json=_suggest_body(STEPS))
-    assert r.json()["suggestions"] == [{"step": 2, "label": "City", "reason": "changes"}]
+
+
+def test_clean_up_preview_hides_personal_data_and_query_strings(client, monkeypatch, page_url):
+    run = _clean_run(client, monkeypatch)
+    pre = client.post(f"/runs/{run}/clean-flow/preview", headers=H, json=_clean_body()).json()
+    assert "jane@example.com" not in pre["text"] and "Springfield" not in pre["text"] and "q=1" not in pre["text"]
+    assert "[removed: email address]" in pre["text"]
+    assert set(pre["hidden"]) == {"HOME_CITY", "email address"}
+    assert "A *flow* is a whole run saved as a file" in pre["system"]          # the flows documentation goes with it
+
+
+def test_clean_up_builds_steps_from_the_recording_and_keeps_personal_data_out(client, monkeypatch, page_url):
+    run = _clean_run(client, monkeypatch)
+    asked = {}
+    _model_answers(monkeypatch, CLEAN, asked)
+    out = client.post(f"/runs/{run}/clean-flow", headers=H, json=_clean_body()).json()
     sent = asked["messages"][0]["content"]
     assert "Springfield" not in sent and "jane@example.com" not in sent           # the model never saw them
+    assert "jane@example.com" not in json.dumps(out) and "Springfield" not in json.dumps(out["steps"] + [out["params"]])
+    assert out["steps"][0]["url"] == "https://shop.example.com/search"
+    assert out["steps"][1] == {"do": "select", "target": _t("combobox", "Trip"), "option": "One way"}
+    assert [r["step"] for r in out["removed"]] == [2]
+    assert out["params"]["date"] == {"label": "Date", "default": "Dec 8"}
+    personal = [p for p in out["params"].values() if p.get("required")]
+    assert len(personal) == 2 and all("default" not in p for p in personal)       # the city and the email are asked for
+
+
+@pytest.mark.parametrize("steps, why", [
+    ([{"do": "goto", "from": 1}, {"do": "click", "from": 99}], "recorded step number"),
+    ([{"do": "goto", "from": 9}], "recorded address"),
+    ([{"do": "goto", "from": 1}, {"do": "select", "from": 9, "value_from": 10}], "no value to select"),
+    ([{"do": "goto", "from": 1}, {"do": "press", "key": "Control+W"}], "unexpected key"),
+    ([s for s in CLEAN if s["do"] != "pause"], "waits for a person"),
+    ([s for s in CLEAN if s["do"] != "read"], "reads the result"),
+    (CLEAN[1:], "start by opening the page"),
+    ([], "no steps"),
+])
+def test_clean_up_that_breaks_a_rule_is_not_used(client, monkeypatch, page_url, steps, why):
+    run = _clean_run(client, monkeypatch)
+    _model_answers(monkeypatch, steps)
+    r = client.post(f"/runs/{run}/clean-flow", headers=H, json=_clean_body())
+    assert r.status_code == 422 and why in r.json()["detail"]
+
+
+def test_clean_up_warns_when_a_fixed_suggestion_follows_an_input(client, monkeypatch, page_url):
+    run = _clean_run(client, monkeypatch)
+    steps = [{"do": "type", "target": _t("combobox", "From"), "text": "ORD"},
+             {"do": "click", "target": _t("option", "Chicago O'Hare ORD")}]
+    _model_answers(monkeypatch, [{"do": "type", "from": 1, "input": "Origin"}, {"do": "click", "from": 2}])
+    out = client.post(f"/runs/{run}/clean-flow", headers=H, json={"model": "scripted", "steps": steps}).json()
+    assert len(out["warnings"]) == 1 and "{{origin}}" in out["warnings"][0]
 
 
 def test_custom_source_can_speak_the_anthropic_api(monkeypatch):
