@@ -88,6 +88,17 @@ _DND_WATCH_JS = r"""
 })();
 """
 
+# The browser's name and brand details, as a page sees them (only on a secure page).
+_IDENTITY_JS = r"""
+async () => {
+  const d = navigator.userAgentData;
+  if (!d) return [navigator.userAgent, null];
+  const more = await d.getHighEntropyValues(['architecture', 'bitness', 'model', 'platformVersion', 'fullVersionList', 'wow64']);
+  return [navigator.userAgent, { brands: d.brands, fullVersionList: more.fullVersionList, platform: d.platform, mobile: d.mobile,
+    platformVersion: more.platformVersion, architecture: more.architecture, model: more.model, bitness: more.bitness, wow64: more.wow64 }];
+}
+"""
+
 # Remember what is on screen now, so what appears after the next click (a dropdown's choices, whatever markup
 # it uses) can be told apart from the rest of the page.
 _MARK_VISIBLE_JS = r"""
@@ -604,6 +615,7 @@ class Browser:
             self._context.add_init_script(_DND_WATCH_JS)
         except Exception:
             pass
+        self._identity = self._read_identity()         # before the listener: its temporary tab is not "the page"
         self._context.on("page", self._on_new_page)    # follow links that open a new tab
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
         self._page.set_default_timeout(self.timeout_ms)
@@ -684,16 +696,47 @@ class Browser:
         self._watch_dialogs(page)
         self._unmask_headless(page)
 
+    def _read_identity(self) -> dict[str, Any] | None:
+        """For stealth in headless mode: what to report instead of "HeadlessChrome", or None to change nothing.
+
+        Overriding the user agent alone makes Chrome stop sending the ``sec-ch-ua`` headers and empties
+        ``navigator.userAgentData``, so the brand details are read here and given back with the new name. They are
+        only visible to a secure page, so a temporary tab is opened on an address that is answered locally."""
+        if not (self.stealth and self.headless):
+            return None
+        page = None
+        try:
+            page = self._context.new_page()
+            page.route("**/*", lambda route: route.fulfill(content_type="text/html", body=""))   # never leaves this computer
+            page.goto("https://identity.selfbrowse.invalid/")
+            ua, data = page.evaluate(_IDENTITY_JS)
+        except Exception:
+            return None                                # better to leave the name as it is than to send half of it
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                    if self.record_video_dir and page.video:
+                        page.video.delete()
+                except Exception:
+                    pass
+        if "HeadlessChrome" not in ua or not data or not data.get("brands"):
+            return None
+        for key in ("brands", "fullVersionList"):
+            seen: dict[str, dict[str, str]] = {}
+            for brand in data.get(key) or []:
+                name = "Chromium" if brand["brand"] == "HeadlessChrome" else brand["brand"]
+                seen.setdefault(name, {"brand": name, "version": brand["version"]})
+            data[key] = list(seen.values())
+        return {"userAgent": ua.replace("HeadlessChrome", "Chrome"), "userAgentMetadata": data}
+
     def _unmask_headless(self, page: Any) -> None:
         """Headless Chrome says "HeadlessChrome" in its user agent, which is the first thing bot checks read.
-        With stealth on, report plain "Chrome" instead (the page's own version, so nothing else changes)."""
-        if not (self.stealth and self.headless):
+        With stealth on, report plain "Chrome" instead, with the browser's own version and brand details."""
+        if not self._identity:
             return
         try:
-            ua = page.evaluate("navigator.userAgent")
-            if "HeadlessChrome" in ua:
-                cdp = self._context.new_cdp_session(page)
-                cdp.send("Emulation.setUserAgentOverride", {"userAgent": ua.replace("HeadlessChrome", "Chrome")})
+            self._context.new_cdp_session(page).send("Emulation.setUserAgentOverride", self._identity)
         except Exception:
             pass                                       # best effort: a page that cannot be patched still works
 
