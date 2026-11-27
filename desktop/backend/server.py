@@ -35,6 +35,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+import flow_clean
 from live import Input, LiveView, MirrorLLM, Stopped
 from selfbrowse import Browser, BrowseAgent
 from selfbrowse.agent import normalize_site
@@ -883,32 +884,15 @@ def _summary(flow_id: str, flow: dict[str, Any]) -> dict[str, Any]:
                        for k, v in flow.get("params", {}).items()}}
 
 
-# ── asking the model which typed values should be inputs ────────────────────────────────────────
-class SuggestRequest(RunRequest):
-    """The model to ask, how to mask, and the steps as they stand in the review sheet."""
+# ── cleaning up a recorded flow with a model ────────────────────────────────────────────────────
+class CleanRequest(RunRequest):
+    """The model to ask, how to mask, and the steps and inputs as they stand in the review sheet."""
     prompt: str = Field(default="", max_length=0)
-    steps: list[dict[str, Any]] = Field(default_factory=list, max_length=300)
+    steps: list[dict[str, Any]] = Field(min_length=1, max_length=300)
+    params: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
-_SUGGEST_SYSTEM = (
-    "You help turn a recorded browser run into a reusable flow. Decide which typed or chosen values would change "
-    "from one run to the next (a city, a date, a search term, a name, a quantity) and which are fixed (a button label, "
-    "a setting that is always the same). Answer by calling the suggest_inputs tool. Only suggest steps that type or "
-    "choose text, at most one input per step, and use the step numbers you are given. Text marked [removed: ...] is "
-    "personal data that was hidden from you; it is usually an input. Do not invent steps or values.")
-_SUGGEST_TOOL = {
-    "name": "suggest_inputs",
-    "description": "The steps whose value should become an input the person fills in each time the flow runs.",
-    "input_schema": {"type": "object", "properties": {"inputs": {"type": "array", "items": {
-        "type": "object", "properties": {
-            "step": {"type": "integer", "description": "the step number"},
-            "label": {"type": "string", "description": "a short name a person would use, like Origin or Check-in date"},
-            "reason": {"type": "string", "description": "why this value changes between runs, in a few words"}},
-        "required": ["step", "label"]}}}, "required": ["inputs"]}}
-_VALUE_KEY = {"type": "text", "select": "option"}
-
-
-def _mask(text: str, req: "SuggestRequest", hidden: list[str]) -> str:
+def _mask(text: str, req: Any, hidden: list[str]) -> str:
     """Hide personal data before text goes to a model. Longest matches first, so a phone number inside a longer one is safe."""
     for f in sorted(record.scan(text, req.sensitive, req.presidio), key=lambda f: -len(f["match"])):
         text = text.replace(f["match"], f"[removed: {f['name']}]")
@@ -916,48 +900,41 @@ def _mask(text: str, req: "SuggestRequest", hidden: list[str]) -> str:
     return text
 
 
-def _suggest_prompt(task: str, req: "SuggestRequest") -> tuple[str, list[str]]:
-    hidden: list[str] = []
-    lines = []
-    for n, st in enumerate(req.steps, 1):
-        kind = st.get("do")
-        t = st.get("target") if isinstance(st.get("target"), dict) else None
-        label = f' {t.get("role", "")} “{str(t.get("text", ""))[:80]}”' if t else ""
-        if kind == "goto":
-            u = urlparse(str(st.get("url", "")))
-            lines.append(f"{n}. Open page {u.scheme}://{u.netloc}{u.path[:80]}")        # no query string: it may carry personal data
-        elif kind in _VALUE_KEY and isinstance(st.get(_VALUE_KEY[kind]), str):
-            value = st[_VALUE_KEY[kind]]
-            shown = "(already an input)" if "{{" in value else "(from My info)" if "<secret:" in value else f"“{_mask(value[:200], req, hidden)}”"
-            lines.append(f"{n}. {'Type into' if kind == 'type' else 'Choose in'}{label}: {shown}")
-        else:
-            lines.append(f"{n}. {str(kind).capitalize()}{label}")
-    text = f"Task: {_mask(task[:500], req, hidden)}\n\nSteps:\n" + "\n".join(lines)
-    return text, sorted(set(hidden))
-
-
-@app.post("/runs/{run_id}/suggest-inputs/preview", dependencies=[Depends(_auth)])
-def suggest_preview(run_id: str, req: SuggestRequest) -> dict[str, Any]:
-    """Exactly what would be sent, so the person can read it first. Nothing leaves this computer here."""
+def _clean_inputs(run_id: str, req: CleanRequest) -> tuple[Run, dict[str, Any], Any]:
+    """The run, its recorded flow with the sheet's edits (checked like any flow), and the personal-data scanner."""
     run = _get_run(run_id)
     check_presidio(req)
-    text, hidden = _suggest_prompt(run.prompt, req)
-    return {"system": _SUGGEST_SYSTEM, "text": text, "hidden": hidden}
-
-
-@app.post("/runs/{run_id}/suggest-inputs", dependencies=[Depends(_auth)])
-def suggest_inputs(run_id: str, req: SuggestRequest) -> dict[str, Any]:
-    run = _get_run(run_id)
-    check_presidio(req)
-    text, _ = _suggest_prompt(run.prompt, req)
+    if not run.flow_path or not run.flow_path.is_file():
+        raise HTTPException(status_code=409, detail="This run cannot be saved as a flow.")
     try:
-        resp = build_llm(req).complete(system=[{"text": _SUGGEST_SYSTEM}], messages=[{"role": "user", "content": text}],
-                                       tools=[_SUGGEST_TOOL], max_tokens=1500)
+        flow = validate_flow({**load_flow(run.flow_path), "steps": req.steps, "params": req.params})
+    except FlowError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return run, flow, lambda text: record.scan(text, req.sensitive, req.presidio)
+
+
+@app.post("/runs/{run_id}/clean-flow/preview", dependencies=[Depends(_auth)])
+def clean_preview(run_id: str, req: CleanRequest) -> dict[str, Any]:
+    """Exactly what would be sent, so the person can read it first. Nothing leaves this computer here."""
+    run, flow, scan = _clean_inputs(run_id, req)
+    text, hidden = flow_clean.prompt(run.prompt, flow["steps"], flow["params"], scan)
+    return {"system": flow_clean.system_prompt(), "text": text, "hidden": hidden}
+
+
+@app.post("/runs/{run_id}/clean-flow", dependencies=[Depends(_auth)])
+def clean_flow(run_id: str, req: CleanRequest) -> dict[str, Any]:
+    """Ask the model for a cleaner flow. Nothing is saved: the person reviews it first."""
+    run, flow, scan = _clean_inputs(run_id, req)
+    text, _ = flow_clean.prompt(run.prompt, flow["steps"], flow["params"], scan)
+    try:
+        resp = build_llm(req).complete(system=[{"text": flow_clean.system_prompt()}],
+                                       messages=[{"role": "user", "content": text}],
+                                       tools=[flow_clean.TOOL], max_tokens=8000)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"The model could not be reached: {str(exc)[:200]}")
     raw: Any = None
     for b in resp.content:
-        if b.get("type") == "tool_use" and b.get("name") == "suggest_inputs":
+        if b.get("type") == "tool_use" and b.get("name") == "clean_flow":
             raw = b.get("input")
     if raw is None:                                                     # a model that answered in plain text
         for b in resp.content:
@@ -966,20 +943,14 @@ def suggest_inputs(run_id: str, req: SuggestRequest) -> dict[str, Any]:
                     raw = json.loads(re.search(r"\{.*\}", b.get("text", ""), re.S).group())
                 except Exception:
                     pass
-    out, seen = [], set()
-    for item in (raw or {}).get("inputs", []) if isinstance(raw, dict) else []:
-        try:
-            n, label = int(item["step"]), str(item["label"]).strip()[:60]
-        except (KeyError, TypeError, ValueError):
-            continue
-        st = req.steps[n - 1] if 1 <= n <= len(req.steps) else None
-        key = _VALUE_KEY.get(st.get("do")) if st else None
-        value = st.get(key) if st and key else None
-        if not label or n in seen or not isinstance(value, str) or not value.strip() or "{{" in value or "<secret:" in value:
-            continue                                                    # only real, literal, typed or chosen values
-        seen.add(n)
-        out.append({"step": n, "label": label, "reason": str(item.get("reason", ""))[:160]})
-    return {"suggestions": sorted(out, key=lambda x: x["step"])}
+    try:
+        out = flow_clean.build(raw, flow["steps"], flow["params"], scan)
+        validate_flow({**flow, "steps": out["steps"], "params": out["params"]})
+    except (flow_clean.BadProposal, FlowError) as exc:
+        raise HTTPException(status_code=422, detail=f"The model's clean-up was not used: {exc}. Your steps are unchanged.")
+    out["lines"] = [describe_step(st) for st in out["steps"]]
+    out["removed"] = [{"step": n, "line": describe_step(flow["steps"][n - 1])} for n in out["removed"]]
+    return out
 
 
 @app.get("/runs/{run_id}/flow", dependencies=[Depends(_auth)])
@@ -1009,7 +980,8 @@ def save_run_as_flow(run_id: str, req: SaveFlow) -> dict[str, Any]:
             validate_flow(changed)
         except FlowError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        flow = changed
+        used = {m for st in changed["steps"] for m in re.findall(r"<secret:([A-Za-z0-9_]+)>", st.get("text", ""))}
+        flow = {**changed, "secrets": [x for x in changed.get("secrets", []) if x in used]}   # a removed step's secret is not asked for
     flow_id = f"{_slug(req.name)}-{uuid.uuid4().hex[:6]}"
     (data_dir() / "flows").mkdir(exist_ok=True)
     save_flow(flow, data_dir() / "flows" / f"{flow_id}.json")

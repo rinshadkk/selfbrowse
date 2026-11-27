@@ -10,7 +10,7 @@ const refsIn = (text) => [...String(text || '').matchAll(PARAM_RE)].map((m) => m
 
 function openFlowEditor({ flow, lines, name, description, saveLabel, onSave, runId }) {
   const params = JSON.parse(JSON.stringify(flow.params || {}));
-  const rows = flow.steps.map((step, i) => ({ step: JSON.parse(JSON.stringify(step)), line: lines[i], skip: false }));
+  let rows = flow.steps.map((step, i) => ({ step: JSON.parse(JSON.stringify(step)), line: lines[i], skip: false }));
   const nameIn = h('input', { type: 'text', maxlength: '80', value: name });
   const descIn = h('input', { type: 'text', maxlength: '500', value: description || '' });
   const msg = h('p', { class: 'note' });
@@ -18,54 +18,65 @@ function openFlowEditor({ flow, lines, name, description, saveLabel, onSave, run
   const stepsBox = h('ol', { class: 'steps-edit' });
   const save = h('button', { class: 'btn primary', type: 'button' }, saveLabel || 'Save flow');
   const suggestBox = h('div', { class: 'suggest' });
+  const stepsHead = h('h3', {});
 
-  // Ask the chosen model which typed values should be inputs. The person reads exactly what is sent first,
-  // and every suggestion is accepted or dismissed one by one; nothing is applied on its own.
+  // Ask the chosen model for a cleaner flow. The person reads exactly what is sent first, then sees the proposed
+  // steps and what was removed. Nothing changes until it is accepted, and an accepted clean-up can be undone.
+  let before = null;                                          // the steps as they were, while a clean-up can be undone
   const askBody = () => ({ prompt: '', ...modelRequest(), presidio: $('presidio').checked, sensitive: allValues(),
-    steps: live().map((r) => r.step) });
-  function suggestIdle() {
+    steps: live().map((r) => r.step), params });
+  function cleanIdle() {
     suggestBox.replaceChildren(runId ? h('div', { class: 'btns' },
-      h('button', { class: 'btn small', type: 'button', onclick: suggestPreview }, 'Suggest inputs with a model'),
-      h('span', { class: 'foot' }, 'You will see exactly what is sent before it goes.')) : '');
+      h('button', { class: 'btn small', type: 'button', onclick: cleanPreview }, 'Clean up with a model'),
+      before ? h('button', { class: 'btn small', type: 'button', onclick: undoClean }, 'Undo clean-up') : null,
+      h('span', { class: 'foot' }, before ? 'A model cannot see the page. Run the saved flow once to check it.'
+        : 'Removes detours, rebuilds messy steps and takes out personal values. You will see what is sent first.')) : '');
   }
-  async function suggestPreview() {
+  async function cleanPreview() {
     let req, pre;
-    try { req = askBody(); pre = await post(`/runs/${runId}/suggest-inputs/preview`, req); } catch (err) { toast(err.message); return; }
+    try { req = JSON.parse(JSON.stringify(askBody())); pre = await post(`/runs/${runId}/clean-flow/preview`, req); } catch (err) { toast(err.message); return; }
     const where = sourceLabel(models.selected.source);
     suggestBox.replaceChildren(h('div', { class: 'consent' },
-      h('p', {}, h('b', {}, `This will be sent to ${where}.`), ' Step wording and typed values only, no page contents.'),
+      h('p', {}, h('b', {}, `This will be sent to ${where}.`), ' Step wording and typed values, no page contents, with instructions on how flows work.'),
       pre.hidden.length ? h('p', { class: 'foot' }, `Hidden before sending: ${pre.hidden.join(', ')}.`) : h('p', { class: 'foot' }, 'Nothing in it looked personal.'),
       h('pre', { class: 'payload-pre' }, pre.text),
       h('div', { class: 'btns' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: () => suggestSend(req) }, 'Send'),
-        h('button', { class: 'btn small', type: 'button', onclick: suggestIdle }, 'Cancel'))));
+        h('button', { class: 'btn primary small', type: 'button', onclick: () => cleanSend(req) }, 'Send'),
+        h('button', { class: 'btn small', type: 'button', onclick: cleanIdle }, 'Cancel'))));
   }
-  async function suggestSend(req) {
+  async function cleanSend(req) {
     suggestBox.replaceChildren(h('p', { class: 'muted' }, 'Asking the model…'));
-    const sent = live().map((r) => r);                         // step numbers in the answer refer to this list
     let res;
-    try { res = await post(`/runs/${runId}/suggest-inputs`, req); } catch (err) { toast(err.message); suggestIdle(); return; }
-    const todo = res.suggestions.filter((x) => {            // the server already checked; this is a second look
-      const r = sent[x.step - 1], k = r && VALUE_KEY[r.step.do];
-      return k && k !== 'url' && r.step.do !== 'find' && typeof r.step[k] === 'string' && r.step[k] && !/\{\{|<secret:/.test(r.step[k]);
-    });
-    if (!todo.length) { suggestBox.replaceChildren(h('p', { class: 'muted' }, 'The model found no values that need to be inputs.'), h('div', { class: 'btns' }, h('button', { class: 'btn small', type: 'button', onclick: suggestIdle }, 'Done'))); return; }
-    const drawList = () => {
-      suggestBox.replaceChildren(
-        h('p', {}, h('b', {}, 'Suggested inputs'), ' Nothing changes until you accept.'),
-        ...todo.map((x) => {
-          const row = sent[x.step - 1], key = VALUE_KEY[row.step.do];
-          const label = h('input', { type: 'text', value: x.label, maxlength: '60', 'aria-label': 'Input label' });
-          return h('div', { class: 'sugg' },
-            h('div', { class: 'sline' }, h('b', {}, `Step ${x.step}`), h('span', { class: 'muted' }, ` ${KIND_WORD[row.step.do]} “${row.step[key]}”`)),
-            x.reason ? h('p', { class: 'foot' }, x.reason) : null,
-            h('div', { class: 'btns' }, label,
-              h('button', { class: 'btn small primary', type: 'button', onclick: () => { makeInput(row, label.value.trim() || x.label); todo.splice(todo.indexOf(x), 1); todo.length ? drawList() : suggestIdle(); } }, 'Accept'),
-              h('button', { class: 'btn small', type: 'button', onclick: () => { todo.splice(todo.indexOf(x), 1); todo.length ? drawList() : suggestIdle(); } }, 'Dismiss')));
-        }),
-        h('div', { class: 'btns' }, h('button', { class: 'btn small', type: 'button', onclick: suggestIdle }, 'Close')));
-    };
-    drawList();
+    try { res = await post(`/runs/${runId}/clean-flow`, req); } catch (err) { toast(err.message); cleanIdle(); return; }
+    const list = (title, items) => items.length ? [h('p', {}, h('b', {}, title)), h('ul', {}, ...items.map((x) => h('li', {}, x)))] : [];
+    suggestBox.replaceChildren(h('div', { class: 'consent' },
+      h('p', {}, h('b', {}, `Proposed: ${res.steps.length} steps, from ${req.steps.length}.`), ' Nothing changes until you accept.'),
+      h('ol', {}, ...res.lines.map((line) => h('li', {}, line))),
+      ...list('Removed', res.removed.map((r) => `was step ${r.step}: ${r.line}`)),
+      ...list('Changed', res.changes),
+      ...list('Check these', res.warnings),
+      h('p', { class: 'foot' }, 'A model cannot see the page, so test the flow before you rely on it.'),
+      h('div', { class: 'btns' },
+        h('button', { class: 'btn primary small', type: 'button', onclick: () => applyClean(res) }, 'Use these steps'),
+        h('button', { class: 'btn small', type: 'button', onclick: cleanIdle }, 'Keep mine'))));
+  }
+  function setParams(next) {
+    for (const k of Object.keys(params)) delete params[k];
+    Object.assign(params, JSON.parse(JSON.stringify(next)));
+  }
+  function applyClean(res) {
+    before = { rows, params: JSON.parse(JSON.stringify(params)), description: descIn.value };
+    rows = res.steps.map((step, i) => ({ step, line: res.lines[i], skip: false }));
+    setParams(res.params);
+    if (res.description) descIn.value = res.description;
+    draw(); cleanIdle();
+  }
+  function undoClean() {
+    rows = before.rows;
+    setParams(before.params);
+    descIn.value = before.description;
+    before = null;
+    draw(); cleanIdle();
   }
 
   const live = () => rows.filter((r) => !r.skip);
@@ -141,7 +152,7 @@ function openFlowEditor({ flow, lines, name, description, saveLabel, onSave, run
   }
   let later = null;
   const drawParamsLater = () => { clearTimeout(later); later = setTimeout(drawParams, 300); };
-  function draw() { drawParams(); drawSteps(); save.disabled = live().length === 0; }
+  function draw() { stepsHead.textContent = `Steps (${rows.length})`; drawParams(); drawSteps(); save.disabled = live().length === 0; }
 
   save.addEventListener('click', async () => {
     if (!nameIn.value.trim()) { msg.textContent = 'Give the flow a name.'; return; }
@@ -163,8 +174,8 @@ function openFlowEditor({ flow, lines, name, description, saveLabel, onSave, run
     h('div', { class: 'head' }, h('div', {}, h('h2', { id: 'sheetTitle' }, 'Review before saving'),
       h('p', { class: 'muted' }, 'A flow replays these steps without a model. Check each step, skip the ones you do not need, and turn values that change from run to run into inputs.'))),
     h('label', { class: 'field' }, 'Name', nameIn), h('label', { class: 'field' }, 'Description', descIn),
-    suggestBox, paramsBox, h('h3', {}, `Steps (${rows.length})`), stepsBox, msg,
+    suggestBox, paramsBox, stepsHead, stepsBox, msg,
     h('div', { class: 'sharerow' }, save, h('button', { class: 'btn', type: 'button', onclick: closeSheet }, 'Cancel')));
-  suggestIdle();
+  cleanIdle();
   draw();
 }

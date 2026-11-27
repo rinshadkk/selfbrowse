@@ -10,8 +10,9 @@ rm -rf build/backend build/pyi
 "$PY/pyinstaller" --noconfirm --clean --onedir --name selfbrowse-backend \
   --distpath build/backend --workpath build/pyi --specpath build --paths backend \
   --collect-all playwright --collect-submodules uvicorn --collect-submodules selfbrowse \
-  --hidden-import live --hidden-import record --hidden-import addons --hidden-import blocklists --hidden-import certifi \
+  --hidden-import live --hidden-import record --hidden-import flow_clean --hidden-import addons --hidden-import blocklists --hidden-import certifi \
   --add-data "$PWD/backend/addon_manifest.json:." \
+  --add-data "$PWD/../docs/flows.md:." \
   --exclude-module patchright --exclude-module spacy --exclude-module thinc --exclude-module blis \
   --exclude-module numpy --exclude-module presidio_analyzer --exclude-module presidio_anonymizer \
   backend/server.py

@@ -242,6 +242,7 @@ td{padding:9px 8px 9px 0;border-top:1px solid var(--line-2);vertical-align:top;o
 .suggest .consent,.suggest .sugg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:8px;margin-top:8px;background:var(--surface)}
 .suggest .consent{border-color:var(--sent)}
 .suggest .btns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.suggest .consent ol,.suggest .consent ul{margin:0;padding-left:22px;overflow-wrap:anywhere}
 .suggest .sugg input[type=text]{width:220px}
 .payload-pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px var(--mono);max-height:220px;overflow:auto;background:var(--paper);border-radius:8px;padding:8px 10px}
 .suggest>.btns:last-child{margin-top:10px}
