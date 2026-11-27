@@ -4,11 +4,14 @@ Large retail sites score headless, cookie-less browsers harshly. Visible, instal
 Chrome with a profile that keeps cookies between runs gets through far more often.
 
     pip install 'selfbrowse[stealth]' && patchright install chromium     # only for stealth=True
-    python examples/07_real_chrome_and_stealth.py
+    python examples/07_real_chrome_and_stealth.py https://your-site.example
 """
+import sys
 from pathlib import Path
 
 from selfbrowse import BrowseAgent, Browser
+
+url = sys.argv[1] if len(sys.argv) > 1 else "https://example.com"
 
 browser = Browser(
     headless=False,                                  # visible
@@ -18,6 +21,6 @@ browser = Browser(
     viewport=(1366, 850),
 )
 with browser:
-    result = BrowseAgent("Open target.com and tell me today's top deal banner.",
-                   llm="anthropic:claude-haiku-4-5", browser=browser).run()
+    result = BrowseAgent(f"Open {url} and tell me the main heading.",
+                         llm="anthropic:claude-haiku-4-5", browser=browser).run()
 print(result.output if result.success else f"FAILED: {result.error}")

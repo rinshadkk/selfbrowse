@@ -13,7 +13,7 @@ def test_detects_challenge_by_title():
 
 
 def test_detects_challenge_by_text_on_sparse_page():
-    assert detect_block("Walmart", "Please verify you are human to continue", 4)
+    assert detect_block("Demo Store", "Please verify you are human to continue", 4)
 
 
 def test_a_form_that_only_carries_a_recaptcha_badge_is_not_a_block():

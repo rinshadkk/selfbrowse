@@ -48,10 +48,6 @@ Do this once per index. Nothing here is stored in the repository.
 - Fix any docs that still say "install from source".
 - If something is wrong with a published version, do not delete it. Publish a fixed version. A broken release can be marked "yanked" on its PyPI page so installers skip it.
 
-## Before the first public release
-
-Confirm that the name `selfbrowse` and the logo do not conflict with an existing trademark, and that nothing in the repository belongs to a current or former employer. These checks were set as a gate for the first release; record the outcome here when done.
-
 ## If an upload fails
 
 | Error | Cause |

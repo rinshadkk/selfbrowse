@@ -1,21 +1,21 @@
 # CAPTCHAs and handing off to a person
 
-## Sites that show a CAPTCHA (Walmart, Target and similar)
+## Sites that show a CAPTCHA
 
 Large retailers run bot detection that scores each visit before showing the page. The default setup (bundled headless Chromium, fresh profile, no history) looks like automation and often gets a challenge. A tool attached to your everyday Chrome passes more often because it has your cookies, history and a normal browser fingerprint.
 
-Try these in order:
+Try these in order, with the address of your site in place of `example.com`:
 
 1. Your installed Chrome, visible, with a saved profile:
 
 ```bash
-selfbrowse --headed --channel chrome --profile ~/.selfbrowse/profile "open walmart.com and tell me the heading"
+selfbrowse --headed --channel chrome --profile ~/.selfbrowse/profile "open example.com and tell me the heading"
 ```
 
 2. If it is still blocked, add the stealth option (`pip install -e '.[stealth]'`):
 
 ```bash
-selfbrowse --headed --channel chrome --profile ~/.selfbrowse/profile --stealth "open walmart.com and tell me the heading"
+selfbrowse --headed --channel chrome --profile ~/.selfbrowse/profile --stealth "open example.com and tell me the heading"
 ```
 
 3. Browse to the site once yourself in that same profile window, so it has real cookies and history.
@@ -30,7 +30,7 @@ When the agent cannot go further, it pauses and lets you act in the visible brow
 - **the model asks**: for a login with no stored secret, a 2FA code, a payment step or a choice only you can make, it calls `ask_human`.
 
 ```bash
-selfbrowse --headed --profile ~/.selfbrowse/profile "open target.com and tell me the heading"
+selfbrowse --headed --profile ~/.selfbrowse/profile "open example.com and tell me the heading"
 ```
 
 When it needs you, the terminal shows a box with the reason and URL and rings the bell. Do the step in the browser window, then press **Enter** in the terminal to continue (type `q` + Enter to give up). Using `--profile` keeps the cookies from a solved check for later runs.
