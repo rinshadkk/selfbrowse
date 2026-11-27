@@ -3,8 +3,10 @@
 Visible browser: the default terminal prompt appears. Your own handler: any function that takes a
 HandoffRequest and returns True (continue / approve) or False (stop / decline).
 
-    python examples/06_handoff.py
+    python examples/06_handoff.py https://your-site.example
 """
+import sys
+
 from selfbrowse import BrowseAgent, Browser
 from selfbrowse.handoff import HandoffRequest
 
@@ -19,9 +21,11 @@ def my_handler(req: HandoffRequest) -> bool:
     return True
 
 
+url = sys.argv[1] if len(sys.argv) > 1 else "https://example.com"
+
 with Browser(headless=False, channel="chrome") as browser:
     result = BrowseAgent(
-        "Open target.com, search for 'dish soap' and tell me the first result's name.",
+        f"Open {url} and tell me the main heading.",
         llm="anthropic:claude-haiku-4-5",
         browser=browser,
         handoff=my_handler,       # True/"auto" = built-in terminal prompt when visible; False = never ask
