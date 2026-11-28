@@ -2,7 +2,7 @@
 
 A small, open-source browser agent for Python. You describe a task in plain language and it drives a real browser to do it.
 
-Instead of screenshots or raw HTML, the model reads each page as a short numbered list of what can be clicked or typed into. Selfbrowse remembers what worked on each site, so it can replay some clicks on a later visit without asking the model.
+Instead of screenshots or raw HTML, the model reads each page as a short numbered list of what can be clicked or typed into. A run that worked can be saved as a [flow](flows.md) and replayed with no model call.
 
 ```bash
 selfbrowse "Find the price of the Pixel 9 on example.com and tell me"

@@ -1,6 +1,6 @@
 # Selfbrowse
 
-> Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and learned-click replay. It is a Python library, a command line tool and an MCP server, MIT licensed, installed with `pip install selfbrowse`.
+> Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and flows that replay without a model. It is a Python library, a command line tool and an MCP server, MIT licensed, installed with `pip install selfbrowse`.
 
 Use it when you need an LLM to drive a real browser: fill forms, search sites, read pages, compare prices. It works with Claude, OpenAI, Gemini, Groq, DeepSeek, Together, OpenRouter and local Ollama models, or your own model class. It is built on Playwright, with an optional Patchright stealth mode and remote browsers over CDP.
 

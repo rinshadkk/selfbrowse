@@ -20,9 +20,9 @@
   <a href="https://github.com/rinshadkk/selfbrowse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
-Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and learned-click replay. You describe a task in plain language and it drives a real browser to do it. It works as a Python library, a command line tool and an MCP server, with Claude, OpenAI, Gemini, Groq, Ollama and OpenRouter models.
+Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and flows that replay without a model. You describe a task in plain language and it drives a real browser to do it. It works as a Python library, a command line tool and an MCP server, with Claude, OpenAI, Gemini, Groq, Ollama and OpenRouter models.
 
-Most browser agents hand the model everything: a screenshot or a large slice of the page, your data as it appears on screen, and the same cookie banner on every visit. Selfbrowse sends less of all three, which makes it cheap enough for a model on your laptop and careful enough for sites you are signed in to.
+Most browser agents hand the model everything: a screenshot or a large slice of the page, your data as it appears on screen, and every step again each time you repeat a job. Selfbrowse sends less of all three, which makes it cheap enough for a model on your laptop and careful enough for sites you are signed in to.
 
 ```bash
 pip install selfbrowse && playwright install chromium
@@ -61,11 +61,12 @@ The model replies   type {"ref": 2, "text": "<EMAIL_1>"}
 The page receives   priya.raman@acme.com
 ```
 
-**Less repetition.** Selfbrowse remembers the clicks that worked on each site and can replay the trusted ones without calling the model. In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Treat it as experimental.
+**Less repetition.** Save a run that worked as a flow, then replay it with no model call and no tokens. Change an input with `--param`. A saved flow cannot yet replay an upload or a drag.
 
-```
-   1. goto {"url": "https://shop.example.com"}  [845 in / 65 out]
-   2. click {"ref": 8}  [0 tokens] (learned: replayed from saved flow, no model call)
+```bash
+selfbrowse "Find the cheapest flight from COK to SFO" --save-flow fare
+selfbrowse flow show fare
+selfbrowse flow run fare
 ```
 
 ## How it works
@@ -159,7 +160,7 @@ The harness, per-run data and versions are in [benchmarks/compare](https://githu
 | **Secrets** | Passwords are given by name and typed at the keyboard. They never appear in prompts, results or traces. | [Passwords and secrets](https://github.com/rinshadkk/selfbrowse/blob/main/docs/secrets.md) |
 | **Hand-off** | When a CAPTCHA, login or 2-step code appears, the run pauses and you finish that step in the browser window. Selfbrowse does not solve CAPTCHAs. | [CAPTCHAs and hand-off](https://github.com/rinshadkk/selfbrowse/blob/main/docs/captcha-handoff.md) |
 | **Flows** | `--save-flow fare` saves a whole run; `selfbrowse flow run fare --param to=LHR` replays it with no model and no tokens. | [Flows](https://github.com/rinshadkk/selfbrowse/blob/main/docs/flows.md) |
-| **Learning** | Per-site notes and click flows, replayed only once trusted. `selfbrowse sites` lists them and `selfbrowse forget <domain>` clears one. | [How learning works](https://github.com/rinshadkk/selfbrowse/blob/main/docs/tools.md#how-learning-works) |
+| **Learning** (experimental) | Per-site notes and click flows, replayed only once trusted. `selfbrowse sites` lists them and `selfbrowse forget <domain>` clears one. | [How learning works](https://github.com/rinshadkk/selfbrowse/blob/main/docs/tools.md#how-learning-works) |
 | **Observability** | `--trace` for a local timeline of every prompt, reply and action. `--otel URL` for OpenTelemetry spans in Jaeger, Phoenix, Langfuse or Tempo. Screenshots and video as evidence. | [Traces, prompts and screenshots](https://github.com/rinshadkk/selfbrowse/blob/main/docs/observability.md) |
 | **MCP server** | `selfbrowse-mcp` gives Claude, VS Code and other MCP clients a browser, as one `browse(task)` tool or step by step. | [MCP server](https://github.com/rinshadkk/selfbrowse/blob/main/docs/mcp.md) |
 | **Remote browsers** | Attach to any browser over CDP with `--cdp-url`, or start an Amazon Bedrock AgentCore session with `--cloud agentcore`. | [Remote browsers](https://github.com/rinshadkk/selfbrowse/blob/main/docs/remote-browsers.md) |

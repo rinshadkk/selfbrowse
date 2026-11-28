@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Selfbrowse: the browser agent that tells the model less</title>
-<meta name="description" content="Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and learned-click replay.">
+<meta name="description" content="Selfbrowse is an open-source Python browser agent for LLMs. It gives the model a short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens, with built-in personal-data redaction, guardrails, tracing and flows that replay without a model.">
 <meta property="og:title" content="Selfbrowse: the browser agent that tells the model less">
 <meta property="og:description" content="Less page, less of your data, less repetition. An open-source Python browser agent that runs on local models.">
 <meta property="og:type" content="website">
@@ -370,7 +370,7 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
   <div class="wrap hero-grid">
     <div>
       <h1 id="hero-title"><span class="tag" aria-hidden="true">#1</span>The browser agent that tells the model less.</h1>
-      <p class="lede">Selfbrowse is an open-source Python agent that does tasks in a real browser. The model gets a short numbered list in place of the page, placeholders in place of your data, and can replay clicks that worked before. That makes it cheap enough for a model on your laptop.</p>
+      <p class="lede">Selfbrowse is an open-source Python agent that does tasks in a real browser. The model gets a short numbered list in place of the page, placeholders in place of your data, and a run that worked can be replayed with no model. That makes it cheap enough for a model on your laptop.</p>
       <div class="actions">
         <div class="install">
           <code id="install-cmd">pip install selfbrowse</code>
@@ -416,9 +416,9 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
     </article>
     <article>
       <h2>Less repetition</h2>
-      <p>Clicks that worked before on a site can be replayed without asking the model, once they have earned trust.</p>
-      <div class="proof"><b>Experimental</b><span>No reliable saving measured yet.</span></div>
-      <a href="#repeat">See how it works</a>
+      <p>Save a run that worked as a flow, then replay it. You can change its inputs each time.</p>
+      <div class="proof"><b>0 model calls</b><span>when a saved flow replays. Uploads and drags cannot be replayed yet.</span></div>
+      <a href="https://github.com/rinshadkk/selfbrowse/blob/main/docs/flows.md">See how flows work</a>
     </article>
   </div>
 </section>
@@ -531,7 +531,7 @@ footer ul { list-style: none; display: flex; gap: 6px 20px; flex-wrap: wrap; mar
 <section class="block" id="repeat" aria-labelledby="repeat-title">
   <div class="wrap split">
     <div>
-      <h2 id="repeat-title">Clicks it can replay</h2>
+      <h2 id="repeat-title">Learned clicks (experimental)</h2>
       <p class="lede">After a successful run, Selfbrowse keeps the clicks that led there, filed by page type. Once a path is trusted it is replayed with no model call.</p>
       <p class="quiet">A path is trusted after it worked for two different tasks, or twice for the same one. Risky clicks such as Buy, Pay and Delete are never recorded, and neither is anything you typed. A replay still passes every guardrail, a path that stops working is dropped, and unused ones expire after 90 days.</p>
       <p class="quiet">In small tests on a demo shop with qwen3.8 and Claude Haiku 5.5, replay rarely triggered and we measured no reliable saving. Treat it as experimental.</p>
