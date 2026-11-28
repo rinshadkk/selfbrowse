@@ -16,7 +16,7 @@ print(result.output)
 ```
 
 !!! note "Early release"
-    This is version 0.3. Install it with `pip install selfbrowse`; see [Get started](getting-started.md).
+    This is version 0.4. Install it with `pip install selfbrowse`; see [Get started](getting-started.md).
 
 ## Start here
 

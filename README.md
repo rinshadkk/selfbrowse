@@ -190,7 +190,7 @@ The model is told only the names. `--allow-domain` means the values can be typed
 
 ## Limits
 
-Selfbrowse is early software (0.3). What we know it does not do well yet, or have not checked:
+Selfbrowse is early software (0.4). What we know it does not do well yet, or have not checked:
 
 - **Not supported yet:** closed shadow roots, and vision (`--vision` is a stub, so canvas-only pages cannot be read).
 - **Partly supported:** a saved flow cannot replay an upload or a drag. Drag does not cover sliders, canvas drawing, or drop targets that a library listens for at the page root. Custom dropdowns match visible text only, and choices that need scrolling inside the list are found only once they exist in the page. Uploads use only the files you pass with `--file`.
