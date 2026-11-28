@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "selfbrowse"
 dynamic = ["version"]
-description = "Open-source Python browser agent for LLMs. A short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens; with personal-data redaction, guardrails, tracing and learned-click replay."
+description = "Open-source Python browser agent for LLMs. A short numbered list of page elements instead of the DOM or screenshots, so runs use fewer tokens; with personal-data redaction, guardrails, tracing and flows that replay without a model."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
